@@ -62,6 +62,18 @@ running="^($(re "$installed")|$(re "$bundles")/[^/]+\.app)/Contents/MacOS/codeal
 # the phones and Macs linked to it for the same code, as it did several times an hour.
 launched="$target/launched"
 was="$(cat "$launched" 2>/dev/null || true)"
+# Also check the commit embedded in the running server (when it's Codealong Dev at `$installed`):
+# if an earlier relaunch was cut off after replacing the server and before writing `$launched`,
+# the server itself already knows it runs the newer commit, avoiding a full second rebuild.
+if [ -x "$installed/Contents/MacOS/codealong" ] && pgrep -f "$running" >/dev/null; then
+  status_json="$(CODEALONG_NO_SERVER=1 "$installed/Contents/MacOS/codealong" status --json 2>/dev/null || true)"
+  srv_exe="$(printf '%s' "$status_json" | plutil -extract app.exe raw -o - - 2>/dev/null || true)"
+  srv_commit="$(printf '%s' "$status_json" | plutil -extract app.commit raw -o - - 2>/dev/null || true)"
+  if [ -n "$srv_commit" ] && [ "$srv_exe" = "$installed/Contents/MacOS/codealong" ] &&
+    { [ -z "$was" ] || git merge-base --is-ancestor "$was" "$srv_commit" 2>/dev/null; }; then
+    was="$srv_commit"
+  fi
+fi
 if [ -n "$was" ] && clean && git merge-base --is-ancestor HEAD "$was" 2>/dev/null && pgrep -f "$running" >/dev/null; then
   scripts/catch-up-main.sh
   at=""

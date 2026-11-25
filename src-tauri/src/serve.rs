@@ -57,12 +57,15 @@ const HAND_OVER_ROOM: usize = 4 * 1024 * 1024;
 /// What the build a server became in place takes over as it starts (`take_handover`).
 static HANDED: Mutex<Option<Handover>> = Mutex::new(None);
 
-/// What a server hands the build it becomes: its terminals, and the processes of its own it
-/// started that aren't theirs, which this build reaps as they end.
+/// What a server hands the build it becomes: its terminals, its live ACP adapters and their
+/// sessions, and the processes of its own it started that aren't theirs, which this build reaps as
+/// they end.
 #[derive(serde::Serialize, serde::Deserialize, Default)]
 struct Handover {
     version: u32,
     terminals: Vec<terminals::Handed>,
+    #[serde(default)]
+    agents: Vec<acp::Handed>,
 }
 
 /// `codealong serve`: runs the server here until it's asked to quit.
@@ -155,6 +158,16 @@ pub fn start() -> Result<Ctx, String> {
     let run = run_lock(&config::support_dir())?;
     let bound = server::bind()?;
     keep_run_lock(run);
+    // Take over any ACP adapters handed across exec before the engine's first scan runs, so
+    // active turns clear the `cut_off` mark `hosted.json` otherwise lays over them.
+    let handed = HANDED.lock().ok().and_then(|mut h| h.take());
+    let handed_terminals = handed.map(|h| {
+        if !h.agents.is_empty() {
+            let n = acp::take_over(h.agents);
+            eprintln!("Took over {n} of Codealong's ACP agents from the server's last build.");
+        }
+        h.terminals
+    });
     // Your other devices (peers.rs). They come before the engine, which publishes to them, and ask
     // it for the board and for answers once it's there.
     let engine_slot: Arc<OnceLock<Handle>> = Default::default();
@@ -329,6 +342,9 @@ pub fn start() -> Result<Ctx, String> {
             }
         });
     }
+    if acp::any_running() {
+        engine.hosted_changed();
+    }
     // A side conversation's answer, as its copy writes it, for the windows showing its session and
     // the linked devices that asked about it; the board again when what it lists of them changes.
     {
@@ -351,11 +367,12 @@ pub fn start() -> Result<Ctx, String> {
     }
     // The terminals the server handed over as it became this build, before the socket answers, so
     // the first board a window gets has them.
-    if let Some(handed) = HANDED.lock().ok().and_then(|mut h| h.take()) {
-        let mut taken = handed.terminals;
-        crate::terminal::fill_done(&mut taken);
-        let n = terminals::take_over(taken);
-        eprintln!("Took over {n} of Codealong's terminals from the server's last build.");
+    if let Some(mut taken) = handed_terminals {
+        if !taken.is_empty() {
+            crate::terminal::fill_done(&mut taken);
+            let n = terminals::take_over(taken);
+            eprintln!("Took over {n} of Codealong's terminals from the server's last build.");
+        }
     }
     // Sessions that lived in the last server's terminals and didn't come across ended with it (a
     // crash, a quit, a server of another binary replaced): one cut off partway is carried on, as a
@@ -404,20 +421,29 @@ pub fn start() -> Result<Ctx, String> {
 /// passed through the exec. Returns only when it couldn't: why.
 pub fn hand_over() -> String {
     let dir = config::support_dir().join("handover");
-    let mut handed = Handover { version: 1, terminals: terminals::hand_over(&dir) };
-    // Room for every terminal's message at once, as nothing reads them until the new build does.
+    let mut handed = Handover { version: 1, terminals: terminals::hand_over(&dir), agents: acp::hand_over() };
+    // Room for every terminal's and ACP adapter's descriptors at once, as nothing reads them until
+    // the new build does.
     let (keep, give) = match os::pty::HandOverSocket::pair(HAND_OVER_ROOM) {
         Ok(pair) => pair,
-        Err(e) => return format!("couldn't make the socket to hand the terminals over in: {e}"),
+        Err(e) => return format!("couldn't make the socket to hand state over in: {e}"),
     };
+    let mut to_send: Vec<(String, os::procs::Fd)> = Vec::with_capacity(handed.terminals.len() + handed.agents.len() * 2);
+    for h in &handed.terminals {
+        to_send.push((h.glance.id.clone(), h.fd));
+    }
+    for a in &handed.agents {
+        to_send.push((format!("acp-in:{}", a.account), a.stdin_fd));
+        to_send.push((format!("acp-out:{}", a.account), a.stdout_fd));
+    }
     let mut sent = 0;
-    for batch in handed.terminals.chunks(FDS_A_MESSAGE) {
-        let fds: Vec<os::procs::Fd> = batch.iter().map(|h| h.fd).collect();
-        let ids = batch.iter().map(|h| h.glance.id.as_str()).collect::<Vec<_>>().join("\n");
+    for batch in to_send.chunks(FDS_A_MESSAGE) {
+        let fds: Vec<os::procs::Fd> = batch.iter().map(|(_, fd)| *fd).collect();
+        let ids = batch.iter().map(|(id, _)| id.as_str()).collect::<Vec<_>>().join("\n");
         if let Err(e) = give.send(&fds, ids.as_bytes()) {
             // The ones that didn't fit end with this build, as without a hand-over; the rest
             // still go.
-            eprintln!("Only {sent} of {} terminals could be handed over: {e}", handed.terminals.len());
+            eprintln!("Only {sent} of {} descriptors could be handed over: {e}", to_send.len());
             break;
         }
         sent += batch.len();
@@ -428,7 +454,17 @@ pub fn hand_over() -> String {
         unsafe { os::pty::close(h.fd) };
         h.fd = -1;
     }
+    for a in &mut handed.agents {
+        // SAFETY: closing copies this process made for the hand-over and owns alone.
+        unsafe {
+            os::pty::close(a.stdin_fd);
+            os::pty::close(a.stdout_fd);
+        }
+        a.stdin_fd = -1;
+        a.stdout_fd = -1;
+    }
     drop(give);
+    let _ = std::fs::create_dir_all(&dir);
     let file = dir.join("terminals.json");
     let written = serde_json::to_vec(&handed).map_err(|e| e.to_string()).and_then(|b| std::fs::write(&file, b).map_err(|e| e.to_string()));
     if let Err(e) = written {
@@ -446,14 +482,14 @@ pub fn hand_over() -> String {
 /// What the server this process was handed over (`hand_over`), read once at its start, while it's
 /// the only thread: its file read and removed, and the variable that named it taken out, so what
 /// this server starts doesn't see it. The processes the server started that aren't its terminals'
-/// (sessions Codealong runs, commands it was waiting on) lost their way to it as it changed, and
-/// are reaped as they end.
+/// or handed-over ACP adapters' (commands it was waiting on, skipped adapters) lost their way to
+/// it as it changed, and are reaped as they end.
 fn take_handover() {
     let Some(file) = std::env::var_os(HANDOVER_VAR) else { return };
     let socket = std::env::var(HANDOVER_FDS_VAR).ok().and_then(|s| s.parse::<os::procs::Fd>().ok());
     std::env::remove_var(HANDOVER_VAR);
     std::env::remove_var(HANDOVER_FDS_VAR);
-    // The descriptors waiting in the socket, by their terminals' ids, each closed on exec as it's
+    // The descriptors waiting in the socket, by their ids, each closed on exec as it's
     // taken, before anything here starts a process.
     let mut fds: std::collections::HashMap<String, os::procs::Fd> = std::collections::HashMap::new();
     // SAFETY: the socket's end this process was handed, which nothing else here has; it's closed
@@ -469,7 +505,7 @@ fn take_handover() {
     let read = std::fs::read(&file).ok().and_then(|b| serde_json::from_slice::<Handover>(&b).ok());
     let _ = std::fs::remove_file(&file);
     let Some(mut handed) = read else {
-        eprintln!("The terminals the server's last build handed over couldn't be read from {}.", PathBuf::from(&file).display());
+        eprintln!("The state the server's last build handed over couldn't be read from {}.", PathBuf::from(&file).display());
         for fd in fds.into_values() {
             // SAFETY: a descriptor this process was handed and nothing will use.
             unsafe { os::pty::close(fd) };
@@ -479,11 +515,15 @@ fn take_handover() {
     for h in &mut handed.terminals {
         h.fd = fds.remove(&h.glance.id).unwrap_or(-1);
     }
+    for a in &mut handed.agents {
+        a.stdin_fd = fds.remove(&format!("acp-in:{}", a.account)).unwrap_or(-1);
+        a.stdout_fd = fds.remove(&format!("acp-out:{}", a.account)).unwrap_or(-1);
+    }
     for fd in fds.into_values() {
-        // SAFETY: as above: handed over with no terminal listed for it.
+        // SAFETY: as above: handed over with no terminal or adapter listed for it.
         unsafe { os::pty::close(fd) };
     }
-    let theirs: Vec<u32> = handed.terminals.iter().map(|h| h.pid).collect();
+    let theirs: Vec<u32> = handed.terminals.iter().map(|h| h.pid).chain(handed.agents.iter().map(|a| a.pid)).collect();
     let me = std::process::id();
     let strays: Vec<u32> = crate::procs::list(Duration::from_secs(5)).lines.iter().filter(|p| p.ppid == me && !theirs.contains(&p.pid)).map(|p| p.pid).collect();
     for pid in strays {
@@ -779,5 +819,15 @@ mod tests {
         assert!(run_lock(&dir).unwrap_err().contains("Another of Codealong's servers"));
         drop(first);
         assert!(run_lock(&dir).is_ok());
+    }
+
+    /// A `Handover` manifest written by a server before ACP hand-over existed (no `agents` field)
+    /// still deserializes cleanly so upgrading across the first build keeps its terminals.
+    #[test]
+    fn handover_without_agents_field_deserializes() {
+        let h: Handover = serde_json::from_str(r#"{"version":1,"terminals":[]}"#).unwrap();
+        assert_eq!(h.version, 1);
+        assert!(h.terminals.is_empty());
+        assert!(h.agents.is_empty());
     }
 }

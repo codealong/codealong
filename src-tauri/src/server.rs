@@ -272,6 +272,9 @@ pub struct Status {
     /// The engine it was built with (serve.rs `ENGINE`).
     #[serde(default)]
     pub engine: Option<String>,
+    /// The git commit a development build was built from (`CODEALONG_COMMIT`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub commit: Option<String>,
     /// The binary it runs, which an app keeps only when it's its own (serve.rs `ensure`).
     #[serde(default)]
     pub exe: Option<String>,
@@ -552,6 +555,7 @@ fn handle_request(ctx: &Ctx, req: serde_json::Result<Request>) -> Reply {
                 loading: b.loading,
                 role: Some(crate::serve::ROLE.into()),
                 engine: Some(crate::serve::ENGINE.into()),
+                commit: crate::updates::built_commit().map(str::to_string),
                 exe: crate::serve::this_binary().map(|p| p.to_string_lossy().into_owned()),
                 hand_over: true,
                 views: crate::views::list(),
@@ -572,18 +576,18 @@ fn handle_request(ctx: &Ctx, req: serde_json::Result<Request>) -> Reply {
             Reply::ok(std::process::id())
         }
         Request::HandOver => {
-            let hands = crate::terminals::any_running();
+            let hands = crate::terminals::any_running() || crate::acp::any_running();
             // After the reply is on its way, and the apps gone first, as for `Quit`.
             std::thread::spawn(move || {
                 std::thread::sleep(Duration::from_millis(200));
                 crate::views::quit_all(Duration::from_secs(5), None);
                 if hands {
-                    eprintln!("Codealong's server becoming the build at its path, its terminals handed over.");
+                    eprintln!("Codealong's server becoming the build at its path, its terminals and agents handed over.");
                     let why = crate::serve::hand_over();
-                    eprintln!("Codealong's server couldn't become the new build ({why}), so it quits, ending its terminals.");
+                    eprintln!("Codealong's server couldn't become the new build ({why}), so it quits, ending its terminals and agents.");
                     std::process::exit(1);
                 }
-                eprintln!("Codealong's server quitting for a new build, with no terminals to hand over.");
+                eprintln!("Codealong's server quitting for a new build, with no terminals or agents to hand over.");
                 std::process::exit(0);
             });
             Reply::ok(serde_json::json!({ "pid": std::process::id(), "handsOver": hands }))
