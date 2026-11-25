@@ -49,7 +49,7 @@ function Probe({ session }: { session: Session }) {
   if (!theme) return <div data-testid="off">off</div>;
   return (
     <div data-testid="on" data-color={theme.assigned.color.id} data-vibe={theme.prefs.vibe} data-surface={theme.prefs.surface}>
-      <SessionBackdrop theme={theme.assigned} vibe={theme.prefs.vibe} intensity={theme.prefs.intensity} place="panel" working={session.status === 'working'} />
+      <SessionBackdrop theme={theme.assigned} vibe={theme.prefs.vibe} intensity={theme.prefs.intensity} place="panel" working={session.status === 'working'} aiOnly={theme.aiEnabled} />
       <SessionThemePicker theme={theme} />
     </div>
   );
@@ -134,12 +134,35 @@ describe('SessionThemeProvider and SessionBackdrop', () => {
       </SessionThemeProvider>,
     );
     expect(view.el.querySelector('.ca-st-layer.is-has-ai.is-light-art .ca-st-ai')).not.toBeNull();
+    expect(view.el.querySelector('.ca-st-canvas')).toBeNull();
     act(() => (view.el.querySelector('.ca-st-swatchbtn') as HTMLElement).click());
     expect(view.el.querySelector('.ca-st-popai-name')?.textContent).toBe('Indigo woodblock ridges');
+    expect(view.el.textContent).not.toContain('Mesh vibe');
     const redraw = view.el.querySelector('.ca-st-redraw') as HTMLButtonElement;
     expect(redraw).not.toBeNull();
     act(() => redraw.click());
     expect(view.el.querySelector('.ca-st-popai-name')?.textContent).toBe('Redrawing…');
+    view.unmount();
+  });
+
+  it('skips rendering a mesh while an AI background has not arrived yet', () => {
+    const s = makeSession('ai-pending');
+    const view = mount(
+      <SessionThemeProvider
+        board={{
+          lanes: [makeLane([s])],
+          experimental: { boards: false, session_themes: true },
+          backgrounds: { enabled: true, account: 'antigravity', prompt: '' },
+        }}
+      >
+        <Probe session={s} />
+      </SessionThemeProvider>,
+    );
+    expect(view.el.querySelector('.ca-st-layer')).toBeNull();
+    expect(view.el.querySelector('.ca-st-canvas')).toBeNull();
+    act(() => (view.el.querySelector('.ca-st-swatchbtn') as HTMLElement).click());
+    expect(view.el.querySelector('.ca-st-popai-name')?.textContent).toBe('Drawing automatically…');
+    expect(view.el.textContent).not.toContain('Mesh vibe');
     view.unmount();
   });
 });

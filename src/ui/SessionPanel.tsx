@@ -507,11 +507,12 @@ export function SessionPanel({ variant = 'panel', zoom, queue, notice, hotkeys, 
   const away = useKeptSessions(variant === 'panel').has(key);
   const popOut = variant === 'panel' && !away ? header.actions?.window?.run : undefined;
   const theme = useSessionTheme(s);
-  const fullTheme = !!theme && theme.prefs.surface === 'full';
+  const hasBackdrop = !!theme && (!theme.aiEnabled || !!theme.assigned.backdropImage);
+  const fullTheme = hasBackdrop && theme.prefs.surface === 'full';
   const themeStyle = theme ? themeCssVars(theme.assigned.color, theme.prefs.intensity, theme.assigned.accentOverride) : undefined;
   const body = (
     <>
-          {fullTheme && <SessionBackdrop theme={theme.assigned} vibe={theme.prefs.vibe} intensity={theme.prefs.intensity} place="panel" working={s.status === 'working'} />}
+          {fullTheme && <SessionBackdrop theme={theme.assigned} vibe={theme.prefs.vibe} intensity={theme.prefs.intensity} place="panel" working={s.status === 'working'} aiOnly={theme.aiEnabled} />}
           {/* The way back goes on the strip where there's one, else over the header. */}
           <QueueStrip queue={queue} notice={notice} hotkeys={hotkeys} session={s} actions={header.actions} onSeen={header.onSeen} back={hotkeys ? header.back : undefined} />
           <SessionHeader {...header} back={hotkeys ? undefined : header.back} seenAbove={!!hotkeys} compact={variant === 'card'} accountBelow={replies} inMain={variant === 'panel'} onMove={moves && (() => ask(null))} onPopOut={popOut} />
@@ -587,7 +588,7 @@ export function SessionPanel({ variant = 'panel', zoom, queue, notice, hotkeys, 
     return (
       <div
         ref={placeDialogs}
-        className={cx('ca-reply', theme && 'ca-st-panel', fullTheme && 'is-full', theme && `is-${theme.prefs.vibe}`)}
+        className={cx('ca-reply', hasBackdrop && 'ca-st-panel', fullTheme && 'is-full', hasBackdrop && !theme.aiEnabled && `is-${theme.prefs.vibe}`)}
         data-find="conversation"
         data-shows-session={key}
         style={themeStyle ? { ...themeStyle, ...cardZoom(zoom) } : cardZoom(zoom)}
@@ -603,7 +604,7 @@ export function SessionPanel({ variant = 'panel', zoom, queue, notice, hotkeys, 
     );
   }
   return (
-    <aside className={cx('ca-insp', 'ca-sessinsp', theme && 'ca-st-panel', fullTheme && 'is-full', theme && `is-${theme.prefs.vibe}`)} style={themeStyle} aria-label={`${s.title} details`} data-find="conversation" data-shows-session={key}>
+    <aside className={cx('ca-insp', 'ca-sessinsp', hasBackdrop && 'ca-st-panel', fullTheme && 'is-full', hasBackdrop && !theme.aiEnabled && `is-${theme.prefs.vibe}`)} style={themeStyle} aria-label={`${s.title} details`} data-find="conversation" data-shows-session={key}>
       {body}
     </aside>
   );
