@@ -7,7 +7,7 @@
 import { useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { scaleOf } from '../zoom';
 import { Picker, type PickerSection } from './Picker';
-import { Icon } from './primitives';
+import { cx, Icon } from './primitives';
 
 /** The menu is never shorter than this, and keeps this far from the window's top. */
 const MENU_MIN = 160;
@@ -36,6 +36,8 @@ interface BoxMenuProps {
   onStep?: (delta: -1 | 1) => void;
   onPick: (id: string) => void;
   onDone: () => void;
+  /** Extra class on the trigger chip (e.g. `is-handoff` when staged onto another account). */
+  chipClass?: string;
   /** Opens under the box rather than over it: a box near the top of what scrolls (Settings),
    *  where the room above is cut off. */
   down?: boolean;
@@ -43,7 +45,7 @@ interface BoxMenuProps {
 
 /** A quiet chip beside Send that opens its menu above the box, against the box's right edge, or
  *  under it (`down`). */
-export function BoxMenu({ kind, sections, value, icon, iconSize = 14, label, detail, title, disabled, placeholder, foot, onStep, onPick, onDone, down }: BoxMenuProps) {
+export function BoxMenu({ kind, sections, value, icon, iconSize = 14, label, detail, title, disabled, placeholder, foot, onStep, onPick, onDone, chipClass, down }: BoxMenuProps) {
   const [open, setOpen] = useState(false);
   // The room above the box, as the menu opens: a window sized to what it shows (the peek) has no
   // more than its conversation's height to open the menu into.
@@ -63,7 +65,7 @@ export function BoxMenu({ kind, sections, value, icon, iconSize = 14, label, det
   };
   return (
     <div ref={chip} className={BOX_MENU[kind][0]} style={room == null ? undefined : ({ '--ca-menu-room': `${room}px` } as CSSProperties)}>
-      <button type="button" data-picker-trigger className={BOX_MENU[kind][1]} title={title} disabled={disabled} aria-haspopup="dialog" aria-expanded={open} onClick={() => (open ? close() : show())}>
+      <button type="button" data-picker-trigger className={cx(BOX_MENU[kind][1], chipClass)} title={title} disabled={disabled} aria-haspopup="dialog" aria-expanded={open} onClick={() => (open ? close() : show())}>
         {icon && <Icon name={icon} size={iconSize} />}
         <span>{label}</span>
         {detail && <span className="ca-modelmenu-detail">{detail}</span>}

@@ -37,6 +37,14 @@
   background: var(--surface-hover);
   color: var(--ink);
 }
+.ca-modelmenu-chip.is-handoff {
+  background: var(--unread-tint);
+  color: var(--unread);
+}
+.ca-modelmenu-chip.is-handoff .ca-modelmenu-detail,
+.ca-modelmenu-chip.is-handoff > .ca-icon {
+  color: var(--unread);
+}
 .ca-modelmenu-chip:focus-visible {
   outline: none;
   box-shadow: var(--shadow-focus);

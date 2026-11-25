@@ -47,7 +47,6 @@ import { useSideAnswering } from '../side';
 import { SessionTerminal, SessionViewSwitch, showView } from './terminal/SessionTerminal';
 import { cardZoom, scaleOf } from '../zoom';
 import { EditDialog, RewindDialog } from './EditFrom';
-import { MoveDialog } from './MoveAccount';
 import { Button, cx, DialogHostContext, Icon, OneLine, PanelBack, Rich, useDialogPlace, type PanelBackTo } from './primitives';
 import { runFolder } from './RunButton';
 import { SessionHeader, type SessionHeaderProps } from './SessionHeader';
@@ -484,11 +483,11 @@ export function SessionPanel({ variant = 'panel', zoom, queue, notice, hotkeys, 
   const replies = !device || (device.online && device.remoteControl);
   const key = s.key;
   const run = useMemo(() => (folder === null ? undefined : { folder, terminal, run: (command: string, at: string, block: boolean) => runCommand(key, at, command, block) }), [folder, terminal, key]);
-  // Moving it to another account asks first (MoveAccount.tsx), from its header's box or the
-  // account in its box, for the session it was asked for only.
+  // Moving or handing off to another account stages directly in the reply box (HandoffStrip.tsx),
+  // either from its account chip or from Move… on a header banner.
   const moves = header.actions?.moveAccounts;
-  const [moving, setMoving] = useState<{ key: string; to: string | null } | null>(null);
-  const ask = (to: string | null) => setMoving({ key, to });
+  const [stageMove, setStageMove] = useState<{ key: string; to: string | null; nonce: number } | null>(null);
+  const ask = (to: string | null) => setStageMove({ key, to, nonce: Date.now() });
   // Edit from here asks for your edit first (EditFrom.tsx), where the session's Mac takes requests
   // from here, as its box does, and only for the session it was asked for.
   const edit = replies ? header.actions?.edit : undefined;
@@ -561,7 +560,7 @@ export function SessionPanel({ variant = 'panel', zoom, queue, notice, hotkeys, 
               {device.name} doesn't take prompts from your other devices. To send from here, turn on <b>Let my linked devices act on sessions here</b> in Settings › Devices on {device.name}.
             </p>
           ) : (
-            <Reply session={s} terminal={terminal} deviceName={device?.name} runIn={folder ?? undefined} runsUnder={apps.runIn !== 'terminal'} onOpen={openIt} autoFocus={autoFocus && !renaming} keys={keys} onSending={onSending} onSent={onSent} onFailed={onFailed} onAnswered={onAnswered} onNext={goesOn ? onDone : undefined} onAsked={header.actions?.askAside} sayKeys={!!hotkeys} moves={moves} onMove={ask} above={<SnoozeSuggestion session={s} snooze={header.actions?.snooze} now={now} />} />
+            <Reply session={s} terminal={terminal} deviceName={device?.name} runIn={folder ?? undefined} runsUnder={apps.runIn !== 'terminal'} onOpen={openIt} autoFocus={autoFocus && !renaming} keys={keys} onSending={onSending} onSent={onSent} onFailed={onFailed} onAnswered={onAnswered} onNext={goesOn ? onDone : undefined} onAsked={header.actions?.askAside} sayKeys={!!hotkeys} moves={moves} stageMove={stageMove?.key === key ? stageMove : null} above={<SnoozeSuggestion session={s} snooze={header.actions?.snooze} now={now} />} />
           )}
           {folder !== null && terminals && !away && (
             <TerminalDrawer
@@ -576,7 +575,6 @@ export function SessionPanel({ variant = 'panel', zoom, queue, notice, hotkeys, 
               }}
             />
           )}
-          {moves && moving?.key === key && <MoveDialog session={s} moves={moves} to={moving.to} terminal={terminal} onClose={() => setMoving(null)} />}
           {edit && editing?.key === key && <EditDialog session={s} prompt={editing.prompt} onEdit={edit} onClose={() => setEditing(null)} />}
           {edit && rewinding?.key === key && <RewindDialog session={s} answered={rewinding.answered} questions={rewinding.questions} onRewind={edit} onClose={() => setRewinding(null)} />}
           {dialog}

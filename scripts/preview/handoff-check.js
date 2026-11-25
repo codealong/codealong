@@ -1,9 +1,9 @@
-// Checks cross-provider session handoff in the bar's peek (handoff.ts, MoveAccount.tsx,
-// SessionAgent.tsx, menus.ts): a Claude Code session offers cross-provider accounts in both its
-// right-click Move to submenu and the reply box's account chip (`Hand off here`); picking one
-// opens the unified Move / Hand off dialog with handoff options (Opens in, Model, Effort, Next
-// step, Keep this session open), updates the lede and primary button live, and sends move_session
-// with those options; non-Claude sessions (e.g. Codex) offer handoff to other providers too.
+// Checks inline cross-provider session handoff in the bar's peek (handoff.ts, HandoffStrip.tsx,
+// SessionAgent.tsx, SessionReply.tsx, menus.ts): a Claude Code session offers cross-provider
+// accounts in both its right-click Move to submenu and the reply box's account chip (`Hand off
+// here`); picking one stages it directly in the conversation input with an inline confirmation
+// bar, lets you type a next-step note in the reply box itself and toggle Keep open, and confirms
+// on ⏎ or clicking Hand off without closing/archiving the original session.
 //   PREVIEW_WAIT=60000 scripts/preview.sh peek '' scripts/preview/handoff-check.js
 (function () {
   var get = function (file) {
@@ -45,7 +45,7 @@
     return real.apply(this, arguments);
   };
 
-  var dialog = function () { return q('.ca-movedlg'); };
+  var bar = function () { return q('.ca-handoff-bar'); };
 
   (async function () {
     try {
@@ -64,40 +64,40 @@
       chip.click();
       var menu = await until(function () { return q('.ca-peek .ca-composer-buttons .ca-modelmenu .ca-picker'); }, 3000, 'no account menu');
       var handoffOpts = all('.ca-picker-opt', menu).filter(function (o) {
-        return q('.ca-picker-title', o) && q('.ca-picker-title', o).textContent.trim() === 'Hand off here';
+        var t = q('.ca-picker-title', o);
+        var d = q('.ca-picker-detail', o);
+        return (t && t.textContent.trim() === 'Hand off here') || (d && d.textContent.trim() === 'Hand off here');
       });
       check('the account chip menu offers Hand off here for other providers', handoffOpts.length > 0, all('.ca-picker-title', menu).map(function (t) { return t.textContent; }).join(' | '));
       handoffOpts[0].click();
 
-      // 3. MoveDialog opens in generic handoff mode with handoff brief lede and controls.
-      var dlg = await until(dialog, 3000, 'picking Hand off here opened no dialog');
-      var title = q('.ca-dialog-head h2', dlg).textContent;
-      var lede = q('.ca-dialog-lede', dlg).textContent;
-      check('cross-provider dialog names the target provider in its title', /^Move to /.test(title), title);
-      check('its lede describes the handoff brief and full transcript link', /handoff brief/.test(lede) && /full transcript/.test(lede) && /closed and archived/.test(lede), lede);
-      var noteBox = q('.ca-movedlg-note textarea', dlg);
-      check('it shows an optional next-step note box', !!noteBox, 'no textarea');
+      // 3. Inline confirmation bar appears inside the reply box, and the chip highlights the staged target.
+      var strip = await until(bar, 3000, 'picking Hand off here showed no inline confirmation bar');
+      var textEl = q('.ca-handoff-text', strip);
+      check('inline bar describes the cross-provider handoff and archive fate', /^Move to /.test(textEl.textContent) && /closes this/.test(textEl.textContent) && /handoff brief/.test(textEl.title) && /full transcript/.test(textEl.title), textEl.textContent + ' | ' + textEl.title);
+      check('the account chip highlights the staged target', q('.ca-peek .ca-composer-buttons .ca-modelmenu-chip.is-handoff') !== null, chip.className);
+      var input = q('.ca-peek .ca-composer-field textarea');
+      check('the conversation input stays ready for an optional next-step note', !!input, 'no textarea');
 
-      // 4. Typing a next-step note and toggling Keep this session open updates lede, title, and button.
+      // 4. Typing a next-step note right into the reply box and toggling Keep open updates the bar and confirm button.
       var setVal = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set;
-      setVal.call(noteBox, 'Finish fixing the flaky test');
-      noteBox.dispatchEvent(new Event('input', { bubbles: true }));
+      setVal.call(input, 'Finish fixing the flaky test');
+      input.dispatchEvent(new Event('input', { bubbles: true }));
       await wait(50);
-      var keepInput = q('.ca-movedlg-keep input[type="checkbox"]', dlg);
-      check('it shows a Keep this session open checkbox', !!keepInput && !keepInput.checked, 'missing or checked');
+      var keepInput = q('.ca-handoff-keep input[type="checkbox"]', strip);
+      check('inline bar has a Keep open checkbox', !!keepInput && !keepInput.checked, 'missing or checked');
       keepInput.click();
-      await until(function () { return q('.ca-dialog-head h2', dlg).textContent === 'Hand off to another account'; }, 2000, 'title did not switch to Hand off');
-      lede = q('.ca-dialog-lede', dlg).textContent;
-      var go = q('.ca-btn--primary', dlg);
-      check('keeping open updates lede and primary button', /with your next-step note; this session stays open\./.test(lede) && /^Hand off to /.test(go.textContent), lede + ' | ' + go.textContent);
+      await until(function () { return /keeps this open/.test(q('.ca-handoff-text', strip).textContent); }, 2000, 'bar did not switch to Keep open');
+      var go = q('.ca-composer-confirm');
+      check('keeping open updates bar copy and confirm button', /^Hand off to /.test(q('.ca-handoff-text', strip).textContent) && go && /^Hand off to /.test(go.textContent), q('.ca-handoff-text', strip).textContent + ' | ' + (go ? go.textContent : 'no button'));
 
-      // 5. Submitting passes keep: true and prompt to move_session without leaving/archiving.
+      // 5. Pressing Enter in the conversation input confirms with keep: true and the typed prompt without hiding the peek.
       var hidesBefore = calls('peek_hide').length;
-      go.click();
-      await until(function () { return calls('move_session').length > 0; }, 3000, 'Hand off asked for no move_session');
+      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+      await until(function () { return calls('move_session').length > 0; }, 3000, 'pressing Enter asked for no move_session');
       var asked = calls('move_session')[0][1];
-      check('move_session receives keep: true and the next-step prompt', asked.key === key && asked.keep === true && asked.prompt === 'Finish fixing the flaky test', JSON.stringify(asked));
-      await until(function () { return !dialog(); }, 3000, 'dialog stayed up after Hand off');
+      check('move_session receives keep: true and the typed next-step prompt', asked.key === key && asked.keep === true && asked.prompt === 'Finish fixing the flaky test', JSON.stringify(asked));
+      await until(function () { return !bar(); }, 3000, 'inline bar stayed up after Hand off');
       await wait(150);
       check('keeping the session open leaves the peek open rather than hiding it', calls('peek_hide').length === hidesBefore, String(calls('peek_hide').length - hidesBefore));
     } catch (e) {
