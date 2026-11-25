@@ -131,7 +131,11 @@ on 2026-09-27. Paths are under `src-tauri/src/`.
   `Adapter::acp_auto_allows` so Antigravity matches its terminal UI in `default` mode under
   `toolPermission: "always-proceed"` (never for plans). It offers `session/resume`, `session/load`,
   `session/close`, `additionalDirectories` and `promptCapabilities.image`, and no `session/fork`;
-  `session/resume` resets `configOptions` to the default model. See `.claude/rules/antigravity.md`.
+  `session/resume` resets `configOptions` to the default model. Mid-turn `session/set_config_option`
+  returns immediately (checked on 1.5.16, 2026-11-24), and Codealong queues mid-turn model/effort
+  switches uniformly across all hosted ACP adapters (`Hosted::pending_model`, `pending_effort`) so
+  they apply right after the running turn ends and before any queued prompt starts. See
+  `.claude/rules/antigravity.md`.
 - The adapter processes, one per account and children of Codealong's server (serve.rs), their stderr logs and
   `hosted.json`: `acp.rs` (header, `agent`, `log_path`, `remembered_path`).
 - When the app quits, each adapter's input closes and codex-acp 1.13.1 interrupts the turns it
