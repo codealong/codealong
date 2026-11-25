@@ -323,6 +323,7 @@ mod tests {
             chrome_profile: None,
             default: None,
             decisions: None,
+            background_prompt: None,
         });
         engine.seeds.push(LaneSeed {
             path: PathBuf::from("/work/northwind-app"),

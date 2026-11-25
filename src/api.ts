@@ -2530,3 +2530,9 @@ export async function sessionAnswer(key: string, id: string, answer: 'allow' | '
   if (!inTauri) throw new Error('Answering needs the app.');
   return invoke<string>('session_answer', { key, id, answer, answers: answers ?? null, message: message ?? null });
 }
+
+/** Drops a session's kept AI background so the engine draws a fresh one (backgrounds.rs). */
+export async function redrawSessionBackground(key: string): Promise<void> {
+  if (!inTauri) return;
+  await invoke<void>('redraw_session_background', { key });
+}

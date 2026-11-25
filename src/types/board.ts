@@ -4,7 +4,7 @@
 
 import type { Mcp, Resets, SignIn, Training, Usage } from './accounts';
 import type { Improve } from './app';
-import type { DecisionsCfg, DevicesCfg, ExperimentalCfg, NewTerminal, NudgeAbout, Profile, QueueCfg, RepoCfg, ReviewsCfg, SessionsCfg, TeamFile, Theme, ToolDisplay, WhenLimited } from './config';
+import type { BackgroundsCfg, DecisionsCfg, DevicesCfg, ExperimentalCfg, NewTerminal, NudgeAbout, Profile, QueueCfg, RepoCfg, ReviewsCfg, SessionsCfg, TeamFile, Theme, ToolDisplay, WhenLimited } from './config';
 import type { TodoQueue } from './feeds';
 import type { Lane } from './lane';
 import type { PrItem, PrStopped } from './pr';
@@ -196,6 +196,8 @@ export interface Board {
   /** The experiments turned on, from `[experimental]` in config.toml. Missing on older boards:
    *  none. */
   experimental?: ExperimentalCfg;
+  /** `[backgrounds]` from config.toml: per-session AI background settings. Missing on older boards. */
+  backgrounds?: BackgroundsCfg;
   /** `[queue]` from config.toml as the windows go by it: its `order` the kinds in your order
    *  (config.rs `QueueCfg::settled`). Missing on older boards: the default. */
   queue?: QueueCfg;

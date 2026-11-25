@@ -253,6 +253,10 @@ pub enum Msg {
     /// A session's emblem was drawn, or why it wasn't (emblems.rs `draw`): the kept picture's
     /// name and what it shows.
     EmblemDrawn(String, std::result::Result<(String, String), String>),
+    /// A session's AI background was drawn, or why it wasn't (backgrounds.rs `draw`).
+    BackgroundDrawn(String, std::result::Result<SessionBackdrop, String>),
+    /// Drops a session's kept AI background so a fresh one is drawn immediately.
+    RedrawBackground(String),
     /// A harness's reader has something new that it read off this thread (`harness::Wake`).
     Read,
     /// The full pinned list, in order.
@@ -392,6 +396,7 @@ pub use guard::when_spent;
 // so the imports above serve them all; what a part makes `pub` is named from here, and what
 // this file or another part calls of one is `pub(super)`.
 mod emblems;
+mod backgrounds;
 mod gitruns;
 mod handle;
 mod jevasks;
@@ -615,6 +620,8 @@ struct Engine {
     insights: crate::insights::Store,
     /// Each session's emblem: the emoji Jev picked or the picture drawn for it (emblems.rs).
     emblems: crate::emblems::Store,
+    /// Each session's AI-generated background (backgrounds.rs).
+    backgrounds: crate::backgrounds::Store,
 }
 
 impl Engine {
@@ -729,6 +736,7 @@ impl Engine {
             jev_todos_failed: None,
             insights: crate::insights::Store::load(),
             emblems: crate::emblems::Store::load(),
+            backgrounds: crate::backgrounds::Store::open(config::support_dir().join("backgrounds.json")),
         }
     }
 
@@ -742,9 +750,10 @@ impl Engine {
         self.save_state();
         self.load_todos();
         // Only with every todo and emblem read: a list that didn't read would make every
-        // attachment look unused. Pictures drawn for emblems are kept images too.
+        // attachment look unused. Pictures drawn for emblems and AI backgrounds are kept images too.
         if let (false, Some(pictures)) = (self.todos_unreadable, self.emblems.pictures()) {
-            let texts: Vec<String> = self.todos.todos.iter().map(|t| t.description.clone()).chain(pictures).collect();
+            let bg_pictures = self.backgrounds.pictures().into_iter().map(|p| format!("{}{p}", attachments::IMAGES));
+            let texts: Vec<String> = self.todos.todos.iter().map(|t| t.description.clone()).chain(pictures).chain(bg_pictures).collect();
             let _ = std::thread::Builder::new().name("codealong-attachments".into()).spawn(move || {
                 attachments::collect_garbage(&texts.iter().map(String::as_str).collect::<Vec<_>>());
             });
@@ -1151,6 +1160,8 @@ impl Engine {
                 }
                 Ok(Msg::StartAnswered(at)) => self.screens.again(at),
                 Ok(Msg::EmblemDrawn(key, drawn)) => self.on_emblem_drawn(&key, drawn),
+                Ok(Msg::BackgroundDrawn(key, drawn)) => self.on_background_drawn(&key, drawn),
+                Ok(Msg::RedrawBackground(key)) => self.redraw_background(&key),
                 Ok(Msg::MarkSeen(keys, at, reply)) => {
                     let now = now_ms();
                     let taken_up: Vec<String> = self.board.read().map(|b| keys.iter().filter(|k| b.session(k).is_some_and(|(_, s)| board::seen_takes_up(s))).cloned().collect()).unwrap_or_default();

@@ -13,6 +13,7 @@ use std::time::{Duration, Instant, SystemTime};
 mod acp;
 mod artifacts;
 mod cache;
+mod draw;
 mod processes;
 mod rename;
 mod side;
@@ -2098,6 +2099,14 @@ impl crate::harness::Adapter for Antigravity {
 
     fn acp_auto_allows(&self, home: &Path, mode: Option<&str>, call: &Value) -> bool {
         acp::auto_allows(home, mode, call)
+    }
+
+    fn draws(&self) -> bool {
+        true
+    }
+
+    fn draw(&self, ctx: &Ctx<'_>, cwd: &Path, prompt: &str) -> anyhow::Result<crate::harness::Drawn> {
+        draw::draw(ctx.account, cwd, prompt)
     }
 
     /// The command line starts a conversation in Codealong (`agy acp`) by default, or in a

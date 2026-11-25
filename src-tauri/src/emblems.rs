@@ -499,8 +499,18 @@ pub fn shrink(png_bytes: &[u8]) -> Result<Vec<u8>> {
     encode(&scale_down(&px, w, h, (x0, y0, side), PICTURE_PX), PICTURE_PX)
 }
 
-/// A PNG's pixels as RGBA, 8 bits a channel: its width, height and pixels.
+/// A PNG's (or on macOS, another image format's) pixels as RGBA, 8 bits a channel: its width,
+/// height and pixels.
 pub(crate) fn decode(bytes: &[u8]) -> Result<(usize, usize, Vec<u8>)> {
+    let png_owned;
+    let bytes = if crate::attachments::image_kind(bytes) == Some("png") {
+        bytes
+    } else if let Some(ext) = crate::attachments::image_kind(bytes).filter(|_| crate::os::current() == crate::os::Os::MacOs) {
+        png_owned = crate::backgrounds::sips_convert(bytes, ext, "png", None).ok_or_else(|| anyhow!("The drawing isn't a PNG Codealong can read"))?;
+        &png_owned
+    } else {
+        bytes
+    };
     let mut decoder = png::Decoder::new(std::io::Cursor::new(bytes));
     decoder.set_transformations(png::Transformations::normalize_to_color8());
     let mut reader = decoder.read_info().context("The drawing isn't a PNG Codealong can read")?;

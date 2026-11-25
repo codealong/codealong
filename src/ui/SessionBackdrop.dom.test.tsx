@@ -117,4 +117,29 @@ describe('SessionThemeProvider and SessionBackdrop', () => {
     expect(on().dataset.color).toBe('dusk');
     view.unmount();
   });
+
+  it('renders an AI backdrop layer, harmonizes its accent, and offers Redraw in the popover', () => {
+    const s = makeSession('ai-1', {
+      backdrop: { picture: 'data:image/png;base64,iVBORw0KGgo=', name: 'Indigo woodblock ridges', accent: '#3b6ea5', luminance: 210 },
+    });
+    const view = mount(
+      <SessionThemeProvider
+        board={{
+          lanes: [makeLane([s])],
+          experimental: { boards: false, session_themes: true },
+          backgrounds: { enabled: true, account: 'antigravity', prompt: '' },
+        }}
+      >
+        <Probe session={s} />
+      </SessionThemeProvider>,
+    );
+    expect(view.el.querySelector('.ca-st-layer.is-has-ai.is-light-art .ca-st-ai')).not.toBeNull();
+    act(() => (view.el.querySelector('.ca-st-swatchbtn') as HTMLElement).click());
+    expect(view.el.querySelector('.ca-st-popai-name')?.textContent).toBe('Indigo woodblock ridges');
+    const redraw = view.el.querySelector('.ca-st-redraw') as HTMLButtonElement;
+    expect(redraw).not.toBeNull();
+    act(() => redraw.click());
+    expect(view.el.querySelector('.ca-st-popai-name')?.textContent).toBe('Redrawing…');
+    view.unmount();
+  });
 });

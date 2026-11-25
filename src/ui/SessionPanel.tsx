@@ -508,7 +508,7 @@ export function SessionPanel({ variant = 'panel', zoom, queue, notice, hotkeys, 
   const popOut = variant === 'panel' && !away ? header.actions?.window?.run : undefined;
   const theme = useSessionTheme(s);
   const fullTheme = !!theme && theme.prefs.surface === 'full';
-  const themeStyle = theme ? themeCssVars(theme.assigned.color, theme.prefs.intensity) : undefined;
+  const themeStyle = theme ? themeCssVars(theme.assigned.color, theme.prefs.intensity, theme.assigned.accentOverride) : undefined;
   const body = (
     <>
           {fullTheme && <SessionBackdrop theme={theme.assigned} vibe={theme.prefs.vibe} intensity={theme.prefs.intensity} place="panel" working={s.status === 'working'} />}

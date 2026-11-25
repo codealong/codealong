@@ -703,7 +703,7 @@ function AgentRowView({ lane, session: s, domId, now, age, slim = false, selecte
       id={domId}
       selected={selected}
       className={cx('ca-lane', 'is-item', 'is-agent', oneLine && 'is-slim', `is-${s.status === 'error' ? 'needs' : s.status}`, s.snoozedUntil != null && 'is-snoozed', pinned && 'is-pinned', away(lane) && 'is-away', nested && 'is-nested', rowTheme && 'ca-st-row')}
-      style={rowTheme ? themeCssVars(rowTheme.assigned.color, rowTheme.prefs.intensity) : undefined}
+      style={rowTheme ? themeCssVars(rowTheme.assigned.color, rowTheme.prefs.intensity, rowTheme.assigned.accentOverride) : undefined}
       drag={drag}
       // ⌘ adds it to the ones picked or leaves it out, ⇧ picks the rows up to it.
       onSelect={(e) => onSelect(selectHow(e))}
