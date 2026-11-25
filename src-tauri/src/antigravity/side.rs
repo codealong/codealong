@@ -191,6 +191,8 @@ pub(super) fn recipe(account: &AccountCfg, s: &Session, dir: &Path, model: Optio
     let transcript = super::transcript_file(dir, &s.id);
     let context = transcript.as_deref().and_then(transcript_context);
     let dialect = SideCopy::new(side_rules(&s.key), context);
+    // Started as soon as this returns.
+    super::kept_mode::keep(&account.home_path());
     Ok(Recipe {
         program,
         args,
