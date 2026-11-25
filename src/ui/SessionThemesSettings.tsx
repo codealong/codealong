@@ -71,7 +71,7 @@ export function SessionThemesSection({ enabled, cfg, disabled, onToggle, onSave 
             <CheckBox checked={backgrounds.enabled} disabled={disabled} onChange={(on) => saveBg({ enabled: on })} />
             <span>Draw an AI background for each session</span>
             <small>
-              Automatically draws a bespoke fine-art background for each new top-level session and harmonizes its accent color with the artwork (skipping helpers, automatic PR reviews, and headless runs). The grainy mesh shows immediately while drawing.
+              Automatically draws a bespoke fine-art background for each new top-level session and harmonizes its accent color with the artwork (skipping helpers, automatic PR reviews, and headless runs). Sessions stay on the clean neutral surface until their artwork finishes drawing.
               {drawers.length === 0 && ' Add a Codex or Antigravity account in Settings › Accounts to draw backgrounds.'}
             </small>
           </label>
@@ -102,32 +102,34 @@ export function SessionThemesSection({ enabled, cfg, disabled, onToggle, onSave 
               </small>
             </label>
           )}
-          <div className="ca-field">
-            <span>{backgrounds.enabled ? 'Fallback mesh vibe' : 'Vibe'}</span>
-            <div className="ca-st-vibegrid" role="radiogroup" aria-label="Session theme vibe">
-              {SESSION_VIBES.map((v) => {
-                const active = prefs.vibe === v.id;
-                return (
-                  <button
-                    key={v.id}
-                    type="button"
-                    role="radio"
-                    aria-checked={active}
-                    className={cx('ca-st-vibecard', active && 'is-on')}
-                    onClick={() => setPrefs({ vibe: v.id })}
-                  >
-                    <div className="ca-st-vibethumb">
-                      <SessionBackdrop theme={SAMPLE_THEMES[v.id]} vibe={v.id} intensity={prefs.intensity} place="preview" />
-                      <span className="ca-st-vibeline" aria-hidden="true" />
-                      <span className="ca-st-vibeline is-short" aria-hidden="true" />
-                    </div>
-                    <span className="ca-st-vibename">{v.label}</span>
-                  </button>
-                );
-              })}
+          {!backgrounds.enabled && (
+            <div className="ca-field">
+              <span>Vibe</span>
+              <div className="ca-st-vibegrid" role="radiogroup" aria-label="Session theme vibe">
+                {SESSION_VIBES.map((v) => {
+                  const active = prefs.vibe === v.id;
+                  return (
+                    <button
+                      key={v.id}
+                      type="button"
+                      role="radio"
+                      aria-checked={active}
+                      className={cx('ca-st-vibecard', active && 'is-on')}
+                      onClick={() => setPrefs({ vibe: v.id })}
+                    >
+                      <div className="ca-st-vibethumb">
+                        <SessionBackdrop theme={SAMPLE_THEMES[v.id]} vibe={v.id} intensity={prefs.intensity} place="preview" />
+                        <span className="ca-st-vibeline" aria-hidden="true" />
+                        <span className="ca-st-vibeline is-short" aria-hidden="true" />
+                      </div>
+                      <span className="ca-st-vibename">{v.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+              <small>{SESSION_VIBES.find((v) => v.id === prefs.vibe)?.says}</small>
             </div>
-            <small>{SESSION_VIBES.find((v) => v.id === prefs.vibe)?.says}</small>
-          </div>
+          )}
           <div className="ca-field">
             <span>Where it shows</span>
             <Seg

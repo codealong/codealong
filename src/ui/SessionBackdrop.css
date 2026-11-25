@@ -111,7 +111,7 @@
   background-position: center;
 }
 
-/* AI-generated vertical fine-art background layer (sits above mesh fallback, under contrast veil). */
+/* AI-generated vertical fine-art background layer (fades in smoothly over neutral ground). */
 .ca-st-ai {
   position: absolute;
   inset: -2%;
@@ -119,6 +119,12 @@
   background-size: cover;
   background-position: center;
   opacity: min(1, calc(0.88 * var(--st-scale, 1)));
+  animation: ca-st-fadein 320ms ease-out;
+}
+@keyframes ca-st-fadein {
+  from {
+    opacity: 0;
+  }
 }
 .ca-st-layer.is-has-ai.is-panel.is-light-art .ca-st-veil {
   background: linear-gradient(
@@ -210,7 +216,8 @@
 }
 @media (prefers-reduced-motion: reduce) {
   .ca-st-layer.is-working .ca-st-canvas,
-  .ca-st-layer.is-working .ca-st-prism {
+  .ca-st-layer.is-working .ca-st-prism,
+  .ca-st-ai {
     animation: none;
   }
 }

@@ -526,10 +526,11 @@ export function SessionHeader({ lane, session: s, apps, now, onOpen, onShowLane,
   // here, whose Open button goes there already. One on another device has no Open button.
   const toMain = !inMain && !(s.hosted && !device) ? actions?.reveal : undefined;
   const theme = useSessionTheme(s);
+  const hasBackdrop = !!theme && (!theme.aiEnabled || !!theme.assigned.backdropImage);
 
   return (
     <header className={cx('ca-sessinsp-head', theme && 'ca-st-head')} onContextMenu={headerMenu(onMenu && (() => onMenu()))}>
-      {theme && theme.prefs.surface === 'header' && <SessionBackdrop theme={theme.assigned} vibe={theme.prefs.vibe} intensity={theme.prefs.intensity} place="header" working={s.status === 'working'} />}
+      {hasBackdrop && theme.prefs.surface === 'header' && <SessionBackdrop theme={theme.assigned} vibe={theme.prefs.vibe} intensity={theme.prefs.intensity} place="header" working={s.status === 'working'} aiOnly={theme.aiEnabled} />}
       {back && <PanelBack back={back} />}
       {lineage?.from && <KinRow kin={lineage.from} now={now} parent onShow={onShowSession} onMenu={onSessionMenu} />}
       {!lineage?.from && s.helper?.pr && <ReviewOf pr={s.helper.pr} yours={!!s.helper.yours} prs={prs} onOpenPr={onOpenPr} />}

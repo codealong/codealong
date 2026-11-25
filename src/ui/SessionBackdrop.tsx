@@ -70,19 +70,24 @@ export interface SessionBackdropProps {
   place: 'panel' | 'header' | 'preview';
   /** Working sessions get a super subtle slow drift (disabled under prefers-reduced-motion). */
   working?: boolean;
+  /** When AI backgrounds are enabled, skip rendering the procedural mesh before artwork arrives
+   *  so sessions stay clean neutral rather than flashing an unrelated mesh beforehand. */
+  aiOnly?: boolean;
 }
 
-/** Renders the multi-color grainy mesh atmosphere behind a session panel, header, or preview. */
-export function SessionBackdrop({ theme, vibe, intensity, place, working = false }: SessionBackdropProps) {
+/** Renders the AI artwork or multi-color grainy mesh atmosphere behind a session panel, header, or preview. */
+export function SessionBackdrop({ theme, vibe, intensity, place, working = false, aiOnly = false }: SessionBackdropProps) {
   const mode = useResolvedMode();
   const chord = mode === 'dark' ? theme.color.dark : theme.color.light;
 
-  const meshUrl = useMemo(() => renderMeshDataUrl(chord, theme.seed, vibe, mode), [chord, theme.seed, vibe, mode]);
-  const grainUrl = useMemo(() => getGrainTileUrl(), []);
-  const ribbons = useMemo(() => (vibe === 'prism' ? prismRibbons(theme.seed) : null), [vibe, theme.seed]);
-
   const hasAi = !!theme.backdropImage && place !== 'preview';
+  const suppressMesh = aiOnly && place !== 'preview';
+  const showMesh = !hasAi && !suppressMesh;
   const darkArt = (theme.backdrop?.luminance ?? 128) < 130;
+
+  const meshUrl = useMemo(() => (showMesh ? renderMeshDataUrl(chord, theme.seed, vibe, mode) : null), [showMesh, chord, theme.seed, vibe, mode]);
+  const grainUrl = useMemo(() => getGrainTileUrl(), []);
+  const ribbons = useMemo(() => (showMesh && vibe === 'prism' ? prismRibbons(theme.seed) : null), [showMesh, vibe, theme.seed]);
 
   const layerStyle = useMemo<CSSProperties>(() => {
     const vars = themeCssVars(theme.color, intensity, theme.accentOverride);
@@ -93,6 +98,8 @@ export function SessionBackdrop({ theme, vibe, intensity, place, working = false
       ...(hasAi && theme.backdropImage ? { '--st-ai-img': `url("${theme.backdropImage}")` } : null),
     } as CSSProperties;
   }, [theme.color, theme.accentOverride, theme.backdropImage, hasAi, intensity, meshUrl, grainUrl]);
+
+  if (suppressMesh && !hasAi) return null;
 
   return (
     <div
@@ -107,9 +114,9 @@ export function SessionBackdrop({ theme, vibe, intensity, place, working = false
       style={layerStyle}
       aria-hidden="true"
     >
-      <div className="ca-st-canvas" />
+      {showMesh && <div className="ca-st-canvas" />}
       {hasAi && <div className="ca-st-ai" />}
-      {!hasAi && ribbons && (
+      {ribbons && (
         <svg className="ca-st-prism" viewBox="0 0 640 120" preserveAspectRatio="none">
           {ribbons.map((r, i) => (
             <path key={i} d={r.d} className={cx('ca-st-ribbon', i === 1 && 'is-r2', i === 2 && 'is-r3')} />
@@ -225,22 +232,24 @@ export function SessionThemePicker({ theme }: { theme: ActiveSessionTheme }) {
               );
             })}
           </div>
-          <div className="ca-st-popsec">
-            <span className="ca-st-poplabel">Mesh vibe</span>
-            <div className="ca-st-pills">
-              {SESSION_VIBES.map((v) => (
-                <button
-                  key={v.id}
-                  type="button"
-                  className={cx('ca-st-pill', prefs.vibe === v.id && 'is-on')}
-                  title={v.says}
-                  onClick={() => setPrefs({ vibe: v.id })}
-                >
-                  {v.label}
-                </button>
-              ))}
+          {!aiEnabled && (
+            <div className="ca-st-popsec">
+              <span className="ca-st-poplabel">Mesh vibe</span>
+              <div className="ca-st-pills">
+                {SESSION_VIBES.map((v) => (
+                  <button
+                    key={v.id}
+                    type="button"
+                    className={cx('ca-st-pill', prefs.vibe === v.id && 'is-on')}
+                    title={v.says}
+                    onClick={() => setPrefs({ vibe: v.id })}
+                  >
+                    {v.label}
+                  </button>
+                ))}
+              </div>
             </div>
-          </div>
+          )}
           <div className="ca-st-poprow">
             <div className="ca-st-popsec">
               <span className="ca-st-poplabel">Surface</span>
