@@ -979,6 +979,32 @@ pub struct Question {
     /// More than one choice can be picked.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub multi_select: bool,
+    /// It's a field of a form its agent asks you to fill in (the Agent Client Protocol's form
+    /// elicitation, for a session Codealong runs), where what it takes is more than a pick or
+    /// words of your own. None for the questions of a harness's own tool. Devices that don't know
+    /// it offer a box for words to every question, and an answer the field doesn't take is
+    /// refused.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub form: Option<FormField>,
+}
+
+/// What a form's field takes (`Question::form`).
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct FormField {
+    /// Its choices are all it takes, with no box for words of your own: a yes or no, or a field
+    /// that offers only its choices.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub choices_only: bool,
+    /// The form doesn't go without an answer to it.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub required: bool,
+    /// What words it takes, where it takes some and not any: "A whole number", "An email address".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hint: Option<String>,
+    /// What's written for it is hidden as it's typed: a key, a password.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub secret: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -1499,7 +1525,7 @@ mod tests {
         let page = Page {
             items: vec![
                 Item { at: 1, kind: "you".into(), text: "Fix the build".into(), from: None, from_key: None, from_side: None, glance: None, id: None, input: None, output: None, failed: false, withdrawn: false, stop: false, questions: Vec::new(), answers: Default::default(), link: None, sent: None, cursor: 0, n: 0 },
-                Item { at: 2, kind: "tool".into(), text: "Bash · `cargo test`".into(), from: None, from_key: None, from_side: None, glance: None, id: Some("t1".into()), input: Some("cargo test".into()), output: Some("ok".into()), failed: false, withdrawn: false, stop: false, questions: vec![Question { question: "Which?".into(), header: None, options: vec![Choice { label: "This".into(), description: None }], multi_select: false }], answers: [("Which?".to_string(), vec!["This".to_string()])].into(), link: Some(Link { url: "https://claude.ai/artifact/Vuaw".into(), title: "Dashboard".into(), note: None }), sent: Some(SentFiles { files: vec!["/Users/me/app/shot.png".into()], caption: Some("Before and after".into()) }), cursor: 120, n: 1 },
+                Item { at: 2, kind: "tool".into(), text: "Bash · `cargo test`".into(), from: None, from_key: None, from_side: None, glance: None, id: Some("t1".into()), input: Some("cargo test".into()), output: Some("ok".into()), failed: false, withdrawn: false, stop: false, questions: vec![Question { question: "Which?".into(), header: None, options: vec![Choice { label: "This".into(), description: None }], multi_select: false, form: None }], answers: [("Which?".to_string(), vec!["This".to_string()])].into(), link: Some(Link { url: "https://claude.ai/artifact/Vuaw".into(), title: "Dashboard".into(), note: None }), sent: Some(SentFiles { files: vec!["/Users/me/app/shot.png".into()], caption: Some("Before and after".into()) }), cursor: 120, n: 1 },
                 Item { at: 3, kind: "peer".into(), text: "Which test fails?\n\nThe parser's, I think.".into(), from: Some("Review the parser".into()), from_key: Some("claude:work:parser".into()), from_side: None, glance: None, id: None, input: None, output: None, failed: false, withdrawn: false, stop: false, questions: Vec::new(), answers: Default::default(), link: None, sent: None, cursor: 300, n: 0 },
                 Item {
                     at: 5,

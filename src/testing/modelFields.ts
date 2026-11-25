@@ -1268,6 +1268,14 @@ export type VoiceCfg = Holds<Same<
   Names<Types.VoiceCfg>
 >>;
 
+export type FormField = Holds<Same<
+  | "choicesOnly"
+  | "hint"
+  | "required"
+  | "secret",
+  Names<Types.FormField>
+>>;
+
 export type GroupMember = Holds<Same<
   | "account"
   | "effort"
@@ -1301,6 +1309,7 @@ export type Pending = Holds<Same<
 >>;
 
 export type Question = Holds<Same<
+  | "form"
   | "header"
   | "multiSelect"
   | "options"

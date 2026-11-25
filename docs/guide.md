@@ -396,8 +396,7 @@ asks them again as the reply box does, one at a time, with your answers picked; 
 Fork and answer (⌘⏎). A copy of the session goes on from just after it asked, with your new
 answers as your message, while the session itself stays as it was, as with Edit from here: only
 the conversation goes back, and the copy runs In Codealong. The copy doesn't ask the questions
-again itself: Claude Code can't ask questions in a session Codealong runs, which is why the dialog
-asks them first. In the copy the call that asked shows as cut off, followed by your answers.
+again itself: the dialog asks them first, and the copy goes on with your answers. In the copy the call that asked shows as cut off, followed by your answers.
 
 #### Move to another account
 
@@ -1084,7 +1083,19 @@ the keys there that give your picks, typing your own words into its Write-in box
 skips them all and stops its turn. A question with more than eight choices is answered in its
 terminal. What you'd begun answering in its terminal is cleared first, except on the last
 question, where a choice you ticked there and pick here too ends up unticked; the conversation
-shows the answers it took. Another session's message that a Claude Code session holds for
+shows the answers it took. In a session Codealong runs, its agent's questions come to Codealong
+itself and show in the same box: Claude Code's `AskUserQuestion`, Codex's `request_user_input`
+(which Codex asks in its Plan mode) and Antigravity's `ask_question`, as do the forms an MCP server
+asks for through the agent and Claude Code's offer to retry a refused prompt on its fallback model.
+A form's fields are its questions, each asking for what it takes: a choice, several, yes or no, a
+number (its box says which, and between what), an email address, words of your own, or a key or
+password, hidden as you type it; a field that takes only its choices has no box for your own
+answer. What a form says it's for shows above its questions, where it says more than they do. A
+field the form can't go without keeps Answer back until it has an answer, and the button says
+which; an answer a field doesn't take (a word for a number, say) is refused with why, and the box
+keeps what you gave. Decline tells the agent you didn't answer, and it goes on; Stop calls the
+form off. A link an MCP server asks you to open (a sign-in) isn't shown here: it's called off, and
+so is a form with a field Codealong has no way to ask for. Another session's message that a Claude Code session holds for
 you to allow (it skips permission prompts and the sender didn't say it does too) shows the same way,
 all of it when Codealong sent it (without the line its byline says to the agent, and with its sender
 named as a link to that session), with Deliver and Deny, pressed in its Ghostty, iTerm2, Rex, Codealong or tmux tab

@@ -200,8 +200,10 @@ export function useQuestionPicks(questions: Question[], first: () => Picking, of
       answers[q.question] = words || chosen[0];
     }
   }
-  const ready = Object.keys(answers).length > 0;
   const answered = questions.map((q) => q.question in answers);
+  // A form's questions it can't go without (`FormField.required`) that have no answer yet.
+  const missing = questions.filter((q, i) => q.form?.required && !answered[i]);
+  const ready = Object.keys(answers).length > 0 && missing.length === 0;
   // Where Next goes, while another question has no answer; with none, what's left is to answer.
   const next = nextQuestion(answered, at);
   const pick = (q: Question, label: string) => {
@@ -224,7 +226,7 @@ export function useQuestionPicks(questions: Question[], first: () => Picking, of
     // join it, and the ones it went with stay.
     else if (q.multiSelect) setPicks((all) => (q.question in all ? all : { ...all, [q.question]: offered(q) }));
   };
-  return { picks, own, at, asked, go, setPicks, setOwn, setStep, offered, chosenFor, answers, ready, answered, next, pick, type };
+  return { picks, own, at, asked, go, setPicks, setOwn, setStep, offered, chosenFor, answers, ready, answered, missing, next, pick, type };
 }
 
 export type QuestionPicks = ReturnType<typeof useQuestionPicks>;
@@ -234,7 +236,7 @@ interface QuestionStepsProps {
   picks: QuestionPicks;
   busy: boolean;
   /** Its choices are all it takes (`Pending.exiting`, `Pending.dialog`): no box for your own
-   *  answer. */
+   *  answer. A form's field can say so of itself (`FormField.choicesOnly`). */
   choicesOnly?: boolean;
   /** Choices another session picked for them, each marked with a sparkle, with why under the first. */
   suggested?: Suggestions | null;
@@ -260,6 +262,7 @@ export function QuestionSteps({ questions, picks: p, busy, choicesOnly = false, 
     ownRef.current?.focus();
   }, [p.at]);
   const q = questions[p.at];
+  const onlyChoices = choicesOnly || !!q.form?.choicesOnly;
   // Several are named by their headers in a strip to go between them; one by its header alone.
   const named =
     questions.length > 1 ? (
@@ -325,13 +328,16 @@ export function QuestionSteps({ questions, picks: p, busy, choicesOnly = false, 
             })}
           </div>
         </div>
-        {/* What an exit or another dialog of its harness's asks takes nothing but its choices. */}
-        {!choicesOnly && (
+        {/* What an exit or another dialog of its harness's asks takes nothing but its choices, as
+            does a form's field that offers only them. A form's field may say what words it takes,
+            and hide them as they're typed (a key, a password). */}
+        {!onlyChoices && (
           <input
             ref={ownRef}
             className="ca-question-own"
-            type="text"
-            placeholder={q.options.length ? 'Or type your own answer' : 'Type your answer'}
+            type={q.form?.secret ? 'password' : 'text'}
+            autoComplete={q.form?.secret ? 'off' : undefined}
+            placeholder={q.form?.hint ?? (q.options.length ? 'Or type your own answer' : 'Type your answer')}
             value={p.own[q.question] ?? ''}
             disabled={busy}
             onChange={(e) => p.type(q, e.target.value)}

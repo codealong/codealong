@@ -504,7 +504,7 @@ pub(super) fn questions_of(input: &Value) -> Vec<crate::harness::Question> {
             qs.iter()
                 .filter_map(|q| {
                     let options = q.get("options").and_then(Value::as_array).map(|o| o.iter().filter_map(|c| Some(codealong_peer::api::Choice { label: text(c, "label")?, description: text(c, "description") })).collect()).unwrap_or_default();
-                    Some(crate::harness::Question { question: text(q, "question")?, header: text(q, "header"), options, multi_select: q.get("multiSelect").and_then(Value::as_bool) == Some(true) })
+                    Some(crate::harness::Question { question: text(q, "question")?, header: text(q, "header"), options, multi_select: q.get("multiSelect").and_then(Value::as_bool) == Some(true), form: None })
                 })
                 .collect()
         })

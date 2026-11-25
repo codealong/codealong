@@ -1565,6 +1565,7 @@ function Approval({ session: s, terminal, deviceName, onOpen, onAnswered, keys, 
         onDecline={() => answer('deny')}
         exiting={!!pending.exiting}
         dialog={!!pending.dialog}
+        form={s.hosted ? { says: pending.input, session: s } : undefined}
         folded={folded}
         onFold={fold}
       />
@@ -1695,6 +1696,10 @@ interface QuestionsProps {
   /** It's a dialog of its harness's own, read off its terminal (`Pending.dialog`): its choices
    *  are all it takes, and declining presses Escape there. */
   dialog?: boolean;
+  /** It's a form its agent asks a session Codealong runs to fill in (acp/forms.rs), with what it
+   *  says it wants (`Pending.input`) where that's more than its questions say: declining it
+   *  tells its agent, which goes on. */
+  form?: { says?: string | null; session: Session };
   /** Choices another session picked for them (`Suggestions.picks`), picked here until you pick
    *  otherwise, so one click on Answer answers with them. */
   suggested?: Suggestions | null;
@@ -1706,7 +1711,7 @@ interface QuestionsProps {
 
 /** Questions a session asks you (Claude Code's AskUserQuestion), answered as `QuestionSteps`
  *  has you answer them; your picks go back as its answer. */
-function Questions({ questions, draft, call, keys, busy, note, given, onAnswer, onDecline, exiting = false, dialog = false, suggested, onDismissSuggested, folded, onFold }: QuestionsProps) {
+function Questions({ questions, draft, call, keys, busy, note, given, onAnswer, onDecline, exiting = false, dialog = false, form, suggested, onDismissSuggested, folded, onFold }: QuestionsProps) {
   // Your picks and words as you left them, in this window or another, on the question you were
   // on. Kept as they change, they're as new as an answer that didn't go or newer, which has them
   // only where nothing was kept (storage turned down, or the suggested picks sent untouched).
@@ -1746,7 +1751,7 @@ function Questions({ questions, draft, call, keys, busy, note, given, onAnswer, 
     [draft, call, asked, questionsNow, setPicks, setOwn, setStep],
   );
   // Where Next goes, while another question has no answer; with none, the button answers.
-  const { answers, ready, next, go } = p;
+  const { answers, ready, missing, next, go } = p;
   const answerRef = useRef((_on: boolean) => {});
   answerRef.current = (on) => {
     // Minimized, ⌘⏎ shows the questions again rather than answer what you can't see.
@@ -1779,6 +1784,7 @@ function Questions({ questions, draft, call, keys, busy, note, given, onAnswer, 
   // The foot is its buttons, and what's happening or went wrong: what Decline does is on it.
   return (
     <div className="ca-composer is-approval is-questions">
+      {form?.says && <Plan session={form.session} text={form.says} />}
       <QuestionSteps
         questions={questions}
         picks={p}
@@ -1800,7 +1806,7 @@ function Questions({ questions, draft, call, keys, busy, note, given, onAnswer, 
           size="sm"
           disabled={busy}
           onClick={onDecline}
-          title={exiting ? 'Call the exit off: it stays open at its prompt, as Escape in its terminal does' : dialog ? 'Pick one, as you would in its terminal. Cancel presses Escape there.' : 'Stop the turn without an answer, or write below to say something else'}
+          title={exiting ? 'Call the exit off: it stays open at its prompt, as Escape in its terminal does' : dialog ? 'Pick one, as you would in its terminal. Cancel presses Escape there.' : form ? 'Don’t answer: its agent is told and goes on, or write below to say something else' : 'Stop the turn without an answer, or write below to say something else'}
         >
           {exiting || dialog ? 'Cancel' : 'Decline'}
         </Button>
@@ -1809,7 +1815,7 @@ function Questions({ questions, draft, call, keys, busy, note, given, onAnswer, 
             Next
           </Button>
         ) : (
-          <Button variant="primary" size="sm" icon="check" kbd={keys ? ['⌘', '⏎'] : undefined} disabled={busy || !ready} onClick={() => answerRef.current(false)}>
+          <Button variant="primary" size="sm" icon="check" kbd={keys ? ['⌘', '⏎'] : undefined} disabled={busy || !ready} title={missing.length ? `Answer ${missing.map((q) => `“${q.header || q.question}”`).join(', ')} first: the form needs it` : undefined} onClick={() => answerRef.current(false)}>
             Answer
           </Button>
         )}

@@ -924,7 +924,7 @@ fn questions_of(args: &Value) -> Vec<Question> {
         .iter()
         .filter_map(|q| {
             let options = q.get("options").and_then(Value::as_array).map(|o| o.iter().filter_map(|c| text(c).or_else(|| c.get("label").and_then(text))).map(|label| codealong_peer::api::Choice { label, description: None }).collect()).unwrap_or_default();
-            Some(Question { question: q.get("question").and_then(text)?, header: None, options, multi_select: q.get("is_multi_select").and_then(Value::as_bool) == Some(true) })
+            Some(Question { question: q.get("question").and_then(text)?, header: None, options, multi_select: q.get("is_multi_select").and_then(Value::as_bool) == Some(true), form: None })
         })
         .collect()
 }
@@ -3803,7 +3803,7 @@ mod tests {
         let answers = &with_answers(Path::new("/nowhere"), Page { items, before: None, after: 0 }).items[1].answers;
         assert_eq!((answers["Which color?"][0].len(), &answers["Which days?"], &answers["Which size?"]), (long.trim_end().len(), &vec!["Mon".to_string()], &vec!["Small".to_string()]));
         // A label with a comma of its own is found whole, among others or alone.
-        let q = Question { question: "Which?".into(), header: None, options: ["Mon, Tue", "Wed"].map(|l| codealong_peer::api::Choice { label: l.into(), description: None }).to_vec(), multi_select: true };
+        let q = Question { question: "Which?".into(), header: None, options: ["Mon, Tue", "Wed"].map(|l| codealong_peer::api::Choice { label: l.into(), description: None }).to_vec(), multi_select: true, form: None };
         assert_eq!(picks_of("Mon, Tue, Wed", &q), ["Mon, Tue", "Wed"]);
         assert_eq!(picks_of("Mon, Tue", &q), ["Mon, Tue"]);
         assert_eq!(picks_of("Fri", &q), ["Fri"]);

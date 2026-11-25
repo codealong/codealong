@@ -309,7 +309,8 @@ runs on this Mac (2026-10-01). Paths are under `src-tauri/src/`.
   `Antigravity::mode` names the four modes. Its `session/request_permission` sends `run_command`
   with `rawInput.CommandLine` and `allow_once` / `reject_once` options (a denied call ends the
   turn cleanly; `session/cancel` returns `cancelled`); `ask_question` completes without prompting
-  when no elicitation capability is declared. Unlike the terminal UI (`tool_confirmation_manager.go`,
+  when no elicitation capability is declared, and with one (Codealong declares it) comes as an
+  `elicitation/create` form whose id is a string (`jetski-acp-front:2`): `acp/forms.rs`. Unlike the terminal UI (`tool_confirmation_manager.go`,
   which auto-approves waiting tool confirmations under `toolPermission: "always-proceed"`),
   `agy acp` forwards a `PreToolUse` hook's `force_ask` as `session/request_permission` even with
   `--dangerously-skip-permissions` (while a hook's `deny` still blocks before any permission

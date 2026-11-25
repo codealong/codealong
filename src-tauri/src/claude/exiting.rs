@@ -127,7 +127,7 @@ fn id_of(reg: &RegistryEntry) -> String {
 
 fn question_of(dialog: &Dialog) -> Question {
     let says = if dialog.says.is_empty() { "Keep its worktree?".to_string() } else { dialog.says.clone() };
-    Question { question: says, header: Some("Exiting".into()), options: dialog.choices.clone(), multi_select: false }
+    Question { question: says, header: Some("Exiting".into()), options: dialog.choices.clone(), multi_select: false, form: None }
 }
 
 /// The dialog up in `s`, as a question to answer with one of its choices (`Pending::exiting`):

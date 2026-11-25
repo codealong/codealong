@@ -109,7 +109,7 @@ fn others() -> Vec<Pair> {
             RoutingCfg, RoutingGroupCfg, SessionsCfg, SoundsCfg, VoiceCfg
         ),
         of!(
-            codealong_peer::api: GroupMember, ModeSwitched, Pending, Question, ResumeIn, Route, RoutingGroup, Sent, Side, SideKept, SideTurn, StartAccount, StartOptions, Started, Unqueued
+            codealong_peer::api: FormField, GroupMember, ModeSwitched, Pending, Question, ResumeIn, Route, RoutingGroup, Sent, Side, SideKept, SideTurn, StartAccount, StartOptions, Started, Unqueued
         ),
         of!(codealong_peer::pr: CommitText, MergeBox, Turn),
         of!(codealong_peer::glance: Glance),

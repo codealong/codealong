@@ -130,8 +130,8 @@ interface RewindDialogProps {
 }
 
 /** Asks the questions again, your answers to them picked, before a copy goes on from just after
- *  they were asked with the answers you give. The copy can't ask them itself: Claude Code turns
- *  its questions off where Codealong runs it (claude/mod.rs `fork_from`). */
+ *  they were asked with the answers you give, which it goes on with rather than asking them
+ *  again (claude/mod.rs `fork_from`). */
 export function RewindDialog({ session: s, answered, questions, onRewind, onClose }: RewindDialogProps) {
   const p = useQuestionPicks(questions, () => answeredBefore(questions, answered.answers ?? {}));
   const several = questions.length > 1;

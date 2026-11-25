@@ -924,6 +924,10 @@ fn answer_here(engine: &Handle, c: &Call) -> Result<Value, String> {
         return answer_run(engine, c, key, &id, answer, saying);
     }
     if acp::hosts(key) {
+        // What it asks of you there is a form (acp/forms.rs), answered with what you picked and wrote.
+        if let Some(a) = &answers {
+            return acp::answer_form(key, &id, a).map(Value::String).map_err(words);
+        }
         // A session Codealong runs takes a message while it waits, after its current turn.
         let said = noting_deny(engine, c, key, answer == api::Answer::Deny, || acp::answer(key, &id, answer)).map_err(words)?;
         return match saying {
