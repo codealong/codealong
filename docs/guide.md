@@ -401,14 +401,13 @@ again itself: the dialog asks them first, and the copy goes on with your answers
 #### Move to another account or agent
 
 Move to, in any session's right-click menu, moves it to another signed-in account — on the same
-provider or a different one (Claude Code, Codex, OpenCode, Antigravity or Cursor). The chip at the
-right of the reply box's foot, which starts with its account, lists every eligible account and its
-models under its own: picking another account stages the move or handoff right in the reply box,
-with an inline confirmation bar above the input (showing what will happen, a **Keep open** toggle,
-and **Cancel** / Esc) while letting you adjust model, effort, and where it opens in the chip and
-optionally type a next-step note directly in the box before pressing ⏎ or clicking **Move** /
-**Hand off**. Clicking **Move…** on a Limit, Cut-off, or API error banner stages the target in the
-same box.
+provider or a different one (Claude Code, Codex, OpenCode, Antigravity or Cursor). The account
+selector chip at the right of the reply box's foot lists your current account's models first and
+every other eligible account with all of its models below: picking any model under another account
+opens a quick confirmation modal briefly explaining how moving across accounts works (lossless
+native copy vs. handoff brief and full transcript file), with a **Keep original open** toggle to
+leave the original session running. Clicking **Move…** on a Limit, Cut-off, or API error banner
+opens the same confirmation modal.
 
 Same-harness Claude Code default moves take the lossless native path: the conversation goes on in a
 new terminal under that account (a background job's as a job there), carrying the session's title

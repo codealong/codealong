@@ -1,10 +1,9 @@
-// Checks moving a session to another account inline in the reply box (SessionAgent.tsx,
-// HandoffStrip.tsx), in the bar's peek: the chip at the right of its box's foot, its account
-// first, lists its harness's other accounts under its own, and picking one stages an inline
-// confirmation bar above the input (no modal), which Cancel clears without moving it; a usage
-// limit with no account said to have room offers Move… in its header's box, which stages the
-// first other account in the reply box and focuses it so ⏎ (or the Move button) asks for
-// move_session with that account.
+// Checks moving a session to another account, asked first (MoveAccount.tsx), in the bar's peek:
+// the chip at the right of its box's foot, its account first (SessionAgent.tsx), lists every
+// eligible account with all of its models under its own; picking a model under another account
+// opens a quick confirmation modal, which Cancel closes without moving it; a usage limit with no
+// account said to have room offers Move… in its header's box, which opens the modal on the first
+// other account, and its Move asks for move_session with that account.
 //   PREVIEW_WAIT=60000 scripts/preview.sh peek '' scripts/preview/move-account-check.js
 (function () {
   var get = function (file) {
@@ -50,7 +49,13 @@
       return b;
     });
   };
-  var bar = function () { return q('.ca-handoff-bar'); };
+  var dialog = function () { return q('.ca-movedlg'); };
+  var sectionOf = function (menu, name) {
+    return all('.ca-picker-section', menu).filter(function (sec) {
+      var h = q('.ca-quick-acct-name', sec);
+      return h && h.textContent === name;
+    })[0];
+  };
 
   (async function () {
     try {
@@ -59,22 +64,19 @@
       chip.click();
       var menu = await until(function () { return q('.ca-peek .ca-composer-buttons .ca-modelmenu .ca-picker'); }, 3000, 'no menu on the chip');
       var heads = all('.ca-quick-acct-name', menu).map(function (n) { return n.textContent; });
-      var moving = all('.ca-picker-opt', menu).filter(function (o) {
-        var t = q('.ca-picker-title', o);
-        var d = q('.ca-picker-detail', o);
-        return (t && t.textContent.trim() === 'Move it here') || (d && d.textContent.trim() === 'Move it here');
-      });
-      check('it lists the others it can move to', others.every(function (o) { return heads.indexOf(o) >= 0; }) && moving.length >= others.length, heads.join(', ') + ' · ' + moving.length);
+      check('it lists the others it can move to', others.every(function (o) { return heads.indexOf(o) >= 0; }), heads.join(', '));
       check('its own account, where it has lines, comes first', heads.indexOf(picked.account) <= 0, heads.join(', '));
-      moving[0].click();
-      var strip = await until(bar, 3000, 'picking another account showed no inline confirmation bar');
-      var summary = q('.ca-handoff-text', strip).textContent;
-      var lede = q('.ca-handoff-text', strip).title;
-      check('the inline bar says where it goes and what happens to this one', lede.indexOf('under ' + others[0]) >= 0 && /closed and archived/.test(lede), summary + ' | ' + lede);
+      var otherSec = sectionOf(menu, to);
+      var firstOpt = otherSec && q('.ca-picker-opt', otherSec);
+      if (!firstOpt) return stopped('no option under ' + to);
+      firstOpt.click();
+      var dlg = await until(dialog, 3000, 'picking another account opened no dialog');
+      var lede = q('.ca-dialog-lede', dlg).textContent;
+      check('the dialog explains where it goes and what happens to this one', lede.indexOf('under ' + to) >= 0 && /closed and archived/.test(lede), lede);
       check('it tells the copy to carry on, a limit having stopped it', /told to carry on where it stopped/.test(lede), lede);
-      var cancel = q('.ca-handoff-cancel', strip);
+      var cancel = all('.ca-dialog-foot button', dlg).filter(function (b) { return b.textContent === 'Cancel'; })[0];
       cancel.click();
-      await until(function () { return !bar(); }, 3000, 'Cancel left the inline bar up');
+      await until(function () { return !dialog(); }, 3000, 'Cancel left the dialog up');
       check('Cancel moves nothing', calls('move_session').length === 0, String(calls('move_session').length));
 
       var box = await until(function () { return q('.ca-peek .ca-sessinsp-limit'); }, 3000, 'no limit box');
@@ -82,16 +84,16 @@
       check('with no account said to have room, the limit box offers Move…', !!move, box.textContent);
       if (!move) return done();
       move.click();
-      strip = await until(bar, 3000, 'Move… did not stage the move in the reply box');
-      var go = q('.ca-composer-confirm');
-      check('it stages the first other account with a confirm button', go && go.textContent === 'Move to ' + to, go ? go.textContent : 'no button');
-      var input = q('.ca-peek .ca-composer-field textarea');
-      check('the reply box takes focus so ⏎ moves it or lets you add a note', document.activeElement === input, document.activeElement ? document.activeElement.outerHTML.slice(0, 80) : 'nothing');
+      dlg = await until(dialog, 3000, 'Move… opened no dialog');
+      var go = q('.ca-btn--primary', dlg);
+      check('it opens on the first other account', go && go.textContent === 'Move to ' + to, go ? go.textContent : 'no button');
+      check('which has the keyboard, so ⏎ moves it', document.activeElement === go, document.activeElement ? document.activeElement.outerHTML.slice(0, 80) : 'nothing');
+      if (others.length > 1) check('it lets you pick the account', !!q('.ca-movedlg-to .ca-segctl', dlg), 'no choice');
       go.click();
       await until(function () { return calls('move_session').length > 0; }, 3000, 'Move asked for no move');
       var asked = calls('move_session')[0][1];
       check('Move asks to move it to that account', asked.key === key && asked.account === to, JSON.stringify(asked));
-      await until(function () { return !bar(); }, 3000, 'the inline bar stayed up after Move');
+      await until(function () { return !dialog(); }, 3000, 'the dialog stayed up after Move');
     } catch (e) {
       return stopped(e);
     }
