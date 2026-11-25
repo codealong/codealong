@@ -723,6 +723,13 @@ pub trait Adapter: Sync {
         false
     }
 
+    /// The mode a session Codealong runs is put in as it starts or is picked up again (acp.rs
+    /// `start_mode`), where its ACP server starts every session in its own default, whatever the
+    /// account's settings in `home` start its terminal UI in. None leaves it as its agent starts it.
+    fn acp_start_mode(&self, _home: &Path) -> Option<String> {
+        None
+    }
+
     /// Where an account can start a session, the usual place first, or why it can't (start.rs).
     /// `home` is yours: an app runs the account in the harness's default folder.
     fn places(&self, account: &AccountCfg, _home: &Path) -> std::result::Result<Vec<crate::start::Place>, String> {

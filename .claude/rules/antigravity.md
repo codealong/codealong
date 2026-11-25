@@ -305,9 +305,16 @@ runs on this Mac (2026-10-01). Paths are under `src-tauri/src/`.
   `gemini-3.8-flash`…) and `thought_level` (`low`..`xhigh`, absent on models without levels such
   as `gemini-pro-orchestrator-neon` and `gpt-oss-120b-medium`), plus `mode` (`default`,
   `accept-edits`, `auto`, `plan`; `session/new` starts at `default` even when `settings.json`
-  sets `agentMode`): `acp.rs` (`set_model`, `overlay`) splits and recombines them, and
-  `Antigravity::mode` names the four modes. Its `session/request_permission` sends `run_command`
-  with `rawInput.CommandLine` and `allow_once` / `reject_once` options (a denied call ends the
+  sets `agentMode`, and `session/resume` puts a session back in `default`): `acp.rs` (`set_model`,
+  `overlay`) splits and recombines them, `Antigravity::mode` names the four modes, and `acp.rs`
+  `start_mode` switches a session to the settings' `agentMode` as it starts and as it's picked up
+  (`Antigravity::acp_start_mode`). In `auto` the worker still asked (`session/request_permission`)
+  about commands its `agy_tool_safety` monitor flagged for `unquoted_shell_operators` (a heredoc,
+  a pipe, `&&`), whatever its model monitors (`sir_flash_lite`, then `severe_internal_risks_agy` on
+  the whole conversation) made of them: one `sir_flash_lite` passed as a read of a local diff
+  waited 42 s for an answer, and a `python3 - <<'PY'` waited on its user; calls it passed as
+  `allowed_tool` (reads) went ahead (a PR review's log, 1.5.15, 2026-11-24). Its
+  `session/request_permission` sends `run_command` with `rawInput.CommandLine` and `allow_once` / `reject_once` options (a denied call ends the
   turn cleanly; `session/cancel` returns `cancelled`); `ask_question` completes without prompting
   when no elicitation capability is declared, and with one (Codealong declares it) comes as an
   `elicitation/create` form whose id is a string (`jetski-acp-front:2`): `acp/forms.rs`. Unlike the terminal UI (`tool_confirmation_manager.go`,

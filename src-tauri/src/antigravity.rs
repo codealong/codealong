@@ -2101,6 +2101,10 @@ impl crate::harness::Adapter for Antigravity {
         acp::auto_allows(home, mode, call)
     }
 
+    fn acp_start_mode(&self, home: &Path) -> Option<String> {
+        acp::start_mode(home)
+    }
+
     fn draws(&self) -> bool {
         true
     }

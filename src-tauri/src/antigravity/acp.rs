@@ -16,12 +16,15 @@ pub(super) fn command(account: &AccountCfg) -> std::result::Result<(String, Vec<
     Ok((format!("{} acp --process-per-session --log-file {}", super::cli_command(account), crate::util::sh_quote(&log.to_string_lossy())), Vec::new()))
 }
 
+/// The command line's `settings.json`, when there's one that reads.
+fn settings(home: &Path) -> Option<Value> {
+    serde_json::from_str(&std::fs::read_to_string(super::cli_settings(home)?).ok()?).ok()
+}
+
 /// Whether the command line's `settings.json` puts its default mode in `always-proceed` with no
 /// saved non-default `agentMode` overriding it.
 fn skips_in_default_mode(home: &Path) -> bool {
-    let Some(path) = super::cli_settings(home) else { return false };
-    let Ok(text) = std::fs::read_to_string(path) else { return false };
-    let Ok(v) = serde_json::from_str::<Value>(&text) else { return false };
+    let Some(v) = settings(home) else { return false };
     let perm = v.get("toolPermission").and_then(Value::as_str) == Some("always-proceed");
     let agent_mode = v.get("agentMode").and_then(Value::as_str).unwrap_or("");
     perm && (agent_mode.is_empty() || agent_mode == "default")
@@ -35,6 +38,16 @@ fn skips_in_default_mode(home: &Path) -> bool {
 /// auto-approved.
 pub(super) fn auto_allows(home: &Path, mode: Option<&str>, call: &Value) -> bool {
     mode == Some("default") && call.get("name").and_then(Value::as_str) != Some("ask_question") && skips_in_default_mode(home)
+}
+
+/// The agent mode the command line's `settings.json` starts its terminal UI in (`agentMode`:
+/// `accept-edits`, `auto` or `plan`, which `/config` writes and its default removes), for the
+/// sessions Codealong runs: `agy acp`'s `session/new` starts each in `default` whatever the
+/// settings say (1.5.14, 2026-11-22), and in `default` again as `session/resume` picks one up.
+/// None when they say none, or the default.
+pub(super) fn start_mode(home: &Path) -> Option<String> {
+    let mode = settings(home)?.get("agentMode")?.as_str()?.trim().to_string();
+    (!mode.is_empty() && mode != "default").then_some(mode)
 }
 
 #[cfg(test)]
@@ -77,5 +90,25 @@ mod tests {
         assert!(!Antigravity.acp_auto_allows(&app_home, Some("default"), &cmd_call));
         std::fs::write(&settings, serde_json::json!({ "toolPermission": "always-proceed", "agentMode": "default" }).to_string()).unwrap();
         assert!(Antigravity.acp_auto_allows(&app_home, Some("default"), &cmd_call));
+    }
+
+    /// A session Codealong runs starts in the agent mode the terminal UI would, from the command
+    /// line's settings, whichever of the two folders is the account's.
+    #[test]
+    fn a_hosted_session_starts_in_the_settings_agent_mode() {
+        let root = crate::fixtures::scratch("agy-acp-start-mode");
+        let app_home = root.join(APP_DIR);
+        let cli_home = root.join(CLI_DIR);
+        std::fs::create_dir_all(&app_home).unwrap();
+        std::fs::create_dir_all(&cli_home).unwrap();
+        let settings = cli_home.join("settings.json");
+        assert_eq!(Antigravity.acp_start_mode(&app_home), None, "no settings");
+        std::fs::write(&settings, "{not json").unwrap();
+        assert_eq!(Antigravity.acp_start_mode(&app_home), None, "settings that don't read");
+        for (saved, mode) in [(serde_json::json!({}), None), (serde_json::json!({ "agentMode": "" }), None), (serde_json::json!({ "agentMode": "default" }), None), (serde_json::json!({ "agentMode": "auto" }), Some("auto")), (serde_json::json!({ "agentMode": "accept-edits" }), Some("accept-edits"))] {
+            std::fs::write(&settings, saved.to_string()).unwrap();
+            assert_eq!(Antigravity.acp_start_mode(&app_home).as_deref(), mode, "{saved}");
+            assert_eq!(Antigravity.acp_start_mode(&cli_home).as_deref(), mode, "{saved}");
+        }
     }
 }
