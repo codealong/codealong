@@ -1073,11 +1073,13 @@ fn wakes(cfg: &Config, origins: &crate::origins::Store, msg: &Message, session: 
     }
 }
 
-/// The sessions `wake` resumed lately, each with when (epoch ms): `woken.json` next to the
+/// The sessions being started or resumed lately (`wake`, `tell_waking`, `start::move_to`,
+/// `start::move_to_folder`, `start::resume`), each with when (epoch ms): `woken.json` next to the
 /// config, which the app and the `codealong` command share, since with the app closed each
 /// command sends by itself. The board goes on saying a session isn't running for a few seconds
-/// after it's resumed (until the next scan finds it), and a second message then would resume it a
-/// second time, beside the first.
+/// after it's launched or moved (until the next scan finds it, and `claude::Reader::closed_copies`
+/// lists a move's copy stopped as soon as `origins.json` notes it), and an automatic wake then
+/// would resume it a second time, beside the first.
 fn woken_path() -> std::path::PathBuf {
     crate::config::support_dir().join("woken.json")
 }
@@ -1100,28 +1102,76 @@ fn claim_wake(woken: &mut BTreeMap<String, i64>, key: &str, now: i64) -> bool {
     true
 }
 
+/// A claim in `woken.json` held while a session starts or resumes (`note_waking`, `resume_once`).
+/// Dropping it releases the claim so a failed launch doesn't block retries for `WAKING_MS`; call
+/// `keep` once the launch is under way so the claim stays until the board sees it live.
+pub(crate) struct WakeClaim {
+    path: std::path::PathBuf,
+    key: String,
+    at: i64,
+    kept: bool,
+}
+
+impl WakeClaim {
+    pub(crate) fn keep(mut self) {
+        self.kept = true;
+    }
+}
+
+impl Drop for WakeClaim {
+    fn drop(&mut self) {
+        if !self.kept {
+            release_wake_in(&self.path, &self.key, self.at);
+        }
+    }
+}
+
+/// Claims `key` in `path` at `now` (`claim_wake`), returning a guard that releases the claim on
+/// drop unless kept (`WakeClaim::keep`), or `None` when `key` was claimed already.
+fn claim_wake_in(path: &Path, key: &str, now: i64) -> Result<Option<WakeClaim>> {
+    let mut claimed = false;
+    crate::store::change(path, WOKEN, |woken: &mut BTreeMap<String, i64>| {
+        let before = woken.clone();
+        claimed = claim_wake(woken, key, now);
+        *woken != before
+    })?;
+    Ok(claimed.then(|| WakeClaim { path: path.to_path_buf(), key: key.to_string(), at: now, kept: false }))
+}
+
+fn release_wake_in(path: &Path, key: &str, at: i64) {
+    // It didn't go on, so the next message may try again. A file that can't be changed now only
+    // keeps that one waiting out `WAKING_MS`.
+    let _ = crate::store::change(path, WOKEN, |woken: &mut BTreeMap<String, i64>| woken.get(key) == Some(&at) && woken.remove(key).is_some());
+}
+
+/// Notes in `woken.json` that `key` is starting or resuming right now (`start::move_to`,
+/// `start::move_to_folder`, `start::resume`), so an automatic wake (`resume_once`: a PR nudge or
+/// an agent message) doesn't start a second copy while its terminal or background job is booting
+/// and the board still shows it stopped. Returns a guard when it placed the claim, or `None` when
+/// `key` was claimed already (e.g. by `resume_once`) or the file couldn't be updated.
+pub(crate) fn note_waking(key: &str) -> Option<WakeClaim> {
+    match claim_wake_in(&woken_path(), key, crate::util::now_ms()) {
+        Ok(claim) => claim,
+        Err(e) => {
+            eprintln!("Couldn't note that {key} is starting: {e:#}");
+            None
+        }
+    }
+}
+
 /// Resumes the session `place` on `prompt` as Codealong does by itself, on the account's own
 /// model, as a send from its box resumes it unless you pick another. It's claimed first
 /// (`claim_wake`), so a message or news sent while another resumes it, or just after, comes again
 /// once it runs rather than resuming it twice: None when it was claimed already. The claim is only
 /// the file's lock long, so nothing waits on another session's resume.
 fn resume_once(board: &Board, cfg: &Config, session: &Session, place: Place, prompt: &str) -> Result<Option<crate::start::Resumed>> {
-    let (key, now) = (session.key.as_str(), crate::util::now_ms());
-    let mut claimed = false;
-    crate::store::change(&woken_path(), WOKEN, |woken: &mut BTreeMap<String, i64>| {
-        let before = woken.clone();
-        claimed = claim_wake(woken, key, now);
-        *woken != before
-    })?;
-    if !claimed {
+    let key = session.key.as_str();
+    let Some(claim) = claim_wake_in(&woken_path(), key, crate::util::now_ms())? else {
         return Ok(None);
-    }
+    };
     let how = crate::start::ResumeIn { place, model: None, effort: None };
-    let resumed = crate::start::resume(board, cfg, key, &how, prompt, &Sender::Codealong).inspect_err(|_| {
-        // It didn't go on, so the next message may try again. A file that can't be changed now
-        // only keeps that one waiting out `WAKING_MS`.
-        let _ = crate::store::change(&woken_path(), WOKEN, |woken: &mut BTreeMap<String, i64>| woken.get(key) == Some(&now) && woken.remove(key).is_some());
-    })?;
+    let resumed = crate::start::resume(board, cfg, key, &how, prompt, &Sender::Codealong)?;
+    claim.keep();
     Ok(Some(resumed))
 }
 
@@ -2082,6 +2132,29 @@ mod tests {
             claimed
         };
         assert!(claim(1_000) && !claim(2_000) && claim(1_000 + WAKING_MS));
+    }
+
+    /// A kept wake claim (placed when a move or resume launches) blocks a second automatic wake
+    /// until `WAKING_MS` passes; a dropped claim (a launch that failed before starting) releases
+    /// immediately; and a nested attempt while claimed returns `None` without releasing the outer
+    /// claim.
+    #[test]
+    fn wake_claim_blocks_double_launch_and_releases_on_drop() {
+        let path = crate::store::test_dir("woken-claim").join("woken.json");
+        let copy = "claude:claude:copy-1";
+        // Dropped without `keep`: launch failed, so the next wake claims it right away.
+        let failed = claim_wake_in(&path, copy, 1_000).unwrap().expect("fresh claim");
+        assert!(claim_wake_in(&path, copy, 1_500).unwrap().is_none(), "blocked while launch is in flight");
+        drop(failed);
+        // Kept: launch succeeded, so an automatic wake (PR nudge, agent message) while the
+        // terminal boots is blocked until `WAKING_MS` has passed.
+        let kept = claim_wake_in(&path, copy, 2_000).unwrap().expect("released on drop");
+        assert!(claim_wake_in(&path, copy, 2_500).unwrap().is_none(), "nested claim is None");
+        kept.keep();
+        assert!(claim_wake_in(&path, copy, 3_000).unwrap().is_none(), "kept claim stays after scope");
+        // After `WAKING_MS`, it expires and can be claimed again.
+        let later = claim_wake_in(&path, copy, 2_000 + WAKING_MS).unwrap().expect("expired");
+        later.keep();
     }
 
     /// Switching a running session's model is refused where the command would go in as a
