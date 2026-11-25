@@ -105,6 +105,7 @@ export function SessionBackdrop({ theme, vibe, intensity, place, working = false
         hasAi && (darkArt ? 'is-dark-art' : 'is-light-art'),
         working && 'is-working',
       )}
+      data-strength={intensity}
       style={layerStyle}
       aria-hidden="true"
     >
