@@ -115,11 +115,12 @@ export function SessionAgent({ session: s, account, live, resume, moves, onMove,
   }
   const sections: PickerSection[] = [];
   if (own.length > 0) sections.push({ key: s.account, head: <AccountHead name={s.account} detail={HARNESS_WORD[s.harness]} meters={null} note="Its account" now={0} />, options: own });
-  for (const to of moves && onMove ? moves.to : []) {
+  for (const t of moves && onMove ? moves.targets : []) {
+    const label = t.native ? 'Move it here' : 'Hand off here';
     sections.push({
-      key: to,
-      head: <AccountHead name={to} detail={HARNESS_WORD[s.harness]} meters={null} note={to === moves?.suggested ? 'Has room' : ''} now={0} />,
-      options: [{ id: `${MOVE}${to}`, text: `${to} move`, label: 'Move it here', detail: 'Asks first', lead: <span className="ca-picker-check" /> }],
+      key: t.account,
+      head: <AccountHead name={t.account} detail={HARNESS_WORD[t.harness]} meters={null} note={t.account === moves?.suggested ? 'Has room' : ''} now={0} />,
+      options: [{ id: `${MOVE}${t.account}`, text: `${t.account} ${HARNESS_WORD[t.harness]} move handoff`, label, detail: 'Asks first', lead: <span className="ca-picker-check" /> }],
     });
   }
 

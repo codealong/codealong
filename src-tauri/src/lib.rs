@@ -89,6 +89,7 @@ mod glass;
 mod front;
 mod ghpoll;
 mod git;
+mod handoff;
 mod harness;
 mod held;
 mod helpers;
@@ -1148,29 +1149,60 @@ async fn start_session(app: tauri::AppHandle, mirror: State<'_, view::Mirror>, s
     .await?
 }
 
-/// Moves a session to another account of its harness, or with `lane` to that worktree, as the
-/// server does it (calls.rs `move_session`). Its card on the desktop and its kept window show the
-/// copy once the board has it, so neither says it's gone meanwhile.
+/// Moves or hands off a session to another account (same harness or cross-provider), or with
+/// `lane` to that worktree, as the server does it (calls.rs `move_session`). Unless `keep` is
+/// true, its card on the desktop and its kept window follow the copy once the board has it.
 #[tauri::command]
-async fn move_session(app: tauri::AppHandle, mirror: State<'_, view::Mirror>, key: String, account: Option<String>, lane: Option<String>) -> Result<start::Started, String> {
+#[allow(clippy::too_many_arguments)]
+async fn move_session(
+    app: tauri::AppHandle,
+    mirror: State<'_, view::Mirror>,
+    key: String,
+    account: Option<String>,
+    lane: Option<String>,
+    model: Option<String>,
+    effort: Option<String>,
+    place: Option<start::Place>,
+    prompt: Option<String>,
+    keep: Option<bool>,
+) -> Result<start::Started, String> {
     let mirror = mirror.inner().clone();
+    let kept = keep.unwrap_or(false);
     blocking(move || {
-        let started: start::Started = view::call_as("move_session", serde_json::json!({ "key": key, "account": account, "lane": lane }))?;
-        // It goes on in a new terminal.
-        bring_terminal_forward(&app, &mirror, &key);
-        if let Some(copy) = started.key.clone().filter(|c| *c != key) {
-            std::thread::spawn(move || {
-                // Its terminal takes a moment to start Claude Code, which then says it's there.
-                let until = std::time::Instant::now() + std::time::Duration::from_secs(60);
-                while !mirror.read(|b| b.session(&copy).is_some()) {
-                    if std::time::Instant::now() > until {
-                        return;
-                    }
-                    std::thread::sleep(std::time::Duration::from_millis(500));
+        let started: start::Started = view::call_as(
+            "move_session",
+            serde_json::json!({ "key": key, "account": account, "lane": lane, "model": model, "effort": effort, "place": place, "prompt": prompt, "keep": keep }),
+        )?;
+        // Bring the terminal or target app forward when the new session opens in one.
+        match place {
+            Some(start::Place::Codealong | start::Place::Background) => {}
+            Some(p) => {
+                if let Some(bundle) = quick::start_app(p, &mirror.read(|b| b.apps.terminal_id.clone())) {
+                    front::bring_forward(&app, bundle);
                 }
-                desktop::follow(&app, &key, &copy);
-                kept::follow(&app, &key, &copy);
-            });
+            }
+            None if lane.is_some() => bring_terminal_forward(&app, &mirror, &key),
+            None => {
+                // Only bring the terminal forward when the started message says it went to one.
+                if started.message.as_deref().is_some_and(|m| m.contains("terminal") || m.contains(&mirror.read(|b| b.apps.terminal.clone()))) {
+                    bring_terminal_forward(&app, &mirror, &key);
+                }
+            }
+        }
+        if !kept {
+            if let Some(copy) = started.key.clone().filter(|c| *c != key) {
+                std::thread::spawn(move || {
+                    let until = std::time::Instant::now() + std::time::Duration::from_secs(60);
+                    while !mirror.read(|b| b.session(&copy).is_some()) {
+                        if std::time::Instant::now() > until {
+                            return;
+                        }
+                        std::thread::sleep(std::time::Duration::from_millis(500));
+                    }
+                    desktop::follow(&app, &key, &copy);
+                    kept::follow(&app, &key, &copy);
+                });
+            }
         }
         Ok(started)
     })

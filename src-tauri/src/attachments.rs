@@ -349,6 +349,13 @@ pub fn kinds(text: &str) -> (bool, bool) {
     (refs.iter().any(|r| r.2 == Kind::Image), refs.iter().any(|r| r.2 == Kind::File))
 }
 
+/// Whether `text` references a file inside `files_dir`, either as an attachment link (`kinds`) or
+/// directly by full path (such as a handoff transcript in `files/handoffs/`), so harnesses that
+/// take `--add-dir` allow reading it without asking.
+pub fn uses_files_dir(text: &str, files_dir: &Path) -> bool {
+    kinds(text).1 || (!files_dir.as_os_str().is_empty() && text.contains(files_dir.to_string_lossy().as_ref()))
+}
+
 /// How a start hands a file to the agent.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Style {

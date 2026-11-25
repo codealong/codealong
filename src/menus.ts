@@ -11,7 +11,8 @@
 // back where GitHub refuses the merge) is here.
 
 import { useEffect, useState } from 'react';
-import { chromeProfiles, closeSession, desktopPins, expandAttachments, forkSession, getAccounts, inPreview, moveSession, moveSessionTo, onDesktopPins, openInChrome, openUrl, ownSessions, pinToDesktop, redrawSessionBackground, resumeSession, sessionCancel, sessionWindow, signIn, stopListening, setPrNudge, setPrPrimary, setReusable, showQuick, unpinFromDesktop, type MergeDone, NONE_CHOSEN, type HelpersChosen } from './api';
+import { chromeProfiles, closeSession, desktopPins, expandAttachments, forkSession, getAccounts, inPreview, moveSession, moveSessionTo, onDesktopPins, openInChrome, openUrl, ownSessions, pinToDesktop, redrawSessionBackground, resumeSession, sessionCancel, sessionWindow, signIn, stopListening, setPrNudge, setPrPrimary, setReusable, showQuick, unpinFromDesktop, type MergeDone, type MoveOptions, NONE_CHOSEN, type HelpersChosen } from './api';
+import { moveSubmenuLabel, moveTargetsFor, type MoveTarget } from './handoff';
 import { archiveAhead, asideAhead, doneAhead, labelAhead, quietAhead, raiseAhead, seenAhead, sendAhead, sentWorthSaying, unreadAhead } from './ahead';
 import { copyText } from './clipboard';
 import { showContextMenu, type MenuAction, type MenuGroup, type MenuImage, type MenuSpec } from './contextMenu';
@@ -19,7 +20,7 @@ import { shortOf } from './devices';
 import { dueChoices } from './due';
 import { count } from './format';
 import { folderMenu, openInMenu, opensInEditor, terminalTarget, type AppIcons, type Apps } from './editors';
-import { EDITS, HARNESS_WORD, MOVES_ACCOUNTS, MOVES_FOLDERS, renames } from './harness';
+import { EDITS, HARNESS_WORD, MOVES_FOLDERS, renames } from './harness';
 import { chromeLabel, openLabel } from './open';
 import { asideable, closable, endedOnApiError, endedSignedOut, exitsItsOwnWay, seenable, stoppable, unfinished, unreadable, waitsInBackground } from './lanes';
 import { chordPressed, QUEUE_CHORDS, type Key } from './queue';
@@ -465,15 +466,17 @@ export interface SessionActions {
   copyResume?: MenuAction;
 }
 
-/** Where a session can move to under another account of its harness, as Move to has them. */
+/** Where a session can move or hand off to under another account (same harness or another provider). */
 export interface AccountMoves {
-  /** The other accounts of its harness, signed in and on. */
+  /** The other accounts, signed in and on (same harness first, then other providers). */
   to: string[];
+  /** Each target account with its harness and whether it takes the native lossless fast path. */
+  targets: MoveTarget[];
   /** The one a usage limit's stop has room on (`moveOn`). */
   suggested: string | null;
   /** The copy is told to carry on where a usage limit stopped it (actions.rs `move_session`). */
   goesOn: boolean;
-  run: (to: string) => void;
+  run: (to: string, opts?: MoveOptions) => void;
 }
 
 /** What Try again sends a session whose turn an API error ended, as yours (`tryAgain`): it says
@@ -535,10 +538,21 @@ export function sessionActions(lane: Lane, s: Session, can: SessionCan): Session
       report.error(errorText(e));
     });
   };
-  const movable = here && !movedHere.has(s.key);
-  // Moving opens a terminal on this Mac, as a fork does, and closes the session's own.
-  const moveTo = movable && s.resumeCommand && MOVES_ACCOUNTS.includes(s.harness) ? accounts.filter((a) => a.harness === s.harness && a.name !== s.account && a.signedIn && !a.disabled).map((a) => a.name) : [];
-  const move = (to: string) => moved(`Moving ${s.title} to ${to}…`, () => moveSession(s.key, to), true);
+  const movable = here && !movedHere.has(s.key) && !s.visitor;
+  // Any signed-in, enabled account on this Mac can receive a move or cross-provider handoff.
+  const moveTargets = movable ? moveTargetsFor(s, accounts) : [];
+  const moveTo = moveTargets.map((t) => t.account);
+  const move = (to: string, opts?: MoveOptions) => {
+    if (opts?.keep) {
+      void busy(`Handing off ${s.title} to ${to}…`, moveSession(s.key, to, opts))
+        .then((started) => {
+          if (started?.message) report.info(started.message);
+        })
+        .catch((e: unknown) => report.error(errorText(e)));
+      return;
+    }
+    moved(`Moving ${s.title} to ${to}…`, () => (opts ? moveSession(s.key, to, opts) : moveSession(s.key, to)), true);
+  };
   const moveItem = (to: string, label: string): MenuAction => ({ label, run: () => move(to) });
   // Another folder: it's closed where it runs and goes on there as itself, so it stays on the
   // lists it's on, unless its harness copied it.
@@ -657,14 +671,14 @@ export function sessionActions(lane: Lane, s: Session, can: SessionCan): Session
     fork: s.resumeCommand ? { label: 'Fork in terminal', run: () => void fork() } : undefined,
     edit: EDITS.includes(s.harness) ? edit : undefined,
     move:
-      moveTo.length > 1
-        ? { label: `Move${goesOn} to`, items: moveTo.map((to) => moveItem(to, to === suggested ? `${to} (has room)` : to)) }
-        : moveTo.length === 1
-          ? moveItem(moveTo[0], `Move to ${moveTo[0]}${goesOn}`)
+      moveTargets.length > 1
+        ? { label: `Move${goesOn} to`, items: moveTargets.map((t) => moveItem(t.account, moveSubmenuLabel(t, s.harness, suggested))) }
+        : moveTargets.length === 1
+          ? moveItem(moveTargets[0].account, `Move to ${moveSubmenuLabel(moveTargets[0], s.harness, null)}${goesOn}`)
           : undefined,
     moveFolder: movesFolders ? folderMoves(lane, can.worktrees ?? [], (to) => void moveFolder(to)) : undefined,
     moveOn: suggested ? moveItem(suggested, `Move to ${suggested} and go on`) : undefined,
-    moveAccounts: moveTo.length > 0 ? { to: moveTo, suggested, goesOn: !!goesOn, run: move } : undefined,
+    moveAccounts: moveTargets.length > 0 ? { to: moveTo, targets: moveTargets, suggested, goesOn: !!goesOn, run: move } : undefined,
     carryOn: carryTo ? { label: 'Carry on', run: () => void resume(carryTo) } : undefined,
     // Sent as the box sends it, shown in the conversation at once; what happened is said only
     // where it's news (opened to paste, say). One that isn't running goes on where Carry on would

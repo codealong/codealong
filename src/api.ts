@@ -1028,11 +1028,28 @@ export async function forkSession(key: string, { background = false, prompt = ''
   return invoke<Started | null>('fork_session', { key, background, prompt, from, side });
 }
 
-/** Moves a session to `account`, another account of its harness (start.rs `move_to`): a copy goes
- *  on in a new terminal under that account, and the session is closed and archived. */
-export async function moveSession(key: string, account: string): Promise<Started | null> {
+/** Optional launch and lifecycle settings for a cross-provider or customized handoff. */
+export interface MoveOptions {
+  model?: string | null;
+  effort?: string | null;
+  place?: StartPlace | null;
+  prompt?: string;
+  /** Keep the original session running and unarchived (non-destructive handoff copy). */
+  keep?: boolean;
+}
+
+/** Moves or hands off a session to `account` (same harness or cross-provider, handoff.rs):
+ *  same-harness Claude Code moves keep lossless `--resume --fork-session`; every other pair or
+ *  customized handoff launches a fresh session seeded with a handoff brief and transcript file. */
+export async function moveSession(key: string, account: string, opts?: MoveOptions): Promise<Started | null> {
   if (!inTauri) throw new Error('Moving a session needs the app.');
-  return invoke<Started | null>('move_session', { key, account });
+  const params: Record<string, unknown> = { key, account };
+  if (opts?.model) params.model = opts.model;
+  if (opts?.effort) params.effort = opts.effort;
+  if (opts?.place) params.place = opts.place;
+  if (opts?.prompt?.trim()) params.prompt = opts.prompt.trim();
+  if (opts?.keep) params.keep = true;
+  return invoke<Started | null>('move_session', params);
 }
 
 /** Moves a session to the worktree `laneId` (start.rs `move_to_folder`), or to a new chat when

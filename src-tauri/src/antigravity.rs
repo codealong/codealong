@@ -2198,7 +2198,8 @@ impl crate::harness::Adapter for Antigravity {
     /// each) so it reads them without asking.
     fn start_in_terminal(&self, account: &AccountCfg, ask: &crate::harness::StartAsk) -> crate::harness::Typed {
         use crate::start::{FILES_VAR, IMAGES_VAR, PROMPT_VAR};
-        let (has_images, has_files) = crate::attachments::kinds(ask.prompt);
+        let (has_images, _) = crate::attachments::kinds(ask.prompt);
+        let has_files = crate::attachments::uses_files_dir(ask.prompt, ask.files_dir);
         let prompt = crate::attachments::expand_in(ask.prompt, ask.images_dir, ask.files_dir, crate::attachments::Style::Path);
         let prompt = prompt.trim();
         let mut input = cli_command(account).to_string();
@@ -2307,7 +2308,8 @@ impl crate::harness::Adapter for Antigravity {
     /// conversation and waits for one.
     fn resume(&self, account: &AccountCfg, s: &Session, ask: &crate::harness::StartAsk) -> anyhow::Result<(String, Vec<(String, String)>)> {
         use crate::start::{FILES_VAR, IMAGES_VAR, PROMPT_VAR};
-        let (has_images, has_files) = crate::attachments::kinds(ask.prompt);
+        let (has_images, _) = crate::attachments::kinds(ask.prompt);
+        let has_files = crate::attachments::uses_files_dir(ask.prompt, ask.files_dir);
         let prompt = crate::attachments::expand_in(ask.prompt, ask.images_dir, ask.files_dir, crate::attachments::Style::Path).trim().to_string();
         let mut input = format!("{} --conversation {}", cli_command(account), s.id);
         let mut env = Vec::new();

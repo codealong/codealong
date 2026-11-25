@@ -1178,7 +1178,8 @@ impl crate::harness::Adapter for ClaudeCode {
     /// several folders, so each comes before `--session-id`, which ends it.
     fn start_in_terminal(&self, account: &AccountCfg, ask: &crate::harness::StartAsk) -> crate::harness::Typed {
         use crate::start::{FILES_VAR, IMAGES_VAR, PROMPT_VAR, SESSION_VAR};
-        let (has_images, has_files) = crate::attachments::kinds(ask.prompt);
+        let (has_images, _) = crate::attachments::kinds(ask.prompt);
+        let has_files = crate::attachments::uses_files_dir(ask.prompt, ask.files_dir);
         let prompt = crate::attachments::expand_in(ask.prompt, ask.images_dir, ask.files_dir, crate::attachments::Style::Mention);
         let prompt = prompt.trim();
         let key = Session::key_for(Harness::Claude, &account.name, ask.session_id);

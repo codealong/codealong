@@ -350,8 +350,32 @@ describe('sessionMenu', () => {
       // A job whose ID the service didn't say: it's archived all the same, with no copy to show.
       to.mockResolvedValue({ key: null, message: 'Moved “Fix login” to c2: it goes on as a background job.' });
       expect(await run('claude:c:13', { moving: noop })).toEqual({ left: ['archived'], copies: [null] });
+      // Cross-provider accounts join the submenu with their provider name; keeping the original open
+      // hands off without marking the session moved or leaving the list.
+      const codex = { name: 'cx', harness: 'codex' as const, home: '~/.codex', command: 'codex', makesPages: false, copiesSettings: false, folderExists: true, signedIn: true, email: null, signInNote: null };
+      await readAccounts([c2, codex], later + 122_000);
+      const multi = sessionActions(lane(), session({ key: 'claude:c:14' }), base);
+      expect(multi.move && 'items' in multi.move ? labels(multi.move.items) : []).toEqual(['c2', 'cx · Codex']);
+      expect(multi.moveAccounts?.targets.map((t) => [t.account, t.harness, t.native])).toEqual([
+        ['c2', 'claude', true],
+        ['cx', 'codex', false],
+      ]);
+      const leftKept: string[] = [];
+      const keptInfo: string[] = [];
+      to.mockResolvedValue({ key: 'codex:cx:1', message: 'Handed off “Fix login” to cx.' });
+      const keptActs = sessionActions(lane(), session({ key: 'claude:c:15' }), {
+        ...base,
+        report: { error: (m) => keptInfo.push(`error: ${m}`), info: (m) => keptInfo.push(m) },
+        left: (d) => leftKept.push(d),
+      });
+      keptActs.moveAccounts?.run('cx', { keep: true, prompt: 'Continue in Codex' });
+      await settled();
+      expect(to).toHaveBeenLastCalledWith('claude:c:15', 'cx', { keep: true, prompt: 'Continue in Codex' });
+      expect(leftKept).toEqual([]);
+      expect(keptInfo).toEqual(['Handed off “Fix login” to cx.']);
+      expect(sessionActions(lane(), session({ key: 'claude:c:15' }), base).move).toBeDefined();
     } finally {
-      await readAccounts([], later + 122_000);
+      await readAccounts([], later + 183_000);
       vi.useRealTimers();
     }
   });

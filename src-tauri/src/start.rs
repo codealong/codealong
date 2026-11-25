@@ -334,29 +334,46 @@ pub fn refused_accounts(sessions: &[Session], now: i64) -> std::collections::Has
     refused.into_iter().filter(|&(acct, at)| !through(acct, at)).map(|(acct, _)| acct.to_string()).collect()
 }
 
-/// For each session a usage limit stopped, the account it could move to and go on
-/// (`SessionLimit::move_to`): another of its harness's accounts, chosen as Auto chooses
-/// (`auto_pick`) among those with room for its model by their meters and that no limit has
-/// stopped by what their sessions say (`refused_accounts`). None when no account has room,
-/// its harness can't move sessions (`moves`), or the limit has lifted, when it can go on where it is.
-/// `may_take` says whether a session on one account may go on at another: never out of its
-/// boundary group (boundary.rs), whose conversation would go with it.
-pub fn limit_moves(sessions: &mut [Session], accounts: &[AccountCfg], buffer: Option<u8>, usages: &[Usage], moves: impl Fn(Harness) -> bool, may_take: impl Fn(&str, &str) -> bool, now: i64) {
+/// For each session a usage limit stopped, the account it could move or hand off to and go on
+/// (`SessionLimit::move_to`): first another account of its own harness with room (lossless move),
+/// else any other startable account with room (cross-provider handoff), chosen as Auto chooses
+/// (`auto_pick`) among those with room by their meters and that no limit has stopped by what
+/// their sessions say (`refused_accounts`). None when no account has room, or the limit has
+/// lifted, when it can go on where it is. `can_target` says which accounts can start sessions on
+/// this machine. `may_take` says whether a session on one account may go on at another: never out
+/// of its boundary group (boundary.rs), whose conversation would go with it.
+pub fn limit_moves(sessions: &mut [Session], accounts: &[AccountCfg], buffer: Option<u8>, usages: &[Usage], can_target: impl Fn(&AccountCfg) -> bool, may_take: impl Fn(&str, &str) -> bool, now: i64) {
     let refused = refused_accounts(sessions, now);
     for s in sessions.iter_mut() {
         let Some(limit) = s.limit.as_mut() else { continue };
         limit.move_to = None;
-        if !moves(s.harness) || limit.resets_at.is_some_and(|r| r <= now) {
+        if limit.resets_at.is_some_and(|r| r <= now) {
             continue;
         }
         let model = limit.model.as_deref();
-        let candidates: Vec<Candidate> = accounts
-            .iter()
-            .filter(|a| a.name != s.account && !a.disabled && Harness::from_config(&a.harness) == s.harness && !refused.contains(&a.name) && may_take(&s.account, &a.name))
-            .filter(|a| !usages.iter().any(|u| u.account == a.name && near_limit(u, model, a.usage_cap)))
-            .map(|a| Candidate { name: &a.name, preferred: true, model, usage_cap: a.usage_cap, buffer })
-            .collect();
-        limit.move_to = auto_pick(&candidates, usages, now).map(|p| p.account);
+        let eligible = |same_harness: bool| -> Vec<Candidate> {
+            let m = if same_harness { model } else { None };
+            accounts
+                .iter()
+                .filter(|a| {
+                    a.name != s.account
+                        && !a.disabled
+                        && (Harness::from_config(&a.harness) == s.harness) == same_harness
+                        && !refused.contains(&a.name)
+                        && can_target(a)
+                        && may_take(&s.account, &a.name)
+                })
+                .filter(|a| !usages.iter().any(|u| u.account == a.name && (u.needs_sign_in || near_limit(u, m, a.usage_cap))))
+                .map(|a| Candidate { name: &a.name, preferred: true, model: m, usage_cap: a.usage_cap, buffer })
+                .collect()
+        };
+        let same = eligible(true);
+        limit.move_to = auto_pick(&same, usages, now)
+            .or_else(|| {
+                let other = eligible(false);
+                auto_pick(&other, usages, now)
+            })
+            .map(|p| p.account);
     }
 }
 
@@ -1164,10 +1181,9 @@ pub fn plan_now(cfg: &Config, account: &AccountCfg, place: Place, folder: &Path,
 
 /// Starts a session: checks the choice against the board and the config, then hands it to the
 /// terminal or the app, the way the account's harness starts one. Also returns whether the start
-/// actually opened a terminal tab (`opens_terminal`), so `origins::started` only marks terminal
-/// starts as waiting in a terminal (never a background service like `claude --bg`, or a
-/// locked-screen fallback to Background/Codealong).
-fn start(board: &Board, cfg: &Config, spec: &StartSpec) -> Result<(Started, bool)> {
+/// actually opened a terminal tab (`opens_terminal`) and the actual `Place` it went to (after
+/// locked-screen fallback), so callers (`origins::started`, `handoff::execute`) know both.
+pub(crate) fn launch(board: &Board, cfg: &Config, spec: &StartSpec) -> Result<(Started, bool, Place)> {
     let lane = board.lanes.iter().find(|l| l.id == spec.lane_id).ok_or_else(|| anyhow!("That worktree just changed. Try again."))?;
     let account = cfg.accounts.iter().find(|a| a.name == spec.account).ok_or_else(|| anyhow!("There's no account named {}.", spec.account))?;
     account.ensure_on()?;
@@ -1179,7 +1195,12 @@ fn start(board: &Board, cfg: &Config, spec: &StartSpec) -> Result<(Started, bool
     let (place, instead) = place_now(account, spec.place, offered.as_deref().unwrap_or_default(), cfg)?;
     let started = start_at(board, cfg, spec, lane, account, place)?;
     let in_terminal = opens_terminal(place, adapter_of(account).runs_in_background());
-    Ok((Started { message: with_instead(started.message, instead), ..started }, in_terminal))
+    Ok((Started { message: with_instead(started.message, instead), ..started }, in_terminal, place))
+}
+
+fn start(board: &Board, cfg: &Config, spec: &StartSpec) -> Result<(Started, bool)> {
+    let (started, in_terminal, _) = launch(board, cfg, spec)?;
+    Ok((started, in_terminal))
 }
 
 /// Refuses an agent's start (`spec.from.is_some()`) when the resolved account is currently at an
@@ -1963,28 +1984,32 @@ mod tests {
     }
 
     fn moves_of(sessions: &mut [Session], usages: &[Usage]) -> Vec<Option<String>> {
-        limit_moves(sessions, &claude_accounts(), None, usages, |h| h == Harness::Claude, |_, _| true, NOW);
+        limit_moves(sessions, &claude_accounts(), None, usages, |_| true, |_, _| true, NOW);
         sessions.iter().map(|s| s.limit.as_ref().and_then(|l| l.move_to.clone())).collect()
     }
 
     #[test]
     fn a_limited_session_moves_to_another_account_of_its_harness_with_room() {
         let mut s = [limited("claude:claude:a", NOW - MIN, Some(NOW + HOUR))];
-        // claude3's week resets soonest, as Auto would start it; codex isn't Claude's.
+        // claude3's week resets soonest, as Auto would start it; same-harness accounts come before codex.
         let usages = [usage("claude", 100.0, 60.0, Some(30)), usage("claude2", 20.0, 40.0, Some(100)), usage("claude3", 10.0, 50.0, Some(20))];
         assert_eq!(moves_of(&mut s, &usages), [Some("claude3".to_string())]);
         // One near a limit by its meters has no room: claude3's session is at 95%.
         let usages = [usage("claude2", 20.0, 40.0, Some(100)), usage("claude3", 95.0, 50.0, Some(20))];
         assert_eq!(moves_of(&mut s, &usages), [Some("claude2".to_string())]);
-        // None has room: nothing's offered.
+        // When no same-harness account has room, falls back to another provider with room (codex).
         let usages = [usage("claude2", 92.0, 40.0, Some(100)), usage("claude3", 95.0, 50.0, Some(20))];
-        assert_eq!(moves_of(&mut s, &usages), [None]);
+        assert_eq!(moves_of(&mut s, &usages), [Some("codex".to_string())]);
+        // When every account is near a limit (or signed out), nothing's offered.
+        let codex_full = Usage { account: "codex".into(), harness: Harness::Codex, ..usage("codex", 95.0, 50.0, Some(20)) };
+        let all_full = [usage("claude2", 92.0, 40.0, Some(100)), usage("claude3", 95.0, 50.0, Some(20)), codex_full];
+        assert_eq!(moves_of(&mut s, &all_full), [None]);
         // A limit that has lifted goes on where it is.
         let mut lifted = [limited("claude:claude:a", NOW - 3 * HOUR, Some(NOW - HOUR))];
         assert_eq!(moves_of(&mut lifted, &[usage("claude2", 20.0, 40.0, None)]), [None]);
-        // A harness that can't move sessions isn't offered one.
+        // Non-Claude harnesses (Codex, Antigravity) also suggest an account with room for cross-provider handoff.
         let mut codex = [Session { harness: Harness::Codex, account: "codex".into(), ..limited("codex:codex:t", NOW - MIN, None) }];
-        assert_eq!(moves_of(&mut codex, &[]), [None]);
+        assert_eq!(moves_of(&mut codex, &[usage("claude2", 20.0, 40.0, Some(100)), usage("claude3", 95.0, 50.0, Some(20))]), [Some("claude2".to_string())]);
     }
 
     #[test]
@@ -2367,10 +2392,10 @@ mod tests {
         accounts[2].disabled = true;
         let mut s = [limited("claude:claude:a", NOW - MIN, Some(NOW + HOUR))];
         let usages = [usage("claude", 100.0, 60.0, Some(30)), usage("claude2", 20.0, 40.0, Some(100)), usage("claude3", 10.0, 50.0, Some(20))];
-        limit_moves(&mut s, &accounts, None, &usages, |h| h == Harness::Claude, |_, _| true, NOW);
+        limit_moves(&mut s, &accounts, None, &usages, |_| true, |_, _| true, NOW);
         assert_eq!(s[0].limit.as_ref().and_then(|l| l.move_to.as_deref()), Some("claude2"));
         // A session in a boundary group moves only where its conversation may go (boundary.rs).
-        limit_moves(&mut s, &accounts, None, &usages, |h| h == Harness::Claude, |_, to| to != "claude2", NOW);
+        limit_moves(&mut s, &accounts, None, &usages, |_| true, |_, to| to != "claude2" && to != "codex", NOW);
         assert_eq!(s[0].limit.as_ref().and_then(|l| l.move_to.as_deref()), None);
 
         let stopped = crate::model::Session { live: false, ..crate::fixtures::session("stopped") };

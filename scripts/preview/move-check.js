@@ -55,10 +55,11 @@
       await until(function () { return menus() > n; }, 3000);
       var items = window.__menu();
       var labels = items.map(function (x) { return x[0]; });
-      var move = items.filter(function (x) { return x[0] === 'Move to ' + other; })[0];
+      var move = items.filter(function (x) { return x[0] === 'Move to ' + other || x[0] === 'Move to › ' + other; })[0];
+      var firstMove = labels.findIndex(function (l) { return l === 'Move to ' + other || l.indexOf('Move to › ') === 0; });
       check('its menu lists Move to ' + other, !!move, labels.join(' | '));
-      check('right after Fork in terminal', labels.indexOf('Move to ' + other) === labels.indexOf('Fork in terminal') + 1, labels.join(' | '));
-      check('and not its own account', labels.indexOf('Move to ' + picked.account) < 0);
+      check('right after Fork in terminal', firstMove === labels.indexOf('Fork in terminal') + 1, labels.join(' | '));
+      check('and not its own account', labels.indexOf('Move to ' + picked.account) < 0 && labels.indexOf('Move to › ' + picked.account) < 0);
       if (move) {
         move[1]();
         await until(function () { return calls('move_session').length > 0; }, 3000);

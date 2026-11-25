@@ -398,42 +398,59 @@ answers as your message, while the session itself stays as it was, as with Edit 
 the conversation goes back, and the copy runs In Codealong. The copy doesn't ask the questions
 again itself: the dialog asks them first, and the copy goes on with your answers. In the copy the call that asked shows as cut off, followed by your answers.
 
-#### Move to another account
+#### Move to another account or agent
 
-Move to, in a Claude Code session's right-click menu, moves it to another of your Claude Code
-accounts (one that's signed in). The chip at the right of the reply box's foot, which starts with
-its account, lists them too, each with a *Move it here* line under its own account's: picking one
-asks first, in a dialog that says what the move does, and Move there moves it. The conversation goes on in a new terminal under that account (a
-background job's as a job there), carrying the session's title with `--name` so Claude Code keeps
-it rather than auto-titling the copy onto something else, and the session is closed and archived;
-its panel and the copy's say where it went, and the old session's row shows a *Moved to* chip
-that jumps to the copy. The copy is a session of its own, with a new ID, and takes the session's place on
-its todos, among the pinned sessions, on its card on the desktop and in its kept window. Moved from
+Move to, in any session's right-click menu, moves it to another signed-in account — on the same
+provider or a different one (Claude Code, Codex, OpenCode, Antigravity or Cursor). The chip at the
+right of the reply box's foot, which starts with its account, lists every eligible account under its
+own, with *Move it here* for same-harness lossless moves and *Hand off here* for cross-provider
+handoffs: picking one opens the move dialog, where you can confirm the target account, choose where
+it opens, pick a model or effort, add an optional next-step note, or check **Keep this session
+open** to start a linked handoff copy without closing or archiving the original.
+
+Same-harness Claude Code default moves take the lossless native path: the conversation goes on in a
+new terminal under that account (a background job's as a job there), carrying the session's title
+with `--name` so Claude Code keeps it rather than auto-titling the copy onto something else.
+Cross-provider moves, non-default options, or kept handoffs build a structured handoff brief (goal,
+touched files, recent errors, compacted timeline and high-fidelity recent turns) and write the full
+cleaned Markdown transcript to Codealong's files folder (never touching your repo) so the new agent
+can read earlier details on demand; chained handoffs across providers unwrap prior handoff headers
+so context stays flat.
+
+When moving without keeping the original open, the session is closed and archived; its panel and the
+copy's say where it went, and the old session's row shows a *Moved to* chip that jumps to the copy.
+The copy is a session of its own, with a new ID, and takes the session's place on its todos, among
+the pinned sessions, on its card on the desktop, in its kept window, on its terminals and on its
+schedules (including when the target harness assigns its ID only after launching). Moved from
 its panel in Sessions, the panel stays on it while it moves and then shows the copy, selected in the
 list, rather than going on to the next that waits on you; a PR opened from its chip meanwhile stays,
 its way back going to the copy. A session moving, or moved, offers no second move in the window it
-was moved from, so a double-click doesn't make two copies. Claude Code
+was moved from, so a double-click doesn't make two copies. For native Claude Code moves, Claude Code
 writes nothing of the copy until you send it something, so until then it shows the conversation it
 was moved with; its terminal closed before then, it stays on the board, stopped, and opening it or
 sending it a message makes it again from that conversation. A move is noted before the copy starts,
 and a terminal that doesn't open leaves the session where it was. A turn it's taking is stopped
 first, so the copy goes on from where it was interrupted; a command its last turn left running in
 the background stays behind. A message sent to the old session afterwards, from a window or another
-agent's `codealong session send`, is turned away with the copy named, and `codealong session show`
-says where it moved. The first reply there reads the whole conversation again, since the old
+agent's `codealong session send`, is turned away with the copy named (unless it was handed off with
+**Keep this session open**), and `codealong session show` says where it moved. From the command
+line, `codealong session handoff <key> --to <account>` hands off any session (`--keep`, `--model`,
+`--effort`, `--in`, `--dry-run`). The first reply there reads the conversation again, since the old
 account's prompt cache doesn't carry over.
 
 #### Usage limits
 
 A session whose turn its account's usage limit stopped says so (Limit, with which limit and when it
-lifts, from what Claude Code or Antigravity wrote). A Claude Code session's panel offers to move it
-to the account with room: one of its harness's other accounts, chosen as Auto chooses, that isn't
-near a limit by its meters and whose own sessions weren't refused since they last got through (a
-spend limit shows on no meter).
+lifts, from what Claude Code or Antigravity wrote). Its panel offers to move it to an account with
+room: another account of its own harness first, chosen as Auto chooses, that isn't near a limit by
+its meters and whose own sessions weren't refused since they last got through (a spend limit shows
+on no meter), or a signed-in account of another provider as a one-click handoff suggestion when no
+same-harness account has room.
 Where none has room, or the limit has lifted, the box says Move… instead, which asks which account
-to move it to. Moved, it's told to carry on where it stopped. `[limits] when_hit = "move"` (Settings › Automation)
-moves it there by itself, as soon as it stops; a session moved there that stops again is offered a
-move rather than moved back.
+or agent to move or hand off to (API error banners offer Move… too). Moved, it's told to carry on
+where it stopped. `[limits] when_hit = "move"` (Settings › Automation) moves it automatically only
+for same-harness native moves, as soon as it stops; cross-provider suggestions stay manual, and a
+session moved there that stops again is offered a move rather than moved back.
 
 A session still stopped at its limit, and still open where it stopped, is told to carry on a few
 minutes after the limit lifts, and its Limit says so. One Codealong runs itself stays open until you

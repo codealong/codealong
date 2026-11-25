@@ -2923,6 +2923,17 @@ Commands:
               session's and starts on PROMPT in its place, as Edit from here on a
               message in Codealong does (Claude Code and Codex copies then run in
               Codealong). Prints the copy's key when its harness says it at once
+  handoff     Hand off or move a session to another account or provider (Claude Code,
+              Codex, OpenCode, Antigravity, Cursor). Same-harness Claude Code moves use
+              native lossless resume when moving with default settings; every other
+              handoff writes the full Markdown transcript to Codealong's files folder
+              and starts a fresh session in the same worktree seeded with a tiered
+              handoff brief (workspace, PR, todos, files touched, failures, original
+              goal, compacted earlier turns, and verbatim recent turns). Respects
+              boundary groups. With --keep, the original session stays open; without it,
+              the original is closed and archived and its todos, labels, pin and
+              schedules move to the new session. With --dry-run, prints the handoff plan
+              and prompt without launching anything
   help        Print this message or the help of the given subcommand(s)
 
 Options:
@@ -3732,6 +3743,61 @@ Options:
 
       --verbose
           Say on stderr whether Codealong's server or the files answered
+
+  -h, --help
+          Print help
+```
+
+## codealong session handoff
+
+```
+Hand off or move a session to another account or provider (Claude Code, Codex, OpenCode,
+Antigravity, Cursor). Same-harness Claude Code moves use native lossless resume when
+moving with default settings; every other handoff writes the full Markdown transcript to
+Codealong's files folder and starts a fresh session in the same worktree seeded with a
+tiered handoff brief (workspace, PR, todos, files touched, failures, original goal,
+compacted earlier turns, and verbatim recent turns). Respects boundary groups. With
+--keep, the original session stays open; without it, the original is closed and archived
+and its todos, labels, pin and schedules move to the new session. With --dry-run, prints
+the handoff plan and prompt without launching anything
+
+Usage: codealong session handoff [OPTIONS] --to <ACCOUNT> <KEY> [PROMPT]
+
+Arguments:
+  <KEY>
+          The session: its key, its id, a unique start of its id, or `me`
+
+  [PROMPT]
+          Optional instruction for what the new session should do next
+
+Options:
+      --json
+          JSON output. The default when stdout isn't a terminal
+
+      --to <ACCOUNT>
+          Target account name in config.toml (same or different provider)
+
+      --model <MODEL>
+          Model to start on, where the target harness takes one
+
+      --table
+          Tables, even when piped
+
+      --effort <LEVEL>
+          Effort level to start with, where the target harness takes one
+
+      --verbose
+          Say on stderr whether Codealong's server or the files answered
+
+      --in <PLACE>
+          Where to start: terminal, background, codealong, claude-app or codex-app
+
+      --keep
+          Keep the source session open and unarchived instead of closing and archiving
+          it
+
+      --dry-run
+          Print the handoff plan and prompt without launching anything
 
   -h, --help
           Print help
