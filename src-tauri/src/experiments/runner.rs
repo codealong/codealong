@@ -15,7 +15,7 @@ use crate::config::{AccountCfg, Config};
 use crate::engine::Handle;
 use crate::github::Verdict;
 use crate::model::{Board, Session, Status};
-use crate::start::{Place, StartSpec, Started};
+use crate::start::{Place, StartSpec};
 use crate::util::now_ms;
 use crate::worktree;
 
@@ -23,15 +23,13 @@ use super::{build_comparisons, compute_recommendation, folder, gitops, prompts, 
 
 /// How often the experiment runner checks active runs.
 const TICK: Duration = Duration::from_secs(5);
-/// If a newly created worktree lane hasn't appeared on the board after this long, fail the trial.
-const PREPARE_TIMEOUT_MS: i64 = 2 * 60_000;
 
 /// What a single tick decides to execute off the lock.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Job {
     CheckBaseGate { run_id: String },
     PrepareWorktree { run_id: String, trial_id: String },
-    StartWorker { run_id: String, trial_id: String, lane_id: String },
+    StartWorker { run_id: String, trial_id: String },
     FinishWorker { run_id: String, trial_id: String },
     FinishReview { run_id: String, trial_id: String },
     FinishFix { run_id: String, trial_id: String },
@@ -65,7 +63,6 @@ impl Job {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Note {
     VoidTrial { run_id: String, trial_id: String, reason: String },
-    FailTrial { run_id: String, trial_id: String, reason: String },
     FlagPr { run_id: String, trial_id: String },
     CountInterruption { run_id: String, trial_id: String },
     BeginJudging { run_id: String, comparisons: Vec<PairComparison> },
@@ -73,14 +70,15 @@ pub enum Note {
 }
 
 /// Whether `s`'s turn ended at or after `at`, excluding cut-off turns, usage limits, errors,
-/// permission waits and background commands still running.
+/// permission waits and background commands still running. Allows 1s of slack for harnesses that
+/// truncate timestamps to whole seconds.
 pub(crate) fn turn_ended(s: &Session, at: i64) -> bool {
     let ended = match s.status {
         Status::Unread | Status::Idle | Status::Stopped => true,
         Status::Needs => s.asks,
         Status::Working | Status::Error => false,
     };
-    ended && s.last_activity >= at && !s.cut_short() && s.background.is_none()
+    ended && s.last_activity >= at - 1_000 && !s.cut_short() && s.background.is_none()
 }
 
 fn find_session<'a>(board: &'a Board, key: &str) -> Option<&'a Session> {
@@ -90,16 +88,6 @@ fn find_session<'a>(board: &'a Board, key: &str) -> Option<&'a Session> {
 fn session_has_pr(board: &Board, key: &str) -> bool {
     board.lanes.iter().any(|l| l.pr.is_some() && l.sessions.iter().any(|s| s.key == key))
         || board.prs.iter().any(|p| p.sessions.iter().any(|ps| ps.key == key))
-}
-
-fn find_lane_id(board: &Board, worktree: &str) -> Option<String> {
-    let want = Path::new(worktree);
-    let canon = dunce::canonicalize(want).ok();
-    board.lanes.iter().find(|l| {
-        !l.starts_chats
-            && l.device.is_none()
-            && (l.path == worktree || canon.as_deref().is_some_and(|c| Path::new(&l.path) == c || dunce::canonicalize(&l.path).ok().as_deref() == Some(c)))
-    }).map(|l| l.id.clone())
 }
 
 /// Pure scheduler step over `runs` and `board`, tested directly on made-up clocks.
@@ -140,12 +128,8 @@ pub fn plan(runs: &[Run], board: &Board, busy: &HashSet<String>, gate_busy: bool
                     }
                     match t.stage {
                         TrialStage::Preparing => {
-                            if let Some(wt) = t.worktree.as_deref() {
-                                if let Some(lane_id) = find_lane_id(board, wt) {
-                                    jobs.push(Job::StartWorker { run_id: run.id.clone(), trial_id: t.id.clone(), lane_id });
-                                } else if t.times.started_at.is_some_and(|s| now - s > PREPARE_TIMEOUT_MS) {
-                                    notes.push(Note::FailTrial { run_id: run.id.clone(), trial_id: t.id.clone(), reason: "Worktree lane never appeared on the board.".into() });
-                                }
+                            if t.worktree.is_some() {
+                                jobs.push(Job::StartWorker { run_id: run.id.clone(), trial_id: t.id.clone() });
                             }
                         }
                         TrialStage::Working | TrialStage::Fixing => {
@@ -275,14 +259,6 @@ pub fn apply_notes(file: &mut StoreFile, notes: &[Note]) -> bool {
                     changed = true;
                 }
             }
-            Note::FailTrial { run_id, trial_id, reason } => {
-                if let Some(t) = find_trial_mut(file, run_id, trial_id) {
-                    t.stage = TrialStage::Failed;
-                    t.error = Some(reason.clone());
-                    t.times.finished_at = Some(now_ms());
-                    changed = true;
-                }
-            }
             Note::FlagPr { run_id, trial_id } => {
                 if let Some(t) = find_trial_mut(file, run_id, trial_id) {
                     if !t.pr_opened {
@@ -387,7 +363,7 @@ fn run_job(engine: &Handle, cfg: &Config, job: &Job) {
     let res = match job {
         Job::CheckBaseGate { run_id } => exec_base_gate(cfg, run_id),
         Job::PrepareWorktree { run_id, trial_id } => exec_prepare_worktree(cfg, run_id, trial_id),
-        Job::StartWorker { run_id, trial_id, lane_id } => exec_start_worker(engine, cfg, run_id, trial_id, lane_id),
+        Job::StartWorker { run_id, trial_id } => exec_start_worker(engine, cfg, run_id, trial_id),
         Job::FinishWorker { run_id, trial_id } => exec_finish_worker(engine, cfg, run_id, trial_id),
         Job::FinishReview { run_id, trial_id } => exec_finish_review(engine, cfg, run_id, trial_id),
         Job::FinishFix { run_id, trial_id } => exec_finish_fix(run_id, trial_id),
@@ -487,32 +463,39 @@ fn exec_prepare_worktree(cfg: &Config, run_id: &str, trial_id: &str) -> Result<(
     })
 }
 
-/// Starts a hosted ACP session in `lane_id` with optional `seat.mode`, sending `prompt` only after
-/// switching mode when a mode is configured.
-fn start_hosted_in_lane(engine: &Handle, cfg: &Config, lane_id: &str, seat: &Seat, prompt: &str, helper_of: Option<&str>) -> Result<String> {
+/// Starts a hosted ACP session directly in `cwd` (without requiring `cwd` to already appear as a
+/// scanned lane on `Board`), trusting `cwd` via `before_start`, switching `seat.mode` before the
+/// first prompt when set, recording helper origin when `helper_of` is given, and quieting the
+/// session so it stays out of `Your turn`.
+fn start_hosted_in_dir(engine: &Handle, cfg: &Config, cwd: &Path, seat: &Seat, prompt: &str, helper_of: Option<&str>) -> Result<String> {
     let acct = find_account(cfg, &seat.account)?;
-    let initial_prompt = if seat.mode.is_some() { String::new() } else { prompt.to_string() };
-    let spec = StartSpec {
-        lane_id: lane_id.to_string(),
-        account: seat.account.clone(),
-        place: Place::Codealong,
-        prompt: initial_prompt,
-        model: seat.model.clone(),
-        effort: seat.effort.clone(),
-        worktree: false,
-        todos: Vec::new(),
-        from: helper_of.map(String::from),
-        helper: helper_of.is_some(),
-        report: false,
+    acct.ensure_on()?;
+    if let Some(adapter) = crate::harness::of(acct) {
+        adapter.before_start(acct, cwd);
+    }
+    let key = if let Some(mode) = seat.mode.as_deref() {
+        let k = crate::acp::start(acct, cwd, "", seat.model.as_deref(), seat.effort.as_deref())?;
+        crate::acp::switch_mode(acct, &k, mode)?;
+        crate::acp::send(acct, &k, prompt)?;
+        k
+    } else {
+        crate::acp::start(acct, cwd, prompt, seat.model.as_deref(), seat.effort.as_deref())?
     };
-    let params = codealong_peer::api::params::Start { spec };
-    let started: Started = actions::local(engine, &From::Here, codealong_peer::api::START, lane_id, params)
-        .and_then(actions::typed::<Started>)
-        .map_err(|e| anyhow!(e))?;
-    let key = started.key.ok_or_else(|| anyhow!("Hosted start on {} returned no session key.", seat.account))?;
-    if let Some(mode) = seat.mode.as_deref() {
-        crate::acp::switch_mode(acct, &key, mode)?;
-        crate::acp::send(acct, &key, prompt)?;
+    if let Some(parent) = helper_of {
+        let spec = StartSpec {
+            lane_id: cwd.to_string_lossy().into_owned(),
+            account: seat.account.clone(),
+            place: Place::Codealong,
+            prompt: prompt.to_string(),
+            model: seat.model.clone(),
+            effort: seat.effort.clone(),
+            worktree: false,
+            todos: Vec::new(),
+            from: Some(parent.to_string()),
+            helper: true,
+            report: false,
+        };
+        crate::origins::started(&spec, Some(&key), false);
     }
     engine.quiet(vec![key.clone()], true);
     Ok(key)
@@ -522,13 +505,14 @@ fn find_account<'a>(cfg: &'a Config, name: &str) -> Result<&'a AccountCfg> {
     cfg.accounts.iter().find(|a| a.name == name).ok_or_else(|| anyhow!("No account named {name:?}."))
 }
 
-fn exec_start_worker(engine: &Handle, cfg: &Config, run_id: &str, trial_id: &str, lane_id: &str) -> Result<()> {
+fn exec_start_worker(engine: &Handle, cfg: &Config, run_id: &str, trial_id: &str) -> Result<()> {
     let file = super::load()?;
     let run = file.runs.iter().find(|r| r.id == run_id).ok_or_else(|| anyhow!("Run {run_id} not found."))?;
     let trial = run.trials.iter().find(|t| t.id == trial_id).ok_or_else(|| anyhow!("Trial {trial_id} not found."))?;
+    let wt = trial.worktree.as_deref().ok_or_else(|| anyhow!("Trial {trial_id} has no worktree."))?;
     let prompt = prompts::worker_prompt(&run.prompt);
     let now = now_ms();
-    let key = start_hosted_in_lane(engine, cfg, lane_id, &trial.arm.worker, &prompt, None)?;
+    let key = start_hosted_in_dir(engine, cfg, Path::new(wt), &trial.arm.worker, &prompt, None)?;
     super::change(|f| {
         if let Some(t) = find_trial_mut(f, run_id, trial_id) {
             t.worker_key = Some(key.clone());
@@ -556,10 +540,8 @@ fn exec_finish_worker(engine: &Handle, cfg: &Config, run_id: &str, trial_id: &st
             let spec_path = folder(run_id).join("spec.md");
             let diff_path = tdir.join("review-input.diff");
             std::fs::write(&diff_path, autoreview::numbered(&snap.diff))?;
-            let board = engine.board();
-            let lane_id = find_lane_id(&board, wt).unwrap_or_else(|| wt.to_string());
             let prompt = prompts::reviewer_prompt(&spec_path, &diff_path);
-            let rev_key = start_hosted_in_lane(engine, cfg, &lane_id, rev, &prompt, trial.worker_key.as_deref())?;
+            let rev_key = start_hosted_in_dir(engine, cfg, Path::new(wt), rev, &prompt, trial.worker_key.as_deref())?;
             return super::change(|f| {
                 if let Some(t) = find_trial_mut(f, run_id, trial_id) {
                     t.times.worker_done_at = Some(now);
@@ -586,10 +568,21 @@ fn exec_finish_worker(engine: &Handle, cfg: &Config, run_id: &str, trial_id: &st
 }
 
 fn read_reply(engine: &Handle, cfg: &Config, key: &str, at: i64) -> Result<String> {
-    let board = engine.board();
-    let session = find_session(&board, key).ok_or_else(|| anyhow!("Session {key} isn't on the board."))?;
-    let page = crate::transcript::page(&board, cfg, key, None, 60)?;
-    autoreview::reply_after(&page.items, at, session.last_prompt_at).ok_or_else(|| anyhow!("No reply found for {key} after {at}."))
+    // Allow a brief window for the harness to flush its final transcript entry after turn end.
+    for attempt in 0..8 {
+        let board = engine.board();
+        if let Some(session) = find_session(&board, key) {
+            if let Ok(page) = crate::transcript::page(&board, cfg, key, None, 60) {
+                if let Some(reply) = autoreview::reply_after(&page.items, at, session.last_prompt_at) {
+                    return Ok(reply);
+                }
+            }
+        }
+        if attempt < 7 {
+            std::thread::sleep(Duration::from_secs(2));
+        }
+    }
+    bail!("No reply found for {key} after {at}.")
 }
 
 pub(crate) fn mark_done(engine: &Handle, key: &str) {
@@ -728,18 +721,9 @@ fn exec_start_judge(engine: &Handle, cfg: &Config, run_id: &str, pair_idx: usize
         std::fs::write(dir.join("gate.txt"), gate_txt)?;
     }
 
-    let acct = find_account(cfg, &judge.seat.account)?;
     let prompt = prompts::judge_prompt(has_gate);
     let now = now_ms();
-    let key = if let Some(mode) = judge.seat.mode.as_deref() {
-        let k = crate::acp::start(acct, &dir, "", judge.seat.model.as_deref(), judge.seat.effort.as_deref())?;
-        crate::acp::switch_mode(acct, &k, mode)?;
-        crate::acp::send(acct, &k, &prompt)?;
-        k
-    } else {
-        crate::acp::start(acct, &dir, &prompt, judge.seat.model.as_deref(), judge.seat.effort.as_deref())?
-    };
-    engine.quiet(vec![key.clone()], true);
+    let key = start_hosted_in_dir(engine, cfg, &dir, &judge.seat, &prompt, None)?;
 
     super::change(|f| {
         if let Some(c) = f.runs.iter_mut().find(|r| r.id == run_id).and_then(|r| r.comparisons.get_mut(pair_idx)) {
@@ -806,7 +790,7 @@ mod tests {
     }
 
     #[test]
-    fn plan_respects_max_parallel_and_waits_for_preparing_lane() {
+    fn plan_respects_max_parallel_and_starts_preparing_without_waiting_for_board_lane() {
         let mut run = sample_run(3);
         let (jobs, notes) = plan(&[run.clone()], &board_with(vec![]), &HashSet::new(), false, NOW);
         assert!(notes.is_empty());
@@ -814,16 +798,12 @@ mod tests {
         assert!(matches!(jobs[0], Job::PrepareWorktree { ref trial_id, .. } if trial_id == "t1"));
         assert!(matches!(jobs[1], Job::PrepareWorktree { ref trial_id, .. } if trial_id == "t2"));
 
-        // t1 is Preparing; until its lane appears on the board, StartWorker is not queued.
+        // t1 is Preparing with a worktree; even if the repo isn't scanned onto `board.lanes` yet,
+        // StartWorker schedules immediately via hosted ACP.
         run.trials[0].stage = TrialStage::Preparing;
         run.trials[0].worktree = Some("/r/.codealong/worktrees/wt1".into());
         run.trials[0].times.started_at = Some(NOW - 5_000);
-        let (jobs, _) = plan(&[run.clone()], &board_with(vec![]), &HashSet::new(), false, NOW);
-        assert!(!jobs.iter().any(|j| matches!(j, Job::StartWorker { .. })));
-
-        // Once the lane appears, StartWorker is scheduled.
-        let b = board_with(vec![lane("/r/.codealong/worktrees/wt1", vec![])]);
-        let (jobs, _) = plan(&[run], &b, &HashSet::new(), false, NOW);
+        let (jobs, _) = plan(&[run], &board_with(vec![]), &HashSet::new(), false, NOW);
         assert!(jobs.iter().any(|j| matches!(j, Job::StartWorker { trial_id, .. } if trial_id == "t1")));
     }
 
@@ -837,8 +817,8 @@ mod tests {
         run.trials[1].worker_key = Some("claude:claude:w2".into());
         run.trials[1].turn_sent_at = Some(NOW);
 
-        // Stale idle from BEFORE turn_sent_at -> must NOT fire FinishWorker!
-        let stale = sess("claude:claude:w1", Status::Idle, NOW - 100);
+        // Stale idle from BEFORE turn_sent_at (past 1s rounding slack) -> must NOT fire FinishWorker!
+        let stale = sess("claude:claude:w1", Status::Idle, NOW - 5_000);
         // Cut off -> must NOT fire FinishWorker, only count interruption!
         let mut cut = sess("claude:claude:w2", Status::Stopped, NOW + 500);
         cut.cut_off = Some(NOW + 500);
