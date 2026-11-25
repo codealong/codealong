@@ -430,7 +430,7 @@ function Composer({ session: s, terminal, autoFocus, onlyAside = false, waiting,
   // the session's (opencode.rs `model_and_effort`), so where a send goes to one of those it says
   // them between turns too.
   const goesOnWithIt = way?.kind === 'cursor' || way?.kind === 'codex-app' || way?.kind === 'opencode';
-  const account = accountOf(useDeviceStartAccounts(device, resumable || s.live || goesOnWithIt), s);
+  const account = accountOf(useDeviceStartAccounts(device, resumable || s.live || !!s.hosted || goesOnWithIt), s);
   const [resumePicks, setResumePicks] = useState<ResumePicks>(NO_PICKS);
   useEffect(() => setResumePicks(NO_PICKS), [s.key]);
   const resumeChosen = resumable && account ? resumeChoice(account, [], resumePicks, resumedIn(account.name)) : null;
@@ -440,17 +440,18 @@ function Composer({ session: s, terminal, autoFocus, onlyAside = false, waiting,
   const resumeWhere = resumeHow && { place: resumeHow.place, behind: !!resumePlace?.behind };
   const place = boxPlace(s, terminal, way, resumeHow && resumePlace ? { place: resumeHow.place, label: resumePlace.label } : null);
   // A running one says what model and effort it's on, beside Send, and where Codealong can switch
-  // them (SessionAgent.tsx): one it runs, or one whose terminal or background job's box it types
-  // into, by its harness's commands. One whose app goes on with it is switched in the app,
-  // running or not, from its next turn (the Codex app's, codex/ipc.rs `codex_settings_request`).
+  // them (SessionAgent.tsx): one it runs (loaded or unloaded, since acp::switch picks it up
+  // again), or one whose terminal or background job's box it types into, by its harness's
+  // commands. One whose app goes on with it is switched in the app, running or not, from its next
+  // turn (the Codex app's, codex/ipc.rs `codex_settings_request`).
   const inApp = goesOnWithIt && !!account?.switchesInApp;
   // Where its harness runs the commands it types at once, a turn needn't end first (Claude
   // Code's; send.rs `switch`); Codealong's own agents queue a switch for after the current turn.
   const midTurn = !s.hosted && !!account?.switchesMidTurn;
-  const switchable = s.live && (!!s.hosted || typesCommands(way));
+  const switchable = !!s.hosted || (s.live && typesCommands(way));
   const switches = !!account && (account.models?.length ?? 0) > 0 && (inApp || (switchable && (!!s.hosted || !!account.switchesModel)));
   const switchesEffort = !!account && (account.efforts?.length ?? 0) > 0 && (inApp || (switchable && (!!s.hosted || !!account.switchesEffort)));
-  const saysModel = !resuming && (s.live || goesOnWithIt) && (switches || switchesEffort || !!s.model);
+  const saysModel = !resuming && (s.live || !!s.hosted || goesOnWithIt) && (switches || switchesEffort || !!s.model);
   const [switching, setSwitching] = useState(false);
   const switchTo = (switched: Promise<string>, failed?: () => void) => {
     setSwitching(true);
