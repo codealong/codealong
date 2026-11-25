@@ -6,7 +6,6 @@
 // archived ones are.
 
 import { shortOf } from './devices';
-import { MOVES_ACCOUNTS } from './harness';
 import { agoPhrase, duration, withTimes } from './format';
 import type { InsightLabel } from './insights';
 import { resetsPhrase } from './format';
@@ -640,7 +639,7 @@ export function cutOffWords(offered = false): string {
 export function sessionFlag(s: Session): InsightLabel | null {
   const need = needOf(s);
   if (need === 'stuck') return { label: 'Stuck', tone: 'warn', title: 'It says it’s busy, but nothing has happened for a while. It may be waiting on something.' };
-  if (s.limit && s.status !== 'working') return { label: 'Limit', tone: 'bad', title: limitWords(s.account, s.limit, Date.now(), false, MOVES_ACCOUNTS.includes(s.harness)) };
+  if (s.limit && s.status !== 'working') return { label: 'Limit', tone: 'bad', title: limitWords(s.account, s.limit, Date.now(), false, true) };
   if (endedSignedOut(s)) return { label: 'Signed out', tone: 'bad', title: signedOutWords(s) };
   if (s.connectionLost && s.status !== 'working') return { label: 'Network error', tone: 'warn', title: apiErrorWords(s) };
   if (s.cutOff != null && s.status !== 'working') return { label: 'Cut off', tone: 'bad', title: cutOffWords() };

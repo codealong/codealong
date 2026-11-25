@@ -57,6 +57,34 @@ pub struct Store {
     /// `News::Unseen`), so a server started since doesn't tell it again (`told_unseen`).
     #[serde(default, skip_serializing_if = "std::collections::BTreeSet::is_empty")]
     pub unseen: std::collections::BTreeSet<String>,
+    /// Sessions created by a non-destructive handoff (`keep: true`): they stay linked to their
+    /// source via `OriginHow::Fork`, without marking the source as moved or blocking sends to it.
+    #[serde(default, skip_serializing_if = "std::collections::BTreeSet::is_empty")]
+    pub kept: std::collections::BTreeSet<String>,
+    /// Pending handoffs whose target harness picks its own session ID (keyed by `Pending::at`):
+    /// once `resolve` matches the new session, either marks it kept or returns a `ResolvedHandover`
+    /// so the engine transfers todos, labels, pins and schedules from `from` to the new session.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub handovers: BTreeMap<i64, PendingHandover>,
+}
+
+/// Extra state carried by a pending cross-provider handoff while waiting for its session ID.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct PendingHandover {
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub keep: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub was_pinned: bool,
+}
+
+/// A pending move that just matched its target session, for the engine to finish handing over
+/// todos, labels, pins, terminals and schedules.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ResolvedHandover {
+    pub from: String,
+    pub copy: String,
+    pub was_pinned: bool,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
@@ -190,9 +218,15 @@ impl Store {
         self.sessions.get(key).filter(|e| e.how == OriginHow::Started && e.known).map(|e| e.from.as_str())
     }
 
-    /// The session `key` moved to (start.rs `move_to`): a fork of it into another account of its
-    /// harness that `exists` says is still there, followed on where that one moved too. A copy
-    /// closed before it was sent anything is still there, made again when it's next sent
+    /// Whether session `key` with origin `e` is a move (replaces `e.from`): a fork into another
+    /// account or harness that wasn't created with `keep: true` (`self.kept`).
+    fn is_moved_entry(&self, key: &str, e: &Entry) -> bool {
+        e.how == OriginHow::Fork && !self.kept.contains(key) && is_move(&e.from, key)
+    }
+
+    /// The session `key` moved to (start.rs `move_to`, handoff.rs): a move of it into another
+    /// account or harness that `exists` says is still there, followed on where that one moved too.
+    /// A copy closed before it was sent anything is still there, made again when it's next sent
     /// something (`claude::Reader::closed_copies`); one whose conversation is gone from this Mac
     /// isn't, and the session stays where it was.
     pub fn moved_to(&self, key: &str, exists: impl Fn(&str) -> bool) -> Option<String> {
@@ -200,7 +234,7 @@ impl Store {
         // Moved back again, a key comes round a second time.
         let mut seen = HashSet::from([at.clone()]);
         loop {
-            let next = self.sessions.iter().filter(|(k, e)| e.from == at && e.how == OriginHow::Fork && is_move(&at, k) && !seen.contains(*k) && exists(k)).max_by_key(|(_, e)| e.at);
+            let next = self.sessions.iter().filter(|(k, e)| e.from == at && self.is_moved_entry(k, e) && !seen.contains(*k) && exists(k)).max_by_key(|(_, e)| e.at);
             let Some((next, _)) = next else { break };
             seen.insert(next.clone());
             at = next.clone();
@@ -208,20 +242,20 @@ impl Store {
         (at != key).then_some(at)
     }
 
-    /// Every move to another account of its harness (`moved_to`), as the session it moved from and
+    /// Every move to another account or harness (`moved_to`), as the session it moved from and
     /// its copy, the oldest first, so one moved on again comes after the move that made it.
     pub fn moves(&self) -> Vec<(String, String)> {
-        let mut moves: Vec<(i64, &String, &String)> = self.sessions.iter().filter(|(k, e)| e.how == OriginHow::Fork && is_move(&e.from, k)).map(|(k, e)| (e.at, &e.from, k)).collect();
+        let mut moves: Vec<(i64, &String, &String)> = self.sessions.iter().filter(|(k, e)| self.is_moved_entry(k, e)).map(|(k, e)| (e.at, &e.from, k)).collect();
         moves.sort();
         moves.into_iter().map(|(_, from, to)| (from.clone(), to.clone())).collect()
     }
 
-    /// Indexes every move (`is_move`) by the session it moved from, so callers that follow many
-    /// keys against one store don't scan `sessions` on every lookup.
+    /// Indexes every move (`is_moved_entry`) by the session it moved from, so callers that follow
+    /// many keys against one store don't scan `sessions` on every lookup.
     pub fn move_index(&self) -> MoveIndex<'_> {
         let mut by_from: HashMap<&str, Vec<(&str, i64)>> = HashMap::new();
         for (k, e) in &self.sessions {
-            if e.how == OriginHow::Fork && is_move(&e.from, k) {
+            if self.is_moved_entry(k, e) {
                 by_from.entry(e.from.as_str()).or_default().push((k.as_str(), e.at));
             }
         }
@@ -255,6 +289,9 @@ impl Store {
         self.pending.retain(|p| now - p.at < p.waits());
         let sessions = &self.sessions;
         self.unseen.retain(|k| sessions.contains_key(k));
+        self.kept.retain(|k| sessions.contains_key(k));
+        let pending_at: HashSet<i64> = self.pending.iter().map(|p| p.at).collect();
+        self.handovers.retain(|at, _| pending_at.contains(at));
     }
 }
 
@@ -290,15 +327,15 @@ impl<'a> MoveIndex<'a> {
     }
 }
 
-/// Whether a fork from session `from` to `to` is a move: into another account of the same
-/// harness. The windows tell it the same way (lineage.ts `kinHow`).
+/// Whether a fork from session `from` to `to` is a move: into another account (same harness or
+/// cross-provider). The windows tell it the same way (lineage.ts `kinHow`).
 pub fn is_move(from: &str, to: &str) -> bool {
     fn whose(key: &str) -> (&str, &str) {
         let mut parts = key.splitn(3, ':');
         (parts.next().unwrap_or_default(), parts.next().unwrap_or_default())
     }
     let ((from_harness, from_account), (to_harness, to_account)) = (whose(from), whose(to));
-    from_harness == to_harness && from_account != to_account
+    !from_harness.is_empty() && !from_account.is_empty() && !to_harness.is_empty() && !to_account.is_empty() && (from_harness != to_harness || from_account != to_account)
 }
 
 /// A session on the board, as pending starts are matched against it.
@@ -331,10 +368,18 @@ pub struct Candidate<'a> {
 /// helpers' prompts often open alike (a review's boilerplate), and a session you start later with
 /// the same words isn't a stuck start's. Returns whether anything changed.
 pub fn resolve(store: &mut Store, sessions: &[Candidate], lanes: &dyn Lanes, now: i64) -> bool {
+    resolve_with_handovers(store, sessions, lanes, now).0
+}
+
+/// Like `resolve`, also returning any pending cross-provider moves (`Store::handovers` with
+/// `!keep`) that just matched their target session so the engine can finish handing over todos,
+/// labels, pins and schedules.
+pub fn resolve_with_handovers(store: &mut Store, sessions: &[Candidate], lanes: &dyn Lanes, now: i64) -> (bool, Vec<ResolvedHandover>) {
     if store.pending.is_empty() {
-        return false;
+        return (false, Vec::new());
     }
     let mut changed = false;
+    let mut handovers = Vec::new();
     let mut taken: HashSet<String> = store.sessions.keys().cloned().collect();
     let mut waiting = Vec::new();
     let starts: Vec<Pending> = store.pending.iter().filter(|q| now - q.at <= q.waits()).cloned().collect();
@@ -352,6 +397,7 @@ pub fn resolve(store: &mut Store, sessions: &[Candidate], lanes: &dyn Lanes, now
     all.sort_by_key(|p| p.from.is_empty());
     for p in all {
         if now - p.at > p.waits() {
+            store.handovers.remove(&p.at);
             changed = true;
             continue;
         }
@@ -370,9 +416,18 @@ pub fn resolve(store: &mut Store, sessions: &[Candidate], lanes: &dyn Lanes, now
         match pick {
             Some(s) => {
                 taken.insert(s.key.to_string());
+                let ho = store.handovers.remove(&p.at);
                 // A start from no session found its session, and has no origin to note.
                 if !p.from.is_empty() {
+                    let from = p.from.clone();
                     store.sessions.insert(s.key.to_string(), Entry { from: p.from, how: p.how, at: p.at, helper: p.helper, report: p.report, known: false });
+                    if let Some(h) = ho {
+                        if h.keep {
+                            store.kept.insert(s.key.to_string());
+                        } else {
+                            handovers.push(ResolvedHandover { from, copy: s.key.to_string(), was_pinned: h.was_pinned });
+                        }
+                    }
                 }
                 changed = true;
             }
@@ -380,7 +435,7 @@ pub fn resolve(store: &mut Store, sessions: &[Candidate], lanes: &dyn Lanes, now
         }
     }
     store.pending = waiting;
-    changed
+    (changed, handovers)
 }
 
 pub fn path() -> PathBuf {
@@ -427,6 +482,46 @@ pub fn record(key: &str, from: &str, how: OriginHow) {
 /// first message, so the move doesn't go ahead without it.
 pub fn write(key: &str, from: &str, how: OriginHow) -> Result<()> {
     write_as(key, from, how, false, false)
+}
+
+/// Notes a handoff from `from` to `key`: when `moved` is true, `key` takes `from`'s place as a
+/// move (`moved_to`); when false (`keep: true`), `key` is kept out of `moved_to` so `from` stays
+/// open and sendable while staying linked in lineage.
+pub fn write_handoff(key: &str, from: &str, moved: bool) -> Result<()> {
+    if key == from || key.is_empty() || from.is_empty() {
+        return Ok(());
+    }
+    let now = crate::util::now_ms();
+    change(|s| {
+        let entry = Entry { from: from.to_string(), how: OriginHow::Fork, at: now, helper: false, report: false, known: true };
+        let mut changed = s.sessions.insert(key.to_string(), entry).is_none_or(|old| old.from != from || old.how != OriginHow::Fork || !old.known);
+        if moved {
+            changed |= s.kept.remove(key);
+        } else {
+            changed |= s.kept.insert(key.to_string());
+        }
+        changed
+    })
+}
+
+/// Notes a pending handoff whose target harness picks its own session ID (Codex, Antigravity,
+/// OpenCode in a terminal, or Claude app): once matched by `resolve_pending_handovers`, its
+/// origin and ownership handover complete automatically.
+pub fn pending_handoff(from: &str, lane: &str, account: &str, opens: Option<String>, terminal: bool, keep: bool, was_pinned: bool) {
+    if from.is_empty() || account.is_empty() {
+        return;
+    }
+    let mut at = crate::util::now_ms();
+    if let Err(e) = change(|s| {
+        while s.handovers.contains_key(&at) {
+            at += 1;
+        }
+        s.pending.push(Pending { from: from.to_string(), how: OriginHow::Fork, lane: lane.to_string(), account: account.to_string(), at, helper: false, report: false, opens, terminal });
+        s.handovers.insert(at, PendingHandover { keep, was_pinned });
+        true
+    }) {
+        eprintln!("Couldn't note pending handoff from {from} to {account}: {e:#}");
+    }
 }
 
 /// Notes that `copy`, the copy its harness made of the session `key` as it went on for a message
@@ -601,19 +696,29 @@ pub fn waiting_for(board: &crate::model::Board, now: i64) -> Vec<Pending> {
     store.pending
 }
 
-/// Matches pending starts to the sessions on the board and writes down what matched.
-pub fn resolve_pending(sessions: &[Candidate], lanes: &dyn Lanes, now: i64) -> bool {
+/// Matches pending starts to the sessions on the board, writes down what matched, and returns
+/// any pending moves whose ownership handover (`todos`, labels, pins, schedules) should now run.
+pub fn resolve_pending_handovers(sessions: &[Candidate], lanes: &dyn Lanes, now: i64) -> (bool, Vec<ResolvedHandover>) {
     if current().pending.is_empty() {
-        return false;
+        return (false, Vec::new());
     }
     let mut changed = false;
+    let mut handovers = Vec::new();
     if let Err(e) = change(|s| {
-        changed = resolve(s, sessions, lanes, now);
+        let (c, h) = resolve_with_handovers(s, sessions, lanes, now);
+        changed = c;
+        handovers = h;
         changed
     }) {
         eprintln!("Couldn't note where new sessions came from: {e:#}");
     }
-    changed
+    (changed, handovers)
+}
+
+/// Matches pending starts to the sessions on the board and writes down what matched.
+#[allow(dead_code)]
+pub fn resolve_pending(sessions: &[Candidate], lanes: &dyn Lanes, now: i64) -> bool {
+    resolve_pending_handovers(sessions, lanes, now).0
 }
 
 /// The file as last read, read again when it changed on disk. One that doesn't parse shows
@@ -683,7 +788,31 @@ mod tests {
         assert_eq!(store.moved_to("claude:claude:a", |k| k != "claude:claude2:b"), None);
         // Every move, each after the one that made the session it moved from.
         assert_eq!(store.moves(), vec![("claude:claude:a".to_string(), "claude:claude2:b".to_string()), ("claude:claude2:b".to_string(), "claude:claude:c".to_string())]);
-        assert!(is_move("claude:claude:a", "claude:claude2:b") && !is_move("claude:claude:a", "codex:codex:b") && !is_move("claude:claude:a", "claude:claude:b"));
+        assert!(is_move("claude:claude:a", "claude:claude2:b") && is_move("claude:claude:a", "codex:codex:b") && !is_move("claude:claude:a", "claude:claude:b"));
+
+        // A cross-provider move follows `moved_to`, while a kept handoff copy (`kept`) does not.
+        store.sessions.insert("codex:codex:m".into(), Entry { from: "claude:claude:c".into(), how: OriginHow::Fork, at: 40, helper: false, report: false, known: false });
+        assert_eq!(store.moved_to("claude:claude:c", all).as_deref(), Some("codex:codex:m"));
+        store.kept.insert("codex:codex:m".into());
+        assert_eq!(store.moved_to("claude:claude:c", all), None);
+    }
+
+    #[test]
+    fn pending_handoffs_resolve_to_moved_handover_or_kept_copy() {
+        let mut store = Store::default();
+        store.pending.push(Pending { how: OriginHow::Fork, opens: opening("# Handoff from \"Fix\""), terminal: true, ..pending("claude:claude:src", "/r/app", "codex", 1_000) });
+        store.handovers.insert(1_000, PendingHandover { keep: false, was_pinned: true });
+        store.pending.push(Pending { how: OriginHow::Fork, opens: opening("# Handoff from \"Keep\""), terminal: true, ..pending("claude:claude:src2", "/r/app", "antigravity", 1_001) });
+        store.handovers.insert(1_001, PendingHandover { keep: true, was_pinned: false });
+
+        let c1 = Candidate { key: "codex:codex:new1", lane: "/r/app", account: "codex", started: 1_500, created: Some(1_500), prompt: Some("# Handoff from \"Fix\""), launched: Some(1_200) };
+        let c2 = Candidate { key: "antigravity:antigravity:new2", lane: "/r/app", account: "antigravity", started: 1_600, created: Some(1_600), prompt: Some("# Handoff from \"Keep\""), launched: Some(1_300) };
+        let (changed, handovers) = resolve_with_handovers(&mut store, &[c1, c2], &Repos, 2_000);
+        assert!(changed);
+        assert_eq!(handovers, vec![ResolvedHandover { from: "claude:claude:src".into(), copy: "codex:codex:new1".into(), was_pinned: true }]);
+        assert_eq!(store.moved_to("claude:claude:src", |_| true).as_deref(), Some("codex:codex:new1"));
+        assert_eq!(store.moved_to("claude:claude:src2", |_| true), None, "kept copy does not mark source moved");
+        assert!(store.origin_of("antigravity:antigravity:new2").is_some(), "kept copy still links to source in lineage");
     }
 
     /// A copy its harness made of a session as it went on for the session that started it is

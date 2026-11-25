@@ -25,9 +25,11 @@ pub struct Mover {
 
 impl Mover {
     /// The sessions to move now, with the account each goes to: those running here that a limit
-    /// stopped in the last few minutes, with an account to go to, not moved before. One that was
-    /// moved here from another account is only offered a move: each copy is a session of its
-    /// own, so two accounts that each look to have room again could pass it back and forth.
+    /// stopped in the last few minutes, with a same-harness account to go to (automatic moves stay
+    /// lossless within the same harness; cross-provider handoffs are suggested for one-click
+    /// manual confirmation), not moved before. One that was moved here from another account is
+    /// only offered a move: each copy is a session of its own, so two accounts that each look to
+    /// have room again could pass it back and forth.
     pub fn due(&mut self, board: &Board, now: i64) -> Vec<(String, String)> {
         if board.when_limited != WhenLimited::Move {
             return Vec::new();
@@ -36,8 +38,13 @@ impl Mover {
         let mut out = Vec::new();
         for s in board.lanes.iter().flat_map(|l| &l.sessions).filter(|s| s.visitor.is_none() && !s.archived && s.live && !moved_here(s)) {
             if board.automation_blocked(&s.key) { continue; }
+            if !crate::harness::adapter(s.harness).moves_accounts() { continue; }
             let Some(limit) = &s.limit else { continue };
             let Some(to) = &limit.move_to else { continue };
+            // Cross-provider suggestions stay manual so auto-move never switches providers unattended.
+            if board.usage.iter().find(|u| u.account == *to).is_some_and(|u| u.harness != s.harness) {
+                continue;
+            }
             if now - limit.at <= FRESH_MS && self.tried.insert((s.key.clone(), limit.at)) {
                 out.push((s.key.clone(), to.clone()));
             }
@@ -50,6 +57,17 @@ impl Mover {
 /// says so in a notice when it didn't.
 pub fn move_now(engine: &Handle, key: &str, to: &str) {
     if engine.read(|b| b.automation_blocked(key)) { return; }
+    // Double-check against config.toml that auto-move stays on the same harness.
+    if let Ok(cfg) = crate::config::current() {
+        let same = engine.read(|b| {
+            let Some((_, s)) = b.session(key) else { return false };
+            crate::harness::adapter(s.harness).moves_accounts()
+                && cfg.accounts.iter().find(|a| a.name == to).and_then(crate::harness::of).is_some_and(|a| a.harness() == s.harness)
+        });
+        if !same {
+            return;
+        }
+    }
     let moved = crate::actions::local(engine, &crate::actions::From::Here, crate::actions::MOVE, key, serde_json::json!({ "account": to }));
     let title = engine.read(|b| b.session(key).map(|(_, s)| s.title.clone())).unwrap_or_else(|| key.to_string());
     engine.went(Trouble::Limits, moved.map(|_| ()).map_err(|e| format!("“{title}” stopped at its usage limit, and moving it to {to} didn't work: {e}")));
@@ -112,5 +130,23 @@ mod tests {
         assert!(Mover::default().due(&board(WhenLimited::Move, vec![copy("claude:claude2:orig")]), NOW).is_empty());
         // A fork on its own account is no move.
         assert_eq!(Mover::default().due(&board(WhenLimited::Move, vec![copy("claude:claude:orig")]), NOW).len(), 1);
+    }
+
+    #[test]
+    fn auto_move_skips_cross_provider_suggestions_and_non_native_harnesses() {
+        use crate::model::{Harness, Usage};
+        let codex_usage = Usage { account: "codex".into(), harness: Harness::Codex, plan: None, meters: Vec::new(), as_of: None, error: None, needs_sign_in: false, loading: false, no_limits: false, preferred: false, rate_limited: false };
+        let claude_usage = Usage { account: "claude2".into(), harness: Harness::Claude, ..codex_usage.clone() };
+        // Claude session whose only suggestion is codex: offered manually, never auto-moved.
+        let mut b = board(WhenLimited::Move, vec![limited("claude:claude:a", NOW - 1_000, Some("codex"))]);
+        b.usage = vec![codex_usage.clone(), claude_usage.clone()];
+        assert!(Mover::default().due(&b, NOW).is_empty(), "cross-provider limit suggestion stays manual");
+        // Antigravity session whose suggestion is claude2: non-native harness never auto-moves.
+        let mut ag = limited("antigravity:antigravity:a", NOW - 1_000, Some("claude2"));
+        ag.harness = Harness::Antigravity;
+        ag.account = "antigravity".into();
+        let mut b2 = board(WhenLimited::Move, vec![ag]);
+        b2.usage = vec![codex_usage, claude_usage];
+        assert!(Mover::default().due(&b2, NOW).is_empty(), "non-native harness stays manual");
     }
 }

@@ -28,6 +28,7 @@ mod aside;
 /// they have names here but none in `api`.
 pub const FORK_TERMINAL: &str = "session-fork-terminal";
 pub const MOVE: &str = "session-move";
+pub const HANDOFF: &str = "session-handoff";
 pub const CLOSE: &str = "session-close";
 pub const OPEN: &str = "open-target";
 pub const PREVIEW: &str = "worktree-preview";
@@ -51,14 +52,45 @@ pub mod params {
 
     pub use codealong_peer::api::params::*;
 
-    /// `session-move`: the account of its harness it goes on under, or the worktree it goes on
-    /// in, by its lane's id (Codealong's chats for a new chat).
+    /// `session-move`: another account (same harness or cross-provider) it goes on under, or the
+    /// worktree it goes on in, by its lane's id (Codealong's chats for a new chat).
     #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
     #[serde(default)]
     pub struct Move {
         pub account: String,
         #[serde(skip_serializing_if = "String::is_empty")]
         pub lane: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub model: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub effort: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub place: Option<crate::start::Place>,
+        #[serde(skip_serializing_if = "String::is_empty")]
+        pub prompt: String,
+        /// Keep the original session running and unarchived (non-destructive handoff copy).
+        #[serde(skip_serializing_if = "std::ops::Not::not")]
+        pub keep: bool,
+    }
+
+    /// `session-handoff`: hand off a session to another account/provider from the CLI
+    /// (`codealong session handoff`), or preview the handoff packet without launching (`dry_run`).
+    #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+    #[serde(default, rename_all = "camelCase")]
+    pub struct Handoff {
+        pub account: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub model: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub effort: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub place: Option<crate::start::Place>,
+        #[serde(skip_serializing_if = "String::is_empty")]
+        pub prompt: String,
+        #[serde(skip_serializing_if = "std::ops::Not::not")]
+        pub keep: bool,
+        #[serde(skip_serializing_if = "std::ops::Not::not")]
+        pub dry_run: bool,
     }
 
     /// `open-target`: one of a worktree's open targets, as the board lists them.
@@ -310,6 +342,9 @@ const REQUESTS: &[Request] = &[
     // A move opens a terminal too, and closes the session's own. Which account a conversation
     // goes on under, and whose usage it spends, is its user's to choose.
     Request { name: MOVE, only_here: Some("Move it on the machine it runs on."), here: move_session, command: move_in_windows, ..ANY },
+    // Cross-provider handoff from the CLI (`codealong session handoff`): enforces boundary groups
+    // and keeps another session's terminal open unless asked by a person or the session itself.
+    Request { name: HANDOFF, only_here: Some("Hand off a session on the machine it runs on."), here: handoff_session, wait: Some(codealong_peer::client::START_WAIT), ..ANY },
     Request { name: CLOSE, only_here: Some("Close it on the machine it runs on."), here: close, ..ANY },
     // Done ends no more than the session, and what it leaves for someone at its Mac (a question
     // about its worktree) it says. It's you who's done with a session, not an agent. A worktree
@@ -681,7 +716,7 @@ pub fn local(engine: &Handle, from: &From, name: &str, key: &str, params: impl S
 
 /// The requests that hand over what a session said: its conversation, what it waits on, what it
 /// printed, a side conversation about it.
-pub(crate) const READS_TEXT: [&str; 8] = [api::SESSION_PAGE, api::SESSION_NEWER, api::SESSION_PENDING, api::SESSION_STREAM, api::SESSION_TASK_OUTPUT, api::SIDE_ASK, api::SIDE_GET, api::SIDE_PAST];
+pub(crate) const READS_TEXT: [&str; 9] = [api::SESSION_PAGE, api::SESSION_NEWER, api::SESSION_PENDING, api::SESSION_STREAM, api::SESSION_TASK_OUTPUT, api::SIDE_ASK, api::SIDE_GET, api::SIDE_PAST, HANDOFF];
 
 /// Turns down, from a session outside a boundary group (boundary.rs), a request that would hand
 /// it what one of the group's sessions said: asked by the `codealong` command, which says which
@@ -1487,7 +1522,7 @@ fn started_back(v: Value, device: &str) -> Result<Value, String> {
 
 /// An agent mustn't continue a flagged conversation by copying it first. A user's fork is
 /// still theirs to ask for. Remote forks are checked before forwarding, while who asked is known.
-fn ensure_fork_not_blocked(board: &crate::model::Board, key: &str, from: &From) -> Result<(), String> {
+pub(crate) fn ensure_fork_not_blocked(board: &crate::model::Board, key: &str, from: &From) -> Result<(), String> {
     if matches!(from, From::Command(_)) && board.automation_blocked(key) {
         return Err("Its provider flagged this session, so automatic forks are blocked in Settings › Automation.".into());
     }
@@ -1521,7 +1556,7 @@ fn forked(engine: &Handle, board: &crate::model::Board, key: &str, started: crat
 
 /// Puts a session's labels on the copy that goes on with its work (a move's, a fork's), by their
 /// ids here.
-fn labels_follow(engine: &Handle, board: &crate::model::Board, key: &str, copy: &str) {
+pub(crate) fn labels_follow(engine: &Handle, board: &crate::model::Board, key: &str, copy: &str) {
     let ids: Vec<String> = board.session(key).map(|(_, s)| s.labels.iter().map(|l| l.id.clone()).collect()).unwrap_or_default();
     if ids.is_empty() {
         return;
@@ -1548,47 +1583,15 @@ fn fork_terminal(engine: &Handle, c: &Call) -> Result<Value, String> {
     forked(engine, &board, key, crate::start::fork(&board, &cfg()?, key).map_err(words)?)
 }
 
-/// Moves it to another account of its harness, `account` (`start::move_to`): the copy goes on
-/// in a new terminal, and the session is closed and archived: from here on the conversation is
-/// the copy's, and so are the todos it was on and its place among the pinned sessions. A session
-/// its account's usage limit stopped is moved to go on, so the copy is told to. With a `lane`,
-/// it moves to that worktree instead (`start::move_to_folder`), as itself, so its todos and its
-/// place stay with it, unless its harness copied it there.
+/// Moves or hands off a session to another account (same harness or cross-provider,
+/// `handoff::run_move`), or with `lane` to that worktree.
 fn move_session(engine: &Handle, c: &Call) -> Result<Value, String> {
-    let key = c.session()?;
-    let to = c.read::<params::Move>()?;
-    let cfg = cfg()?;
-    // A move an account turned off refuses stops nothing first.
-    let before = engine.board();
-    harness::find(&before, &cfg, key).map_err(words)?.1.ensure_on().map_err(words)?;
-    if let Some(target) = cfg.accounts.iter().find(|a| a.name == to.account) {
-        target.ensure_on().map_err(words)?;
-    }
-    let stopped = stop_to_move(engine, &cfg, key, &stops::who(&before, c.from))?;
-    let board = engine.board();
-    if !to.lane.is_empty() {
-        // It goes on as itself, unless the harness copied it.
-        let mut started = crate::start::move_to_folder(&board, &cfg, key, &to.lane).map_err(words)?;
-        if stopped {
-            started.message = started.message.map(|m| format!("{m} Its turn was stopped first, so it goes on from where it was interrupted."));
-        }
-        if let Some(copy) = started.key.as_deref().filter(|k| *k != key) {
-            hand_over(engine, key, copy);
-        }
-        return to_value(started);
-    }
-    let limited = board.session(key).is_some_and(|(_, s)| s.limit.is_some());
-    let go_on = crate::send::by_codealong(crate::start::GO_ON);
-    let prompt = if limited { go_on.as_str() } else { "" };
-    let mut started = crate::start::move_to(&board, &cfg, key, &to.account, prompt).map_err(words)?;
-    if stopped {
-        started.message = started.message.map(|m| format!("{m} Its turn was stopped first, so the copy goes on from where it was interrupted."));
-    }
-    match &started.key {
-        Some(copy) => hand_over(engine, key, copy),
-        None => archive_moved(engine, key),
-    }
-    to_value(started)
+    to_value(crate::handoff::run_move(engine, &cfg()?, c.session()?, c.read()?, c.from)?)
+}
+
+/// CLI handoff (`codealong session handoff`, `handoff::run_handoff`).
+fn handoff_session(engine: &Handle, c: &Call) -> Result<Value, String> {
+    crate::handoff::run_handoff(engine, cfg, c.session()?, c.read()?, c.from)
 }
 
 /// The copy a session moved into takes its place: the todos it was on, as their primary session
@@ -1628,35 +1631,10 @@ pub(crate) fn hand_over(engine: &Handle, key: &str, copy: &str) {
     archive_moved(engine, key);
 }
 
-fn archive_moved(engine: &Handle, key: &str) {
+pub(crate) fn archive_moved(engine: &Handle, key: &str) {
     if let Err(e) = engine.archive(key, true) {
         eprintln!("Moved {key}, but couldn't archive it: {e:#}");
     }
-}
-
-/// Stops the turn a session is taking so it can move, as Stop does (`cancel`), and waits for the
-/// board to show the turn ended: a copy made mid-turn would see it cut off, where one made after
-/// sees it interrupted. Says whether there was a turn to stop. `who` asked for the move, for
-/// stops.log.
-fn stop_to_move(engine: &Handle, cfg: &config::Config, key: &str, who: &str) -> Result<bool, String> {
-    let running = || engine.read(|b| b.session(key).is_some_and(|(_, s)| harness::turn_running(s)));
-    if !running() {
-        return Ok(false);
-    }
-    let board = engine.board();
-    let (s, account) = harness::find(&board, cfg, key).map_err(words)?;
-    if !harness::stoppable(s, Some(account)) {
-        return Err(format!("“{}” is in the middle of a turn Codealong can't stop. Stop it where it runs, then move it.", s.title));
-    }
-    stops::noted(Stop::Move, key, &s.title, who, || if acp::hosts(key) { acp::cancel(key) } else { harness::adapter(s.harness).interrupt(&harness::Ctx { account }, s).map(|_| ()) }).map_err(words)?;
-    let until = std::time::Instant::now() + Duration::from_secs(30);
-    while running() {
-        if std::time::Instant::now() > until {
-            return Err(format!("Stopped “{}”, but its turn still hadn't ended 30 seconds later. Move it once it has.", s.title));
-        }
-        std::thread::sleep(Duration::from_millis(300));
-    }
-    Ok(true)
 }
 
 /// Closes its terminal tab, or stops it when it's a background job (idle.rs). Says what happened.
@@ -3034,5 +3012,31 @@ mod tests {
         assert_eq!(out.changed[0].key, "test:a:idle");
         assert_eq!(out.kept.len(), 1);
         assert_eq!(out.kept[0].key, "test:a:busy");
+    }
+
+    #[test]
+    fn handoff_from_command_enforces_keep_and_flagged_guards() {
+        use crate::model::{Board, Session};
+        let flagged = "claude:claude:atlas";
+        let plain = "claude:claude:plain";
+        let board = Board {
+            lanes: vec![crate::fixtures::lane(
+                "/atlas",
+                vec![
+                    Session { flagged: true, ..crate::fixtures::session(flagged) },
+                    crate::fixtures::session(plain),
+                ],
+            )],
+            ..Board::default()
+        };
+        let engine = Handle::over(board);
+        let agent = From::Command(Some("claude:claude:me".into()));
+        let err = local(&engine, &agent, HANDOFF, plain, json!({ "account": "codex", "keep": false })).unwrap_err();
+        assert!(err.contains("--keep"), "{err}");
+        let err = local(&engine, &agent, HANDOFF, flagged, json!({ "account": "codex", "keep": true })).unwrap_err();
+        assert!(err.contains("automatic forks are blocked"), "{err}");
+        // Dry-run is allowed from an agent without --keep, still blocked on flagged sessions.
+        let err = local(&engine, &agent, HANDOFF, flagged, json!({ "account": "codex", "dryRun": true })).unwrap_err();
+        assert!(err.contains("automatic forks are blocked"), "{err}");
     }
 }

@@ -78,6 +78,7 @@ const MODES: &[Mode] = &[
     Mode { flag: "--switch-mode", takes: "<session key> <mode id>", run: switch_mode },
     Mode { flag: "--resume", takes: "<session key> <terminal|background|claude-app|codex-app|codealong> [prompt] [--model <model>] [--effort <level>]", run: resume },
     Mode { flag: "--move", takes: "<session key> <account | worktree folder>", run: move_session },
+    Mode { flag: "--handoff-plan", takes: "<session key> <account> [prompt] [--model <model>] [--effort <level>] [--place <terminal|background|claude-app|codex-app|codealong>] [--keep]", run: handoff_plan },
     Mode { flag: "--side", takes: "<session key> <question> [a follow-up…]", run: side_ask },
     Mode { flag: "--rename", takes: "<session key> <name>", run: rename },
     Mode { flag: "--transcript", takes: "<session key> [--before <cursor>]", run: transcript },
@@ -870,6 +871,27 @@ fn move_session(_: &Args, rest: &[String]) -> Done {
     // A worktree is named by its folder, an account by its name, which has no slash.
     let to = if to.contains('/') { params::Move { lane: to.clone(), ..Default::default() } } else { params::Move { account: to.clone(), ..Default::default() } };
     Ok(pretty(&act(actions::MOVE, key, to)?))
+}
+
+fn handoff_plan(args: &Args, rest: &[String]) -> Done {
+    let [key, account, more @ ..] = rest else { return Err(Stop::Usage) };
+    let prompt = more.first().filter(|p| !p.starts_with("--")).cloned().unwrap_or_default();
+    let place = match args.option("--place") {
+        Some(word) => Some(start::Place::from_word(word).ok_or(Stop::Usage)?),
+        None => None,
+    };
+    let ask = crate::handoff::Ask {
+        account: account.clone(),
+        model: args.option("--model").map(String::from),
+        effort: args.option("--effort").map(String::from),
+        place,
+        prompt,
+        keep: args.has("--keep"),
+    };
+    let cfg = config::current().map_err(failed)?;
+    let board = board_now().board();
+    let plan = crate::handoff::preview(&board, &cfg, key, &ask).map_err(failed)?;
+    Ok(pretty(&plan))
 }
 
 fn side_ask(_: &Args, rest: &[String]) -> Done {

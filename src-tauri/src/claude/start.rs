@@ -87,7 +87,8 @@ fn bg_isolation<'a>(files: &'a [serde_json::Value], launched: Option<&'a str>) -
 /// takes an optional name, named the worktree after it. `--bg` picks the session's ID itself
 /// and ignores `--session-id`.
 pub(super) fn background_args(prompt: &str, model: Option<&str>, effort: Option<&str>, worktree: bool, (images_dir, files_dir): (&Path, &Path)) -> String {
-    let (has_images, has_files) = crate::attachments::kinds(prompt);
+    let (has_images, _) = crate::attachments::kinds(prompt);
+    let has_files = crate::attachments::uses_files_dir(prompt, files_dir);
     let prompt = crate::attachments::expand_in(prompt, images_dir, files_dir, crate::attachments::Style::Mention);
     let prompt = prompt.trim();
     let mut args = String::new();

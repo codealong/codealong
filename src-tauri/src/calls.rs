@@ -779,10 +779,34 @@ calls! {
         Ok(started)
     }
 
-    /// Moves a session to another account of its harness (`start::move_to`), or, with `lane`, to
+    /// Moves or hands off a session to another account (`handoff::execute`), or, with `lane`, to
     /// that worktree (`start::move_to_folder`).
-    fn move_session(c, key: String, account: Option<String>, lane: Option<String>) -> Result<start::Started, String> {
-        let got = actions::run(&c.engine, &c.peers, actions::MOVE, &key, actions::params::Move { account: account.unwrap_or_default(), lane: lane.unwrap_or_default() })?;
+    fn move_session(
+        c,
+        key: String,
+        account: Option<String>,
+        lane: Option<String>,
+        model: Option<String>,
+        effort: Option<String>,
+        place: Option<start::Place>,
+        prompt: Option<String>,
+        keep: Option<bool>,
+    ) -> Result<start::Started, String> {
+        let got = actions::run(
+            &c.engine,
+            &c.peers,
+            actions::MOVE,
+            &key,
+            actions::params::Move {
+                account: account.unwrap_or_default(),
+                lane: lane.unwrap_or_default(),
+                model,
+                effort,
+                place,
+                prompt: prompt.unwrap_or_default(),
+                keep: keep.unwrap_or(false),
+            },
+        )?;
         serde_json::from_value(got).map_err(|e| e.to_string())
     }
 

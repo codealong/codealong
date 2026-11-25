@@ -1,15 +1,32 @@
-/* Moving a session to another account (MoveAccount.tsx): the dialog that asks first. */
+/* Moving or handing off a session to another account or provider (MoveAccount.tsx). */
 
-/* Move to another account: what happens, and which account where there's more than one. */
 .ca-dialog.ca-movedlg {
-  width: min(460px, 100%);
+  width: min(500px, 100%);
 }
-.ca-movedlg-to {
+.ca-movedlg-body {
+  gap: var(--space-2);
+  padding-bottom: var(--space-3);
+}
+.ca-movedlg-to,
+.ca-movedlg-row {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: var(--space-3);
-  margin: 0 var(--space-5) var(--space-4);
+  gap: var(--space-2);
+}
+.ca-movedlg-to .ca-segctl,
+.ca-movedlg-row .ca-segctl {
+  flex-wrap: wrap;
+}
+.ca-movedlg-label {
+  font: var(--type-meta-strong);
+  color: var(--ink-2);
+}
+.ca-movedlg-note textarea {
+  max-height: 28vh;
+  font: var(--type-reading);
+}
+.ca-movedlg-keep {
   font: var(--type-meta-strong);
   color: var(--ink-2);
 }

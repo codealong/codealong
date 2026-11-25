@@ -567,6 +567,64 @@ pub(super) fn session_act(c: &mut Client, key: &str, name: &str, params: impl Se
     Ok(())
 }
 
+/// `codealong session handoff`: hands off or moves a session to another account/provider, or
+/// previews the handoff packet with `--dry-run`.
+pub(super) fn session_handoff(c: &mut Client, a: HandoffArgs, json: bool) -> Result<()> {
+    let key = resolve_session(c, &a.key)?;
+    orchestrator_guard(c, actions::HANDOFF)?;
+    let place = match a.place.as_deref() {
+        Some(word) => Some(crate::start::Place::from_word(word).ok_or_else(|| anyhow!("Unknown place {word:?}: use terminal, background, codealong, claude-app or codex-app."))?),
+        None => None,
+    };
+    let me = find_me(c)?.0;
+    let params = params::Handoff {
+        account: a.to,
+        model: a.model,
+        effort: a.effort,
+        place,
+        prompt: a.prompt.unwrap_or_default(),
+        keep: a.keep,
+        dry_run: a.dry_run,
+    };
+    let got = c.act(actions::HANDOFF, &key, params, me)?;
+    if a.dry_run {
+        if json {
+            return print_json(&got);
+        }
+        let mode = got.get("mode").and_then(Value::as_str).unwrap_or("handoff");
+        let target = got.get("targetAccount").and_then(Value::as_str).unwrap_or("");
+        let target_h = got.get("targetHarness").and_then(Value::as_str).unwrap_or("");
+        let place_s = got.get("place").and_then(Value::as_str).unwrap_or("");
+        println!("Mode: {mode} → {target} ({target_h}) in {place_s}");
+        if mode == "handoff" {
+            let items = got.get("totalItems").and_then(Value::as_u64).unwrap_or(0);
+            let omitted = got.get("omittedItems").and_then(Value::as_u64).unwrap_or(0);
+            let bytes = got.get("promptBytes").and_then(Value::as_u64).unwrap_or(0);
+            let budget = got.get("budgetBytes").and_then(Value::as_u64).unwrap_or(0);
+            println!("Items: {items} ({omitted} omitted) · Prompt: {bytes}/{budget} bytes");
+            if let Some(prompt) = got.get("prompt").and_then(Value::as_str) {
+                println!("\n{prompt}");
+            }
+        }
+        return Ok(());
+    }
+    let (said, copy) = match &got {
+        Value::Object(o) => (o.get("message").and_then(Value::as_str).map(String::from), o.get("key").and_then(Value::as_str).map(String::from)),
+        _ => (None, None),
+    };
+    let out = ActOut { session: key, said, copy };
+    if json {
+        return print_json(&out);
+    }
+    if let Some(said) = &out.said {
+        println!("{said}");
+    }
+    if let Some(copy) = &out.copy {
+        println!("New session: {copy}");
+    }
+    Ok(())
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(super) struct SnoozeOut {

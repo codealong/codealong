@@ -44,7 +44,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { below } from '../contextMenu';
 import { folderTargets, opensInEditor, useEditorIcons } from '../editors';
 import { absolute, ago, agoPhrase, duration, middleTruncate, tildePath } from '../format';
-import { MOVES_ACCOUNTS, sessionName, sessionPlace } from '../harness';
+import { sessionName, sessionPlace } from '../harness';
 import { apiErrorWords, archivedShows, cutOffWords, endedOnApiError, endedPhrase, endedSignedOut, limitPhrase, limitWords, raisedBy, seenable, setAside, sideTitle, signedOutWords } from '../lanes';
 import { hearingShows } from '../listening';
 import { cameLines, cameLineWords, cameWord, originWord, startingState, startingTitle, type CameLine, type Kin, type Lineage } from '../lineage';
@@ -166,10 +166,11 @@ export interface SessionHeaderProps {
   onMove?: () => void;
 }
 
-/** Move… in the box a usage limit or a cut-off turn puts under the header: it asks which account. */
+/** Move… in the box a usage limit, cut-off turn or API error puts under the header: it asks which
+ *  account or agent to move or hand off to. */
 function MoveButton({ onMove }: { onMove: () => void }) {
   return (
-    <Button size="sm" title="Move it to another account: its conversation goes on there, and this one is closed and archived" onClick={onMove}>
+    <Button size="sm" title="Move or hand off to another account or agent" onClick={onMove}>
       Move…
     </Button>
   );
@@ -648,7 +649,7 @@ export function SessionHeader({ lane, session: s, apps, now, onOpen, onShowLane,
       {s.limit && s.status !== 'working' && (
         <div className="ca-sessinsp-limit" role="note">
           <Icon name="alert" size={12} />
-          <span className="ca-sessinsp-limit-words" title={limitWords(s.account, s.limit, now, !!actions?.moveOn, MOVES_ACCOUNTS.includes(s.harness))}>
+          <span className="ca-sessinsp-limit-words" title={limitWords(s.account, s.limit, now, !!actions?.moveOn, true)}>
             {limitPhrase(s.limit, now)}
           </span>
           {snoozeTillLifted && liftsAt && (
@@ -703,6 +704,7 @@ export function SessionHeader({ lane, session: s, apps, now, onOpen, onShowLane,
               {actions.tryAgain.label}
             </Button>
           )}
+          {onMove && <MoveButton onMove={onMove} />}
         </div>
       )}
       {/* Hidden when it has nothing to show (SessionHeader.css), Jev's chip included. */}

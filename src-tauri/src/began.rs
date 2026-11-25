@@ -265,9 +265,10 @@ mod tests {
         assert_eq!(began_of(&session("a"), &none), (Began::You, None));
         assert_eq!(began_of(&Session { origin: from(OriginHow::Fork), ..session("a") }, &none), (Began::Fork, Some("claude:claude:parent".into())));
         assert_eq!(began_of(&Session { origin: from(OriginHow::Started), ..session("a") }, &none), (Began::Agent, Some("claude:claude:parent".into())));
-        // Moved into another account it's yours; a copy in the same account is a fork.
+        // Moved into another account or provider it's yours; a copy in the same account is a fork.
         let copy = |key: &str, parent: &str| Session { origin: Some(SessionOrigin { key: parent.into(), how: OriginHow::Fork }), ..session(key) };
         assert_eq!(began_of(&copy("claude:claude2:b", "claude:claude:a"), &none), (Began::You, None));
+        assert_eq!(began_of(&copy("codex:codex:b", "claude:claude:a"), &none), (Began::You, None));
         assert_eq!(began_of(&copy("claude:claude:b", "claude:claude:a"), &none), (Began::Fork, Some("claude:claude:a".into())));
         let helper = Session { origin: from(OriginHow::Started), helper: Some(Helper { parent: Some("claude:claude:parent".into()), ..Default::default() }), ..session("a") };
         assert_eq!(began_of(&helper, &none), (Began::Helper, Some("claude:claude:parent".into())));
@@ -319,15 +320,15 @@ mod tests {
     #[test]
     fn moves_noted_as_forks_before_are_yours_once() {
         let db = crate::ledger::in_memory();
-        for (key, by) in [("claude:claude2:moved", "claude:claude:p"), ("claude:claude:fork", "claude:claude:p"), ("codex:codex:fork", "claude:claude:p")] {
+        for (key, by) in [("claude:claude2:moved", "claude:claude:p"), ("claude:claude:fork", "claude:claude:p"), ("codex:codex:moved", "claude:claude:p")] {
             db.execute("INSERT INTO sessions (key, account, began, began_by) VALUES (?1, '', 'fork', ?2)", [key, by]).unwrap();
         }
         moves_are_yours(&db).unwrap();
         let began = |key: &str| db.query_row("SELECT began, began_by FROM sessions WHERE key = ?1", [key], |r| Ok((r.get::<_, String>(0)?, r.get::<_, Option<String>>(1)?))).unwrap();
         assert_eq!(began("claude:claude2:moved"), ("you".into(), None));
-        // A fork in the same account, or from another harness, stays one.
+        // Cross-provider moves count as yours too; a fork in the same account stays one.
+        assert_eq!(began("codex:codex:moved"), ("you".into(), None));
         assert_eq!(began("claude:claude:fork"), ("fork".into(), Some("claude:claude:p".into())));
-        assert_eq!(began("codex:codex:fork").0, "fork");
         // It runs once: a later fork noted by another rule isn't touched.
         db.execute("UPDATE sessions SET began = 'fork', began_by = 'claude:claude:p' WHERE key = 'claude:claude2:moved'", []).unwrap();
         moves_are_yours(&db).unwrap();

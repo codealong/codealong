@@ -68,14 +68,60 @@ impl Engine {
         }
     }
 
-    /// Notes where sessions came from that starts from other sessions were waiting for.
-    fn link_origins(&self, board: &Board) -> bool {
+    /// Notes where sessions came from that starts from other sessions were waiting for, and
+    /// finishes handing over ownership (todos, labels, pin, terminals, schedules) for any pending
+    /// cross-provider move whose target session just appeared.
+    fn link_origins(&mut self, board: &Board) -> bool {
         let store = origins::current();
         if store.pending.is_empty() {
             return false;
         }
         let lanes = todos::LaneIndex::of(&board.lanes);
-        origins::resolve_pending(&origins::candidates(board, &store.pending), &lanes, now_ms())
+        let (changed, handovers) = origins::resolve_pending_handovers(&origins::candidates(board, &store.pending), &lanes, now_ms());
+        for h in handovers {
+            self.finish_pending_handover(board, &lanes, &h);
+        }
+        changed
+    }
+
+    /// Completes ownership handover once an async-ID move's target session appears on the board.
+    fn finish_pending_handover(&mut self, board: &Board, lanes: &todos::LaneIndex, h: &origins::ResolvedHandover) {
+        let mut todos_changed = false;
+        let matching: Vec<(String, bool)> = self
+            .todos
+            .todos
+            .iter()
+            .filter(|t| t.sessions.iter().any(|s| s == &h.from))
+            .map(|t| (t.id.clone(), t.primary.as_ref().is_some_and(|p| p.session == h.from)))
+            .collect();
+        for (id, is_primary) in matching {
+            let op = if is_primary {
+                todos::TodoOp::Primary { id, session: Some(h.copy.clone()) }
+            } else {
+                todos::TodoOp::Link { id, worktree: None, session: Some(h.copy.clone()), linked: true }
+            };
+            if self.todos.apply(op, lanes, now_ms()).unwrap_or(false) {
+                todos_changed = true;
+            }
+        }
+        if todos_changed {
+            self.save_todos();
+        }
+        let mut state_changed = false;
+        let label_ids: Vec<String> = self.seen.labels_of(&h.from).to_vec();
+        if !label_ids.is_empty() {
+            state_changed |= self.seen.label(&h.copy, &label_ids, &[]);
+        }
+        if h.was_pinned {
+            state_changed |= self.seen.pin(&h.copy, true);
+        }
+        if state_changed {
+            self.save_state();
+        }
+        crate::terminals::follow(&h.from, &h.copy);
+        if let Err(e) = crate::schedules::runner::copy_takes_place(board, &h.from, &h.copy) {
+            eprintln!("Moved {}, but couldn't send its schedules' runs to {}: {e:#}", h.from, h.copy);
+        }
     }
 
     pub(super) fn compose(&self) -> Board {

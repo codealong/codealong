@@ -69,7 +69,7 @@
         more.click();
         await until(function () { return menus() > n; }, 3000);
         var labels = window.__menu().map(function (x) { return x[0]; });
-        check('its menu says a move goes on', labels.indexOf('Move to ' + other + ' and go on') >= 0, labels.join(' | '));
+        check('its menu says a move goes on', labels.indexOf('Move to ' + other + ' and go on') >= 0 || labels.indexOf('Move and go on to › ' + other + ' (has room)') >= 0, labels.join(' | '));
         document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
       } else {
         note('no ⋯ button in the peek to read its menu from');

@@ -149,8 +149,11 @@ All **Real**.
 - `--snapshot --fork <session key> [prompt] [--from <cursor>]`: forks it into the background, as
   `/fork` in its box does; `--from` copies it up to just before that prompt of yours and goes on
   from `prompt` in its place, as editing the prompt does. A copy to remove after.
-- `--snapshot --move <session key> <account | worktree folder>`: moves it to another account of
-  its harness, or to a worktree, as Move to in its menu does.
+- `--snapshot --move <session key> <account | worktree folder>`: moves or hands off a session to
+  another account (same harness or cross-provider), or to a worktree, as Move to in its menu does.
+- `--snapshot --handoff-plan <session key> <account> [prompt] [--model <model>] [--effort <level>] [--place <terminal|background|claude-app|codex-app|codealong>] [--keep]`:
+  what moving or handing off that session to `account` would do (native move vs. tiered handoff
+  packet, transcript stats, prompt, launch plan), without launching or changing anything.
 - `--snapshot --resume <session key> <terminal|background|claude-app|codex-app|codealong> [prompt] [--model <model>] [--effort <level>]`:
   goes on with a session that isn't running, there, as its box and Resume in do.
 - `--snapshot --switch-model <session key> <model>`: switches a running session's model, or a

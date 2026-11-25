@@ -754,6 +754,8 @@ enum SessionCmd {
         #[arg(long, value_name = "CURSOR", requires = "prompt")]
         from: Option<u64>,
     },
+    /// Hand off or move a session to another account or provider (Claude Code, Codex, OpenCode, Antigravity, Cursor). Same-harness Claude Code moves use native lossless resume when moving with default settings; every other handoff writes the full Markdown transcript to Codealong's files folder and starts a fresh session in the same worktree seeded with a tiered handoff brief (workspace, PR, todos, files touched, failures, original goal, compacted earlier turns, and verbatim recent turns). Respects boundary groups. With --keep, the original session stays open; without it, the original is closed and archived and its todos, labels, pin and schedules move to the new session. With --dry-run, prints the handoff plan and prompt without launching anything.
+    Handoff(HandoffArgs),
     /// For the Codealong plugin's hooks, with the hook's input on stdin. `permission-request`
     /// hands Claude Code's permission request to the app, to be answered from Codealong as well
     /// as the prompt, and prints the answer for Claude Code. It prints nothing, and exits 0,
@@ -762,6 +764,33 @@ enum SessionCmd {
     /// notes Codex's approval request for the app, and prints nothing.
     #[command(hide = true)]
     Hook { event: String },
+}
+
+#[derive(Args, Debug)]
+struct HandoffArgs {
+    /// The session: its key, its id, a unique start of its id, or `me`.
+    key: String,
+    /// Target account name in config.toml (same or different provider).
+    #[arg(long, value_name = "ACCOUNT")]
+    to: String,
+    /// Optional instruction for what the new session should do next.
+    #[arg(allow_hyphen_values = true)]
+    prompt: Option<String>,
+    /// Model to start on, where the target harness takes one.
+    #[arg(long, value_name = "MODEL")]
+    model: Option<String>,
+    /// Effort level to start with, where the target harness takes one.
+    #[arg(long, value_name = "LEVEL")]
+    effort: Option<String>,
+    /// Where to start: terminal, background, codealong, claude-app or codex-app.
+    #[arg(long = "in", value_name = "PLACE")]
+    place: Option<String>,
+    /// Keep the source session open and unarchived instead of closing and archiving it.
+    #[arg(long)]
+    keep: bool,
+    /// Print the handoff plan and prompt without launching anything.
+    #[arg(long)]
+    dry_run: bool,
 }
 
 #[derive(Args, Debug)]
@@ -1933,6 +1962,7 @@ fn run(cmd: Cmd, c: &mut Client, json: bool) -> Result<()> {
         Cmd::Session { cmd: SessionCmd::Rename { key, name } } => session_act(c, &key, api::SESSION_RENAME, params::Rename { name, ..Default::default() }, json),
         Cmd::Session { cmd: SessionCmd::Fork { key, prompt, from: Some(cursor) } } => session_act(c, &key, api::SESSION_EDIT, params::Edit { cursor, prompt: prompt.unwrap_or_default(), ..Default::default() }, json),
         Cmd::Session { cmd: SessionCmd::Fork { key, prompt, from: None } } => session_act(c, &key, api::SESSION_FORK, params::Fork { prompt: prompt.unwrap_or_default(), ..Default::default() }, json),
+        Cmd::Session { cmd: SessionCmd::Handoff(a) } => session_handoff(c, a, json),
         Cmd::Session { cmd: SessionCmd::Hook { event } } => {
             session_hook(&event);
             Ok(())
@@ -2226,6 +2256,14 @@ mod tests {
         assert!(matches!(Cli::try_parse_from(["codealong", "session", "stop", "me"]).unwrap().cmd, Cmd::Session { cmd: SessionCmd::Stop { ref key } } if key == "me"));
         assert!(matches!(Cli::try_parse_from(["codealong", "session", "done", "me"]).unwrap().cmd, Cmd::Session { cmd: SessionCmd::Done { ref key, archive: false } } if key == "me"));
         assert!(matches!(Cli::try_parse_from(["codealong", "session", "done", "me", "--archive"]).unwrap().cmd, Cmd::Session { cmd: SessionCmd::Done { archive: true, .. } }));
+        // Handoff to another account or provider, with optional prompt, model, effort, place, --keep and --dry-run.
+        let cli = parse_from(["codealong", "session", "handoff", "claude:claude:abc", "--to", "codex", "Finish the tests", "--model", "o3", "--effort", "high", "--in", "background", "--keep", "--dry-run"]).unwrap();
+        let Cmd::Session { cmd: SessionCmd::Handoff(h) } = cli.cmd else { panic!() };
+        assert_eq!(
+            (h.key.as_str(), h.to.as_str(), h.prompt.as_deref(), h.model.as_deref(), h.effort.as_deref(), h.place.as_deref(), h.keep, h.dry_run),
+            ("claude:claude:abc", "codex", Some("Finish the tests"), Some("o3"), Some("high"), Some("background"), true, true),
+        );
+        assert!(Cli::try_parse_from(["codealong", "session", "handoff", "abc"]).is_err());
         assert!(matches!(Cli::try_parse_from(["codealong", "session", "seen", "me", "--note", "Nothing new on the deploy"]).unwrap().cmd, Cmd::Session { cmd: SessionCmd::Seen { ref key, ref note } } if key == "me" && note.as_deref() == Some("Nothing new on the deploy")));
         assert!(matches!(Cli::try_parse_from(["codealong", "session", "seen", "me"]).unwrap().cmd, Cmd::Session { cmd: SessionCmd::Seen { note: None, .. } }));
         assert!(matches!(Cli::try_parse_from(["codealong", "session", "pending", "abc"]).unwrap().cmd, Cmd::Session { cmd: SessionCmd::Pending { .. } }));

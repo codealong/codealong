@@ -249,7 +249,8 @@ impl Engine {
             // Out of a boundary group only where the sign-in it would go to qualifies too.
             let cfg = &self.cfg;
             let qualifies = |name: &str| cfg.accounts.iter().find(|a| a.name == name).is_some_and(|a| crate::signin::current(a, now, crate::signin::Ask::Never).qualifies());
-            crate::start::limit_moves(&mut sessions, &cfg.accounts, cfg.routing.buffer, usage, |h| harness::adapter(h).moves_accounts(), |from, to| crate::boundary::may_send(cfg, from, to, qualifies(to)), now);
+            let home = crate::util::home();
+            crate::start::limit_moves(&mut sessions, &cfg.accounts, cfg.routing.buffer, usage, |a| crate::start::places_of(a, &home).is_ok(), |from, to| crate::boundary::may_send(cfg, from, to, qualifies(to)), now);
         }
         let on = self.cfg.limits.continue_when_lifted;
         for s in &mut sessions {
