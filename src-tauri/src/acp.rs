@@ -32,8 +32,10 @@ use std::time::Duration;
 
 mod forms;
 mod handover;
+mod start_mode;
 mod steer;
 pub use handover::{any_running, hand_over, take_over, Handed};
+use start_mode::start_mode;
 pub use steer::steer;
 
 use anyhow::{anyhow, bail, Context, Result};
@@ -974,6 +976,7 @@ pub fn start(a: &AccountCfg, cwd: &Path, prompt: &str, model: Option<&str>, effo
     let ag = agent(a)?;
     let r = ag.request("session/new", session_params(&ag, cwd, None), Some(REQUEST_TIMEOUT))?;
     let id = r.get("sessionId").and_then(Value::as_str).ok_or_else(|| anyhow!("{}'s agent made no session.", a.name))?.to_string();
+    let r = start_mode(&ag, &id, r)?;
     let options = tune(&ag, &id, &r, model, effort)?;
     let key = key_of(harness, &a.name, &id);
     let cwd_s = cwd.to_string_lossy().into_owned();
@@ -1409,6 +1412,7 @@ fn load(ag: &Arc<Agent>, key: &str, id: &str, cwd: &str) -> Result<Value> {
     } else {
         bail!("{}'s agent can't pick a session up again.", ag.account);
     };
+    let answer = start_mode(ag, id, answer)?;
     let options = answer.get("configOptions").cloned().unwrap_or_default();
     set(key, |h| {
         h.loaded = true;
@@ -3382,6 +3386,59 @@ mod tests {
         std::fs::write(&settings, json!({ "toolPermission": "request-review" }).to_string()).unwrap();
         hear(account, &link, &perm("5", run_cmd, once_opts));
         assert_eq!(pending(&key).as_ref().map(|p| p.id.as_str()), Some("call_1"));
+
+        state().sessions.remove(&key);
+        state().agents.remove(account);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// `agy acp` starts each session in `default`, and puts one it picks up back there, whatever
+    /// the command line's settings start its terminal UI in; Codealong puts it in that mode as it
+    /// starts and as it's picked up, once, and leaves it as its agent starts it when they say none.
+    #[test]
+    fn a_hosted_antigravity_session_starts_in_the_settings_agent_mode() {
+        let dir = store::test_dir("acp-ag-start-mode");
+        let app_home = dir.join("antigravity");
+        let cli_home = dir.join("antigravity-cli");
+        std::fs::create_dir_all(&app_home).unwrap();
+        std::fs::create_dir_all(&cli_home).unwrap();
+        let settings = cli_home.join("settings.json");
+        let mode_opts = |cur: &str| json!([{ "id": "mode", "category": "mode", "currentValue": cur, "options": [{ "value": "default" }, { "value": "accept-edits" }, { "value": "auto" }, { "value": "plan" }] }]);
+        std::fs::write(dir.join("default"), mode_opts("default").to_string()).unwrap();
+        std::fs::write(dir.join("auto"), mode_opts("auto").to_string()).unwrap();
+        let script = format!(
+            r#"while IFS= read -r line; do printf '%s\n' "$line" >> "$1"; id=$(printf '%s' "$line" | sed -n 's/^{{"id":\([0-9]*\),.*/\1/p'); case "$line" in *'"method":"session/resume"'*) echo "{{\"jsonrpc\":\"2.0\",\"id\":$id,\"result\":{{\"configOptions\":$(cat '{}')}}}}";; *'"configId":"mode"'*'"value":"auto"'*) echo "{{\"jsonrpc\":\"2.0\",\"id\":$id,\"result\":{{\"configOptions\":$(cat '{}')}}}}";; esac; done"#,
+            dir.join("default").display(),
+            dir.join("auto").display(),
+        );
+        let account = "test-adapter-ag-start-mode";
+        let key = key_of(Harness::Antigravity, account, "s1");
+        let mut cmd = Command::new(crate::procs::posix_tool("sh"));
+        cmd.args(["-c", &script, "sh"]).arg(dir.join("heard"));
+        let ag = connect_as(account, Some((Harness::Antigravity, app_home.clone())), None, cmd, std::fs::File::create(dir.join("log")).unwrap()).unwrap();
+        *ag.caps.lock().unwrap() = json!({ "sessionCapabilities": { "resume": {} } });
+        state().agents.insert(account.into(), ag.clone());
+        let mode_sets = || heard(&dir).iter().filter(|l| l.contains(r#""method":"session/set_config_option""#) && l.contains(r#""configId":"mode""#) && l.contains(r#""value":"auto""#)).count();
+        let new_session = || json!({ "sessionId": "s1", "configOptions": mode_opts("default") });
+
+        // No agentMode in the settings: the session stays as its agent starts it.
+        std::fs::write(&settings, json!({ "toolPermission": "request-review" }).to_string()).unwrap();
+        assert_eq!(current_option(&start_mode(&ag, "s1", new_session()).unwrap()["configOptions"], "mode").as_deref(), Some("default"));
+        assert_eq!(mode_sets(), 0);
+
+        // agentMode auto: a new session is switched to it, as `start` takes its answer.
+        std::fs::write(&settings, json!({ "agentMode": "auto" }).to_string()).unwrap();
+        assert_eq!(current_option(&start_mode(&ag, "s1", new_session()).unwrap()["configOptions"], "mode").as_deref(), Some("auto"));
+        assert_eq!(mode_sets(), 1);
+        // One its agent says is in it already isn't switched again.
+        start_mode(&ag, "s1", json!({ "sessionId": "s1", "configOptions": mode_opts("auto") })).unwrap();
+        assert_eq!(mode_sets(), 1);
+
+        // Picked up again (`session/resume` answers in `default`), it goes back to auto.
+        state().sessions.insert(key.clone(), Hosted { account: account.into(), id: "s1".into(), cwd: "/w".into(), ..Default::default() });
+        load(&ag, &key, "s1", "/w").unwrap();
+        assert_eq!(current_option(&state().sessions[&key].options, "mode").as_deref(), Some("auto"));
+        assert_eq!(mode_sets(), 2);
 
         state().sessions.remove(&key);
         state().agents.remove(account);

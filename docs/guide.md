@@ -941,8 +941,10 @@ review, Strict, Proceed in sandbox, Always proceed, which `--dangerously-skip-pe
 gives); for a conversation nothing has open, the permissions its latest turn ran with. A session
 Codealong runs itself starts in the mode its account's settings give new sessions (Claude Code's
 `permissions.defaultMode` in the account's `settings.json`: without one it's Manual, even where
-Claude Code's terminal starts in Auto), and its mode is a menu of the modes its agent offers (Claude
-Code's Manual, Accept edits, Plan, Auto and Bypass); ⇧⇥ in its box steps to the next, as in Claude
+Claude Code's terminal starts in Auto; Antigravity's `agentMode` in its command line's
+`~/.gemini/antigravity-cli/settings.json`, which `agy acp` itself passes over, so Codealong
+switches each session to it as it starts and again whenever it's picked up), and its mode is a
+menu of the modes its agent offers (Claude Code's Manual, Accept edits, Plan, Auto and Bypass); ⇧⇥ in its box steps to the next, as in Claude
 Code's terminal. Either switches that session alone, mid-turn too and while it waits on you: what it
 asks from then on goes by the new mode, and what it asks now still waits for your answer.
 
