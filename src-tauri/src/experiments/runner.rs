@@ -600,7 +600,7 @@ fn exec_finish_review(engine: &Handle, cfg: &Config, run_id: &str, trial_id: &st
     let tree_now = gitops::tree_hash(Path::new(wt))?;
     let modified = trial.tree_before_review.as_deref().is_some_and(|before| before != tree_now);
     let reply = read_reply(engine, cfg, rev_key, sent)?;
-    let verdict = autoreview::verdict_of(&reply);
+    let verdict = prompts::parse_review_verdict(&reply);
     let verdict_word = match verdict {
         Some(Verdict::Approve) => "approve",
         Some(Verdict::RequestChanges) => "request-changes",
