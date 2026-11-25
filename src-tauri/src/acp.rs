@@ -1214,6 +1214,9 @@ fn ready_options(a: &AccountCfg, key: &str) -> Result<(Arc<Agent>, String, Value
         }
         (h.id.clone(), h.cwd.clone(), h.loaded && alive(&st, &a.name))
     };
+    if !loaded {
+        a.ensure_on()?;
+    }
     let ag = agent(a)?;
     if !loaded {
         load(&ag, key, &id, &cwd)?;
@@ -3258,6 +3261,53 @@ mod tests {
         let err = switch(&a, &key, Switch::Model("gemini-3.8-flash-xhigh")).unwrap_err().to_string();
         assert!(err.contains("doesn't offer gemini-3.8-flash-xhigh"), "{err}");
         assert!(heard(&dir).last().unwrap().contains(r#""value":"gemini-pro-orchestrator-neon""#), "{:?}", heard(&dir));
+
+        state().sessions.remove(&key);
+        state().agents.remove(account);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn switching_model_on_unloaded_hosted_session_loads_it_and_switches() {
+        init(|_| {});
+        let dir = store::test_dir("acp-unloaded-switch");
+        let ag_opts = |model: &str, level: &str| {
+            json!([
+                { "id": "model", "category": "model", "currentValue": model, "options": [{ "value": "gemini-4-neon" }, { "value": "gemini-3.8-flash" }] },
+                { "id": "thought_level", "category": "thought_level", "currentValue": level, "options": [{ "value": "low" }, { "value": "high" }] }
+            ])
+        };
+        let neon_high = serde_json::to_string(&ag_opts("gemini-4-neon", "high")).unwrap();
+        let flash_high = serde_json::to_string(&ag_opts("gemini-3.8-flash", "high")).unwrap();
+        let flash_low = serde_json::to_string(&ag_opts("gemini-3.8-flash", "low")).unwrap();
+        std::fs::write(dir.join("neon_high"), &neon_high).unwrap();
+        std::fs::write(dir.join("flash_high"), &flash_high).unwrap();
+        std::fs::write(dir.join("flash_low"), &flash_low).unwrap();
+        let script = format!(
+            r#"while IFS= read -r line; do printf '%s\n' "$line" >> "$1"; id=$(printf '%s' "$line" | sed -n 's/^{{"id":\([0-9]*\),.*/\1/p'); case "$line" in *'"method":"session/resume"'*) echo "{{\"jsonrpc\":\"2.0\",\"id\":$id,\"result\":{{\"configOptions\":$(cat '{}')}}}}";; *'"configId":"model"'*'"value":"gemini-3.8-flash"'*) echo "{{\"jsonrpc\":\"2.0\",\"id\":$id,\"result\":{{\"configOptions\":$(cat '{}')}}}}";; *'"configId":"thought_level"'*'"value":"low"'*) echo "{{\"jsonrpc\":\"2.0\",\"id\":$id,\"result\":{{\"configOptions\":$(cat '{}')}}}}";; esac; done"#,
+            dir.join("neon_high").display(),
+            dir.join("flash_high").display(),
+            dir.join("flash_low").display(),
+        );
+        let account = "test-adapter-unloaded-switch";
+        let key = key_of(Harness::Antigravity, account, "s1");
+        state().sessions.insert(key.clone(), Hosted { account: account.into(), id: "s1".into(), cwd: "/w".into(), loaded: false, ..Default::default() });
+        let ag = stand_in(account, &script, &dir);
+        *ag.caps.lock().unwrap() = json!({ "sessionCapabilities": { "resume": {} } });
+        let disabled: AccountCfg = serde_json::from_value(json!({ "name": account, "harness": "antigravity", "home": "/h", "disabled": true })).unwrap();
+        assert!(switch(&disabled, &key, Switch::Model("gemini-3.8-flash-low")).is_err());
+
+        let a: AccountCfg = serde_json::from_value(json!({ "name": account, "harness": "antigravity", "home": "/h" })).unwrap();
+        assert_eq!(switch(&a, &key, Switch::Model("gemini-3.8-flash-low")).unwrap(), Switched::Now);
+        let mut s = Session { harness: Harness::Antigravity, ..crate::fixtures::session(&key) };
+        overlay(&mut s, 0);
+        assert!(s.live);
+        assert_eq!(s.model.as_deref(), Some("gemini-3.8-flash-low"));
+        let log = heard(&dir);
+        assert_eq!(log.len(), 3, "{log:?}");
+        assert!(log[0].contains(r#""method":"session/resume""#), "{log:?}");
+        assert!(log[1].contains(r#""configId":"model""#) && log[1].contains(r#""value":"gemini-3.8-flash""#), "{log:?}");
+        assert!(log[2].contains(r#""configId":"thought_level""#) && log[2].contains(r#""value":"low""#), "{log:?}");
 
         state().sessions.remove(&key);
         state().agents.remove(account);

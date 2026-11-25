@@ -1472,15 +1472,17 @@ fn switch(board: &Board, cfg: &Config, key: &str, to: Switch) -> Result<String> 
         let now = own.switch(session, account, to)?;
         return Ok(format!("{title} is on {} from its next turn.", label(&now)));
     }
-    if !session.live {
-        bail!("{title} isn't running: pick its {what} as it resumes.");
-    }
+    // Codealong runs it: acp::switch picks an unloaded session up in its adapter process when
+    // needed, and queues a switch while a turn runs.
     if session.hosted {
         return Ok(match crate::acp::switch(account, key, to)? {
             crate::acp::Switched::Now => format!("{title} is on {} now.", label(value)),
             crate::acp::Switched::Queued => format!("{title} switches to {} after its current turn.", label(value)),
             crate::acp::Switched::Unchanged => format!("{title} stays on {}.", label(value)),
         });
+    }
+    if !session.live {
+        bail!("{title} isn't running: pick its {what} as it resumes.");
     }
     let mid_turn = crate::harness::turn_running(session);
     if mid_turn && !adapter.switches_mid_turn() {
@@ -2199,10 +2201,12 @@ mod tests {
         let untyped = "Codealong can't type into “Fix the build”'s terminal, so its model wasn't switched. Run `/model haiku` there.";
         assert_eq!(refused(working.clone(), "haiku"), untyped);
         assert_eq!(refused(Session { stalled_since: Some(1), ..working.clone() }, "haiku"), untyped);
-        // One Codealong runs goes through ACP (where a running turn queues the switch) rather than
-        // being rejected as mid-turn here.
+        // One Codealong runs goes through ACP (where a running turn queues the switch and an
+        // unloaded session is picked back up) rather than being rejected as stopped or mid-turn.
         let hosted_err = refused(Session { hosted: true, ..working.clone() }, "haiku");
         assert!(!hosted_err.contains("in the middle of a turn"), "{hosted_err}");
+        let hosted_unloaded = refused(Session { hosted: true, live: false, status: Status::Unread, ..idle.clone() }, "haiku");
+        assert!(!hosted_unloaded.contains("isn't running"), "{hosted_unloaded}");
         assert!(refused(Session { status: Status::Needs, ..idle.clone() }, "haiku").contains("is waiting on you"));
         assert!(refused(idle.clone(), "haiku; rm -rf ~").contains("isn't a model Codealong can switch"));
         // A Codex terminal is switched there: Codealong types no command into one.
@@ -2221,6 +2225,8 @@ mod tests {
         assert_eq!(refused(Session { status: Status::Working, pid: None, ..idle.clone() }, "high"), "Codealong can't type into “Fix the build”'s terminal, so its effort wasn't switched. Run `/effort high` there.");
         let hosted_effort_err = refused(Session { status: Status::Working, hosted: true, ..idle.clone() }, "high");
         assert!(!hosted_effort_err.contains("in the middle of a turn"), "{hosted_effort_err}");
+        let hosted_unloaded_effort = refused(Session { hosted: true, live: false, status: Status::Unread, ..idle.clone() }, "high");
+        assert!(!hosted_unloaded_effort.contains("isn't running"), "{hosted_unloaded_effort}");
         assert!(refused(idle.clone(), "turbo").contains("isn't an effort level Codealong can switch"));
         assert_eq!(refused(thread.clone(), "high"), "Codex has no command to switch a running session's effort.");
         assert!(refused(thread, "turbo").contains("isn't an effort level Codealong can switch"));

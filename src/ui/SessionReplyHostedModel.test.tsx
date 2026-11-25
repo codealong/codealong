@@ -61,9 +61,9 @@ const claudeAccount: StartAccount = {
   switchesInApp: false,
 };
 
-function renderReply(session: Session) {
+function renderReply(session: Session, way: unknown = { kind: 'hosted' }) {
   engine.answer('start_options', () => ({ accounts: [agAccount, claudeAccount], codexProjects: [], claudeModels: [] }));
-  engine.answer('session_way', () => ({ kind: 'hosted' }));
+  engine.answer('session_way', () => way);
   engine.answer('session_pending', () => null);
   const host = document.body.appendChild(document.createElement('div'));
   const root = createRoot(host);
@@ -159,6 +159,48 @@ describe('Reply model menu on Codealong-hosted sessions', () => {
     await settle();
 
     expect(efforts).toEqual([{ key: s.key, effort: 'medium' }]);
+    unmount();
+  });
+
+  it('keeps models pickable on an unloaded hosted session (live: false, way: null)', async () => {
+    const switches: Array<{ key: string; model: string }> = [];
+    engine.answer('switch_session_model', (args: unknown) => {
+      switches.push(args as { key: string; model: string });
+      return '“Experiments” is on Gemini 4 Carbon (High) now.';
+    });
+    const s = fx.session({
+      key: 'antigravity:antigravity:s3',
+      title: 'Experiments',
+      harness: 'antigravity',
+      account: 'antigravity',
+      status: 'unread',
+      live: false,
+      hosted: true,
+      model: 'gemini-4-neon-high',
+    });
+    const { host, unmount } = renderReply(s, null);
+    await settle();
+    await settle();
+    await settle();
+
+    const chip = host.querySelector<HTMLButtonElement>('.ca-modelmenu-chip');
+    expect(chip).not.toBeNull();
+    expect(chip?.title).toContain('for this session alone');
+
+    act(() => chip!.click());
+    await settle();
+
+    const opts = Array.from(host.querySelectorAll<HTMLButtonElement>('.ca-modelmenu .ca-picker-opt'));
+    expect(opts.length).toBe(2);
+    expect(opts.every((b) => !b.disabled)).toBe(true);
+
+    const carbon = opts.find((b) => b.textContent?.includes('Gemini 4 Carbon (High)'));
+    expect(carbon).toBeDefined();
+    act(() => carbon!.click());
+    await settle();
+
+    expect(switches).toEqual([{ key: s.key, model: 'gemini-4-carbon-high' }]);
+    expect(host.querySelector('.ca-composer-note')?.textContent).toContain('Gemini 4 Carbon (High) now');
     unmount();
   });
 });
