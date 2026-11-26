@@ -77,11 +77,11 @@ describe('PeerTalkChips', () => {
         <PeerTalkChips session={current} now={fx.NOW} onShowSession={onShowSession} />
       </Host>,
     );
-    const btn = el.querySelector<HTMLButtonElement>('button.ca-peertalk-btn.is-warn');
+    const btn = el.querySelector<HTMLButtonElement>('button.ca-chip.ca-peertalkchip.is-warn');
     expect(btn).not.toBeNull();
     expect(btn?.textContent).toContain('6 msgs');
-    expect(btn?.textContent).toContain('Ranking scorer');
-    expect(btn?.disabled).toBe(false);
+    expect(btn?.querySelector('.ca-chipname')?.textContent).toBe('Ranking scorer');
+    expect(btn?.title).toMatch(/Click to show it\.$/);
 
     act(() => btn!.click());
     expect(onShowSession).toHaveBeenCalledWith(lane, other);
@@ -106,13 +106,16 @@ describe('TodoOwnerTag', () => {
 });
 
 describe('OtherOwnerChips', () => {
-  it('shows clickable owner chips for a shared todo and an open PR owned by another session, skipping merged PRs', () => {
+  it('shows one clickable chip an owner, naming all it owns, for a shared todo and open PRs owned by another session, skipping merged PRs', () => {
     const owner: Session = fx.session({ key: 'claude:claude:owner', title: 'Primary fix' });
+    const other: Session = fx.session({ key: 'claude:claude2:other', title: 'Docs pass' });
     const current: Session = fx.session({ key: 'codex:codex:side', title: 'Side check' });
-    const lane = fx.lane({ sessions: [owner, current] });
+    const lane = fx.lane({ sessions: [owner, other, current] });
     const openPr = fx.pr({ number: 12, state: 'open' });
+    const otherPr = fx.pr({ number: 14, state: 'open' });
     const mergedPr = fx.pr({ number: 13, state: 'merged' });
     const openItem = fx.prItem({ number: 12, state: 'open', primary: owner.key });
+    const otherItem = fx.prItem({ number: 14, state: 'open', primary: other.key });
     const mergedItem = fx.prItem({ number: 13, state: 'merged', primary: owner.key });
     const sharedTodo = fx.todo({
       id: 't-shared',
@@ -122,14 +125,20 @@ describe('OtherOwnerChips', () => {
     const onShowSession = vi.fn();
 
     const el = mount(
-      <Host lanes={[lane]} prs={[openItem, mergedItem]}>
-        <OtherOwnerChips session={current} prs={[openPr, mergedPr]} todo={sharedTodo} onShowSession={onShowSession} />
+      <Host lanes={[lane]} prs={[openItem, otherItem, mergedItem]}>
+        <OtherOwnerChips session={current} prs={[openPr, mergedPr, otherPr]} todo={sharedTodo} onShowSession={onShowSession} />
       </Host>,
     );
-    const buttons = [...el.querySelectorAll<HTMLButtonElement>('button.ca-owner-btn')];
-    expect(buttons.map((b) => b.textContent)).toEqual(['Todo owner:Primary fix', '#12 owner:Primary fix']);
+    const chips = [...el.querySelectorAll<HTMLButtonElement>('button.ca-chip.ca-ownerchip')];
+    // What it owns is a span of its own, whole, and the owner's title the one cut short.
+    expect(chips.map((b) => [...b.children].map((c) => c.textContent))).toEqual([
+      ['Todo and #12 owner:', 'Primary fix'],
+      ['#14 owner:', 'Docs pass'],
+    ]);
+    expect(chips.map((b) => b.querySelector('.ca-chipname')?.textContent)).toEqual(['Primary fix', 'Docs pass']);
+    expect(chips[0].title).toBe('Todo and #12 are owned by “Primary fix”. Click to open the owning session.');
 
-    act(() => buttons[0].click());
+    act(() => chips[0].click());
     expect(onShowSession).toHaveBeenCalledWith(lane, owner);
   });
 });

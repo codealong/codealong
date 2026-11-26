@@ -1,33 +1,29 @@
 /* Peer-to-peer messaging and task ownership indicators (PeerTalkBits.tsx). */
 
-.ca-peertalk-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-1);
-  max-width: 240px;
-  height: 20px;
-  padding: 0 7px;
-  border: 0;
-  border-radius: var(--radius-pill);
-  background: var(--neutral-tint);
-  color: var(--ink-2);
+/* The header's chips for another session: what it is, whole, then the session's title, cut to the
+   chip's width. */
+.ca-chip.ca-peertalkchip,
+.ca-chip.ca-ownerchip {
+  min-width: 0;
+  max-width: min(240px, 100%);
   font: var(--type-caption-heading);
-  cursor: pointer;
 }
-.ca-peertalk-btn.is-warn {
+.ca-peertalkchip > .ca-chipname,
+.ca-ownerchip > .ca-chipname {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ca-chip.ca-peertalkchip.is-warn,
+.ca-chip.ca-ownerchip {
   background: var(--attn-tint);
   color: var(--attn);
 }
-.ca-peertalk-btn:hover:not(:disabled) {
-  filter: brightness(0.95);
-}
-.ca-peertalk-btn:disabled {
-  cursor: default;
-}
-.ca-peertalk-name {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+/* A tinted one keeps its colors under the pointer and rings itself in them, as a PR's does. */
+.ca-chip--button.ca-peertalkchip.is-warn:hover,
+.ca-chip--button.ca-ownerchip:hover {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, currentColor 45%, transparent);
 }
 
 .ca-owner-tag {
@@ -46,25 +42,4 @@
 .ca-owner-tag.is-other {
   background: var(--attn-tint);
   color: var(--attn);
-}
-
-.ca-owner-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-1);
-  max-width: 220px;
-  height: 20px;
-  padding: 0 7px;
-  border: 0;
-  border-radius: var(--radius-pill);
-  background: var(--attn-tint);
-  color: var(--attn);
-  font: var(--type-caption-heading);
-  cursor: pointer;
-}
-.ca-owner-btn:hover:not(:disabled) {
-  filter: brightness(0.95);
-}
-.ca-owner-btn:disabled {
-  cursor: default;
 }

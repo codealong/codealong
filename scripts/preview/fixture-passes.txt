@@ -391,6 +391,7 @@ scripts/preview.sh sessions '' scripts/preview/orchestrator-check.js
 scripts/preview.sh sessions '' scripts/preview/orchestrator-pick-check.js
 scripts/preview.sh sessions '' scripts/preview/orchestrator-scope-check.js
 scripts/preview.sh sessions '' scripts/preview/orchestrator-start-check.js
+scripts/preview.sh sessions '' scripts/preview/owner-chips-check.js
 scripts/preview.sh sessions '' scripts/preview/peer-message-check.js
 scripts/preview.sh sessions '' scripts/preview/project-default-check.js
 scripts/preview.sh sessions '' scripts/preview/questions-dialog-check.js
