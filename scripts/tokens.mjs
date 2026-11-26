@@ -49,6 +49,18 @@ ${decls(themed, 'dark').replace(/^/gm, '  ')}
   color-scheme: dark;
 ${decls(themed, 'dark')}
 }
+
+/* A part of a window whose own picture sets its look, whatever the app's theme (a session's AI
+   background, SessionBackdrop.css): the same tokens, for that part alone. */
+.ca-scheme-light {
+  color-scheme: light;
+${decls(themed, 'light')}
+}
+
+.ca-scheme-dark {
+  color-scheme: dark;
+${decls(themed, 'dark')}
+}
 `;
   return { css, themed: themed.length, plain: plain.length };
 }

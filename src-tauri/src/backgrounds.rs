@@ -9,7 +9,12 @@
 //! 1. Per-project `background_prompt` in `config.toml` (`[[projects]]`)
 //! 2. Repo team file `.codealong/config.toml` (`[backgrounds] prompt` or `prompt_file`)
 //! 3. Global `[backgrounds] prompt` in `config.toml`
-//! 4. Built-in `DEFAULT_STYLE` (high-variance editorial scenes with calm reading negative space).
+//! 4. Built-in `DEFAULT_STYLE` (varied full-color scenes, edge to edge).
+//!
+//! The picture is shown as drawn, in full color: what's said sits on frosted glass over it, and the
+//! panel takes a light or dark look from the picture's own luminance, whatever the app's theme
+//! (sessionTheme.ts `artScheme`). Nor does the app's theme lean the drawing either way: each
+//! picture takes the light its subject calls for, which tells sessions apart all the more.
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -25,8 +30,9 @@ use crate::teamfile::TeamCfg;
 use crate::util::DAY_MS;
 
 /// Default style instructions when neither project, repo team file, nor global `[backgrounds]`
-/// specifies one. Encourages strong visual variance across sessions while protecting legibility.
-pub const DEFAULT_STYLE: &str = "Choose a distinct artistic medium and serene subject inspired by the session (for example: minimalist Japanese woodblock ridges, dappled botanical shadows on linen, fluted frosted-glass light caustics, sweeping matte gouache architecture, ceramic glaze washes, or calm celestial mist). Keep 70% of the center and left area smooth, low-contrast negative space so UI text stays effortlessly readable, placing richer detail along the top, right, and bottom edges. Subtle matte film or paper grain. Strictly no text, letters, logos, or borders.";
+/// specifies one. Pictures vary from session to session and fill the frame: the conversation is
+/// read off glass over them, so they leave no blank space for it, and broad shapes blur well.
+pub const DEFAULT_STYLE: &str = "Choose a distinct artistic medium and subject inspired by the session (for example: a Japanese woodblock seascape, sunlit botanical gouache, a stained-glass skyline, a risograph mountain range, glazed ceramic ripples, or a nebula in oil paint). Let the subject set its own light, bright or deep. Fill the whole frame edge to edge with rich, saturated color, depth and light: the conversation sits on frosted glass panels over it, so leave no blank paper or empty margins. Favor broad shapes and smooth color fields over fine, busy detail, which blurs to mud behind glass. Strictly no text, letters, logos, or borders.";
 
 /// Maximum image dimension stored for a session background: sharp on Retina panels while keeping
 /// file size small (~45–65 KB as JPEG).
@@ -145,9 +151,9 @@ pub fn eligible(s: &Session) -> bool {
 
 /// Builds the full image-generation prompt for a session background, guided by the session's
 /// subject, emblem, sibling scenes to avoid repeating (`taken`), and resolved style prompt.
-pub fn draw_prompt(s: &Session, taken: &[String], theme_mode: &str, style: &str) -> String {
+pub fn draw_prompt(s: &Session, taken: &[String], style: &str) -> String {
     let mut p = String::from(
-        "Draw a vertical 3:4 minimalist fine-art UI background for a coding session with your image generation tool: one picture. Use the tool directly; don't read any files or skills, and don't write code.\n\n",
+        "Draw a vertical 3:4 full-color fine-art background for a coding session with your image generation tool: one picture. Use the tool directly; don't read any files or skills, and don't write code.\n\n",
     );
     p.push_str(&format!("The session is called “{}”.", crate::jev::clip(&s.title, 200)));
     if let Some(asked) = crate::emblems::about(s).filter(|a| a.trim() != s.title.trim()) {
@@ -164,11 +170,6 @@ pub fn draw_prompt(s: &Session, taken: &[String], theme_mode: &str, style: &str)
             "\n\nNeighboring active sessions already show: {}. Pick a noticeably different visual subject, color mood, and composition so this session reads apart at a glance.",
             crate::util::listed(taken, "and")
         ));
-    }
-    if theme_mode == "dark" {
-        p.push_str("\n\nTone: tuned for dark mode (deep matte charcoal/twilight ground with subtle luminous accents near the edges; dark low-contrast center for light text).");
-    } else if theme_mode == "light" {
-        p.push_str("\n\nTone: tuned for light mode (airy pale off-white/warm paper ground across the center with soft editorial color near the edges for dark text).");
     }
     let style = if style.trim().is_empty() { DEFAULT_STYLE } else { style.trim() };
     p.push_str(&format!(
@@ -560,6 +561,18 @@ mod tests {
             background_prompt: Some("Project botanical style.".into()),
         });
         assert_eq!(effective_prompt(&cfg, Some(&team), "App"), "Project botanical style.");
+    }
+
+    #[test]
+    fn asks_for_full_color_in_whatever_light_the_subject_calls_for() {
+        let mut s = Session::new(Harness::Claude, "claude", "s1");
+        s.title = "Fix flaky checkout tests".into();
+        let p = draw_prompt(&s, &[], "");
+        assert!(p.contains("full-color fine-art background") && p.contains(DEFAULT_STYLE));
+        // The panel follows the picture, so the app's theme doesn't lean it light or dark.
+        assert!(!p.contains("Tone:") && !p.contains("dark mode") && !p.contains("light mode"));
+        // The conversation reads off glass over it: nothing asks the picture to leave room for it.
+        assert!(!p.contains("negative space") && DEFAULT_STYLE.contains("edge to edge"));
     }
 
     #[test]

@@ -105,126 +105,30 @@
   background-position: center;
 }
 
-/* AI-generated vertical fine-art background layer:
-   - Ground blends natively into `--surface` via `multiply` (light mode) or `screen`/`lighten` (dark mode).
-   - When the artwork's ground opposes the active UI theme (e.g. a light-paper image in dark mode),
-     `invert(1) hue-rotate(180deg)` flips luminance to match the UI while preserving the artwork's
-     original hues — no extra generation and no heavy opaque blanket hiding the art.
-   - Strength (`data-strength="subtle|medium|vivid"`) dials both artwork opacity and the gentle
-     left-side reading cushion while leaving the art edges clear. */
+/* An AI-generated background shows as drawn: in full color, edge to edge, never veiled, blended
+   or inverted. It sets the look of what's over it by itself: the panel (or the header, when it's
+   there alone) takes `ca-scheme-light` or `ca-scheme-dark` by how light the picture is
+   (sessionTheme.ts `artScheme`, tokens.css), whatever the app's light or dark theme, and what's
+   said sits on glass over it (below). */
 .ca-st-layer.is-has-ai {
-  isolation: isolate;
   background: var(--surface);
 }
 .ca-st-ai {
   position: absolute;
-  inset: -2%;
+  inset: 0;
   background-image: var(--st-ai-img, none);
   background-size: cover;
   background-position: center;
-  opacity: 0.86;
-  mix-blend-mode: multiply;
   animation: ca-st-fadein 320ms ease-out;
 }
-.ca-st-layer.is-has-ai[data-strength='subtle'] .ca-st-ai {
-  opacity: 0.46;
+.ca-st-layer.is-has-ai .ca-st-grain {
+  display: none;
 }
-.ca-st-layer.is-has-ai[data-strength='vivid'] .ca-st-ai {
-  opacity: 1;
-  filter: saturate(1.14) contrast(1.04);
-}
-/* Dark-ground artwork viewed in Light mode: invert luminance while preserving hue. */
-.ca-st-layer.is-has-ai.is-dark-art .ca-st-ai {
-  filter: invert(1) hue-rotate(180deg) brightness(1.06) contrast(1.04) saturate(1.15);
-}
-.ca-st-layer.is-has-ai.is-dark-art[data-strength='vivid'] .ca-st-ai {
-  filter: invert(1) hue-rotate(180deg) brightness(1.06) contrast(1.06) saturate(1.25);
-}
-/* Light reading cushion: keeps left-aligned conversation text effortless while leaving the right
-   and outer edges where the artwork lives crisp and unveiled. */
-.ca-st-layer.is-has-ai.is-panel .ca-st-veil {
-  background: linear-gradient(
-    90deg,
-    color-mix(in oklch, var(--surface) 22%, transparent) 0%,
-    color-mix(in oklch, var(--surface) 14%, transparent) 52%,
-    transparent 82%
-  );
-}
-.ca-st-layer.is-has-ai.is-panel[data-strength='subtle'] .ca-st-veil {
-  background: linear-gradient(
-    90deg,
-    color-mix(in oklch, var(--surface) 38%, transparent) 0%,
-    color-mix(in oklch, var(--surface) 26%, transparent) 58%,
-    color-mix(in oklch, var(--surface) 10%, transparent) 100%
-  );
-}
-.ca-st-layer.is-has-ai.is-panel[data-strength='vivid'] .ca-st-veil {
-  background: linear-gradient(
-    90deg,
-    color-mix(in oklch, var(--surface) 8%, transparent) 0%,
-    transparent 55%
-  );
-}
+/* The header alone: its words sit on one pane of the glass across the picture. */
 .ca-st-layer.is-has-ai.is-header .ca-st-veil {
-  background: color-mix(in oklch, var(--surface) 12%, transparent);
-}
-.ca-st-layer.is-has-ai.is-header[data-strength='subtle'] .ca-st-veil {
-  background: color-mix(in oklch, var(--surface) 28%, transparent);
-}
-.ca-st-layer.is-has-ai.is-header[data-strength='vivid'] .ca-st-veil {
-  background: transparent;
-}
-/* Dark mode: light-paper artwork flips cleanly onto dark charcoal with hue-preserving inversion
-   + `screen` blend; dark-ground artwork blends natively with `lighten`. */
-:root[data-theme='dark'] .ca-st-layer.is-has-ai.is-light-art .ca-st-ai {
-  opacity: 0.78;
-  mix-blend-mode: screen;
-  filter: invert(1) hue-rotate(180deg) brightness(0.9) contrast(1.08) saturate(1.3);
-}
-:root[data-theme='dark'] .ca-st-layer.is-has-ai.is-light-art[data-strength='subtle'] .ca-st-ai {
-  opacity: 0.44;
-}
-:root[data-theme='dark'] .ca-st-layer.is-has-ai.is-light-art[data-strength='vivid'] .ca-st-ai {
-  opacity: 0.96;
-  filter: invert(1) hue-rotate(180deg) brightness(0.95) contrast(1.1) saturate(1.42);
-}
-:root[data-theme='dark'] .ca-st-layer.is-has-ai.is-dark-art .ca-st-ai {
-  opacity: 0.88;
-  mix-blend-mode: lighten;
-  filter: none;
-}
-:root[data-theme='dark'] .ca-st-layer.is-has-ai.is-dark-art[data-strength='subtle'] .ca-st-ai {
-  opacity: 0.5;
-}
-:root[data-theme='dark'] .ca-st-layer.is-has-ai.is-dark-art[data-strength='vivid'] .ca-st-ai {
-  opacity: 1;
-  filter: saturate(1.15) contrast(1.05);
-}
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme='light']) .ca-st-layer.is-has-ai.is-light-art .ca-st-ai {
-    opacity: 0.78;
-    mix-blend-mode: screen;
-    filter: invert(1) hue-rotate(180deg) brightness(0.9) contrast(1.08) saturate(1.3);
-  }
-  :root:not([data-theme='light']) .ca-st-layer.is-has-ai.is-light-art[data-strength='subtle'] .ca-st-ai {
-    opacity: 0.44;
-  }
-  :root:not([data-theme='light']) .ca-st-layer.is-has-ai.is-light-art[data-strength='vivid'] .ca-st-ai {
-    opacity: 0.96;
-    filter: invert(1) hue-rotate(180deg) brightness(0.95) contrast(1.1) saturate(1.42);
-  }
-  :root:not([data-theme='light']) .ca-st-layer.is-has-ai.is-dark-art .ca-st-ai {
-    opacity: 0.88;
-    mix-blend-mode: lighten;
-    filter: none;
-  }
-  :root:not([data-theme='light']) .ca-st-layer.is-has-ai.is-dark-art[data-strength='subtle'] .ca-st-ai {
-    opacity: 0.5;
-  }
-  :root:not([data-theme='light']) .ca-st-layer.is-has-ai.is-dark-art[data-strength='vivid'] .ca-st-ai {
-    opacity: 1;
-    filter: saturate(1.15) contrast(1.05);
-  }
+  background: var(--st-glass-bar);
+  -webkit-backdrop-filter: var(--st-glass-blur);
+  backdrop-filter: var(--st-glass-blur);
 }
 @keyframes ca-st-fadein {
   from {
@@ -469,11 +373,11 @@
 }
 
 /* Keep user prompt bubbles crisp and distinct over every mesh style. */
-.ca-st-panel.is-full .ca-thread-you {
+.ca-st-panel.is-full:not(.is-art) .ca-thread-you {
   background: color-mix(in oklch, var(--surface) 78%, var(--st-1));
   box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--st-accent) 20%, var(--line));
 }
-:root[data-theme='dark'] .ca-st-panel.is-full .ca-thread-you {
+:root[data-theme='dark'] .ca-st-panel.is-full:not(.is-art) .ca-thread-you {
   background: color-mix(in oklch, var(--surface) 76%, var(--st-1));
   box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--st-accent) 24%, var(--line));
 }
@@ -490,6 +394,149 @@
   backdrop-filter: blur(14px);
   -webkit-backdrop-filter: blur(14px);
   border-color: color-mix(in oklch, var(--st-accent) 22%, var(--line));
+}
+
+/* ── Glass over an AI background ────────────────────────────────────────────────────────────── */
+
+/* The picture's own scheme picks the chord's light or dark stops, whatever the app's theme. */
+.ca-st-panel.is-art.ca-scheme-light,
+.ca-st-head.is-art.ca-scheme-light {
+  --st-base: var(--st-l-base, var(--surface));
+  --st-accent: var(--st-l-accent, var(--ink-3));
+  --st-accent2: var(--st-l-accent2, var(--ink-3));
+}
+.ca-st-panel.is-art.ca-scheme-dark,
+.ca-st-head.is-art.ca-scheme-dark {
+  --st-base: var(--st-d-base, var(--surface));
+  --st-accent: var(--st-d-accent, var(--ink-3));
+  --st-accent2: var(--st-d-accent2, var(--ink-3));
+}
+
+/* What's said sits on frosted glass over the picture: a pane of the panel's own surface that
+   lets some of the picture through, blurred and its colors lifted, with a hairline edge and a lit
+   top rim. Strength (--st-scale) lets more of it through: Subtle keeps 75% of the surface, Medium
+   66%, Vivid 56%; the header, which holds less to read, 8% less. Yours are tinted with the
+   picture's color, and what's asked of you about one (Put back in the box) is on a pane with it.
+   What's said of a message (when, who sent it, Taken back), notes and the working line go on the
+   picture itself, kept legible by a soft halo of the surface. */
+.ca-st-panel.is-art,
+.ca-st-head.is-art {
+  --st-glass-keep: calc(92% - 26% * var(--st-scale, 1));
+  --st-glass: color-mix(in oklch, var(--surface) var(--st-glass-keep), transparent);
+  --st-glass-bar: color-mix(in oklch, var(--surface) calc(var(--st-glass-keep) - 8%), transparent);
+  --st-glass-yours: color-mix(in oklch, color-mix(in oklch, var(--st-accent) 18%, var(--surface)) var(--st-glass-keep), transparent);
+  --st-glass-blur: blur(24px) saturate(1.8);
+  --st-glass-edge: var(--shadow-glass-control), 0 0 0 0.5px var(--glass-line);
+  --st-glass-lift: 0 10px 28px -16px var(--scrim);
+  --st-halo: color-mix(in oklch, var(--surface) 72%, transparent);
+  /* Rules inside the glass are see-through as well, as on the window's own (glass.css). */
+  --line: var(--glass-line);
+}
+
+.ca-st-panel.is-art .ca-sessinsp-head {
+  border-bottom: 0;
+  background: var(--st-glass-bar);
+  -webkit-backdrop-filter: var(--st-glass-blur);
+  backdrop-filter: var(--st-glass-blur);
+  box-shadow: var(--shadow-glass-control), 0 0.5px 0 var(--glass-line);
+}
+
+/* The conversation and the box under it share the picture, with no bar between them: the box is a
+   pane of glass on it, as what's said is. A long reply has the room: the panes go nearer the
+   panel's edges than words alone did, and the box lines up with them. */
+.ca-st-panel.is-art .ca-thread {
+  --thread-edge: var(--space-2);
+  padding-left: var(--space-2);
+}
+.ca-st-panel.is-art .ca-composer {
+  padding-inline: var(--space-2);
+  border-top: 0;
+  background: transparent;
+}
+.ca-st-panel.is-art .ca-composer-field {
+  border-color: transparent;
+  background: var(--st-glass);
+  -webkit-backdrop-filter: var(--st-glass-blur);
+  backdrop-filter: var(--st-glass-blur);
+  box-shadow: var(--st-glass-edge), var(--st-glass-lift);
+}
+.ca-st-panel.is-art .ca-composer-field:focus-within {
+  box-shadow: var(--st-glass-edge), 0 0 0 1px var(--glass-line-strong), var(--st-glass-lift);
+}
+
+/* The fade at the conversation's foot is a mask, and glass under a mask blurs only what's inside
+   it (the mask makes the conversation the glass's backdrop root), so over a picture there's none:
+   what scrolls down goes under the box's top edge. */
+.ca-st-panel.is-art .ca-thread {
+  -webkit-mask: none;
+  mask: none;
+}
+
+/* Each message is a pane of its own, the picture showing between them; what's inside one (a folded
+   turn's work, a message card's message) is on its glass already. */
+.ca-st-panel.is-art .ca-thread > .ca-thread-said.is-agent > .ca-thread-agent,
+.ca-st-panel.is-art .ca-thread > .ca-thread-said.is-codealong > .ca-thread-codealong,
+.ca-st-panel.is-art .ca-thread > .ca-thread-said.is-peer > .ca-thread-peer,
+.ca-st-panel.is-art .ca-thread > .ca-thread-said > .ca-thread-you,
+.ca-st-panel.is-art .ca-thread > .ca-thread-said > .ca-thread-askrow,
+.ca-st-panel.is-art .ca-thread > .ca-thread-tool,
+.ca-st-panel.is-art .ca-thread > .ca-thread-run,
+.ca-st-panel.is-art .ca-thread > .ca-thread-turn,
+.ca-st-panel.is-art .ca-thread > .ca-thread-turnbody,
+.ca-st-panel.is-art .ca-thread > .ca-msgcard,
+.ca-st-panel.is-art .ca-thread-pinned {
+  background: var(--st-glass);
+  -webkit-backdrop-filter: var(--st-glass-blur);
+  backdrop-filter: var(--st-glass-blur);
+  box-shadow: var(--st-glass-edge), var(--st-glass-lift);
+}
+.ca-st-panel.is-art .ca-thread > .ca-thread-said.is-agent > .ca-thread-agent,
+.ca-st-panel.is-art .ca-thread > .ca-thread-said.is-codealong > .ca-thread-codealong,
+.ca-st-panel.is-art .ca-thread > .ca-thread-said.is-peer > .ca-thread-peer,
+.ca-st-panel.is-art .ca-thread > .ca-thread-said > .ca-thread-you {
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-lg);
+}
+.ca-st-panel.is-art .ca-thread > .ca-thread-said.is-codealong,
+.ca-st-panel.is-art .ca-thread > .ca-thread-said.is-peer {
+  padding-left: 0;
+  border-left: 0;
+}
+.ca-st-panel.is-art .ca-thread > .ca-thread-said.is-codealong > .ca-thread-codealong,
+.ca-st-panel.is-art .ca-thread > .ca-thread-said.is-peer > .ca-thread-peer,
+.ca-st-panel.is-art .ca-thread > .ca-thread-said.is-withdrawn > .ca-thread-you {
+  box-shadow: inset 2px 0 0 var(--line-strong), var(--st-glass-edge), var(--st-glass-lift);
+}
+.ca-st-panel.is-art .ca-thread > .ca-thread-said > .ca-thread-you {
+  background: var(--st-glass-yours);
+}
+.ca-st-panel.is-art .ca-thread > .ca-thread-said > .ca-thread-askrow,
+.ca-st-panel.is-art .ca-thread > .ca-thread-tool,
+.ca-st-panel.is-art .ca-thread > .ca-thread-run,
+.ca-st-panel.is-art .ca-thread > .ca-thread-turn,
+.ca-st-panel.is-art .ca-thread > .ca-thread-turnbody {
+  padding: var(--space-1) var(--space-3);
+  border-radius: var(--radius-md);
+}
+
+.ca-st-panel.is-art .ca-thread > .ca-thread-said > .ca-thread-meta,
+.ca-st-panel.is-art .ca-thread > .ca-thread-note,
+.ca-st-panel.is-art .ca-thread > .ca-thread-start,
+.ca-st-panel.is-art .ca-thread > .ca-working {
+  color: var(--ink-2);
+  text-shadow: 0 0 2px var(--st-halo), 0 0 8px var(--st-halo), 0 0 18px var(--st-halo);
+}
+.ca-st-panel.is-art .ca-thread > .ca-thread-said > .ca-thread-meta {
+  padding-inline: var(--space-1);
+}
+.ca-st-panel.is-art .ca-thread > .ca-thread-said > .ca-thread-meta > .ca-meta {
+  color: var(--ink-2);
+}
+.ca-st-panel.is-art .ca-thread > .ca-thread-note {
+  background: transparent;
+}
+.ca-st-panel.is-art .ca-thread > .ca-thread-note.is-stop {
+  color: var(--attn);
 }
 
 /* ── Optional list-row accent in Sessions ───────────────────────────────────────────────────── */
