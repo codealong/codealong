@@ -7,6 +7,7 @@
 import { resetsPhrase } from './format';
 import { HARNESS_WORD } from './harness';
 import { GENERAL_CHAT } from './quick';
+import { opensNothing } from './newSession';
 import { failedNotice } from './notices';
 import { errorText } from './report';
 import { readStored, writeStored, type Codec } from './stored';
@@ -778,7 +779,7 @@ function startsIn(lane: Pick<Lane, 'callsign' | 'startsChats'>): string {
  *  its own opens to write the prompt in, as a terminal or an app does, and a session started on
  *  no prompt only sat idle under its harness's own name for it (asked 2026-11-10). */
 export function startsOnFirstSend(place: StartPlace | null, prompted: boolean): boolean {
-  return !prompted && (place === 'background' || place === 'codealong');
+  return !prompted && opensNothing(place);
 }
 
 function startHappensThere({ lane, account, place, mac: on, reading, newWorktree, onModel, prompted, terminal, behind }: StartPlan, mac: string): string {

@@ -355,9 +355,11 @@
         "live_replies": false,
         "resume_for_any_session": true,
         "resume_for_pr_news": true,
-        "resume_for_sessions_it_started": true
+        "resume_for_sessions_it_started": true,
+        "show_started": false
       },
       "showKeys": false,
+      "showStarted": false,
       "sides": {},
       "talkOrchestratorShortcut": "",
       "talkShortcut": "",
@@ -733,9 +735,11 @@
           "live_replies": false,
           "resume_for_any_session": true,
           "resume_for_pr_news": true,
-          "resume_for_sessions_it_started": true
+          "resume_for_sessions_it_started": true,
+          "show_started": false
         },
         "showKeys": false,
+        "showStarted": false,
         "sides": {},
         "talkOrchestratorShortcut": "",
         "talkShortcut": "",
@@ -1114,9 +1118,11 @@
         "live_replies": false,
         "resume_for_any_session": true,
         "resume_for_pr_news": true,
-        "resume_for_sessions_it_started": true
+        "resume_for_sessions_it_started": true,
+        "show_started": false
       },
       "showKeys": false,
+      "showStarted": false,
       "sides": {},
       "talkOrchestratorShortcut": "",
       "talkShortcut": "",
@@ -1533,9 +1539,11 @@
         "live_replies": false,
         "resume_for_any_session": true,
         "resume_for_pr_news": true,
-        "resume_for_sessions_it_started": true
+        "resume_for_sessions_it_started": true,
+        "show_started": false
       },
       "showKeys": false,
+      "showStarted": false,
       "sides": {},
       "talkOrchestratorShortcut": "",
       "talkShortcut": "",
@@ -1951,9 +1959,11 @@
         "live_replies": false,
         "resume_for_any_session": true,
         "resume_for_pr_news": true,
-        "resume_for_sessions_it_started": true
+        "resume_for_sessions_it_started": true,
+        "show_started": false
       },
       "showKeys": false,
+      "showStarted": false,
       "sides": {},
       "talkOrchestratorShortcut": "",
       "talkShortcut": "",
@@ -2435,9 +2445,11 @@
         "live_replies": false,
         "resume_for_any_session": true,
         "resume_for_pr_news": true,
-        "resume_for_sessions_it_started": true
+        "resume_for_sessions_it_started": true,
+        "show_started": false
       },
       "showKeys": false,
+      "showStarted": false,
       "sides": {},
       "talkOrchestratorShortcut": "",
       "talkShortcut": "",
@@ -2894,9 +2906,11 @@
         "live_replies": false,
         "resume_for_any_session": true,
         "resume_for_pr_news": true,
-        "resume_for_sessions_it_started": true
+        "resume_for_sessions_it_started": true,
+        "show_started": false
       },
       "showKeys": false,
+      "showStarted": false,
       "sides": {},
       "talkOrchestratorShortcut": "",
       "talkShortcut": "",

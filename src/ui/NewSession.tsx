@@ -119,7 +119,7 @@ export function NewSessionPanel({ draft, lane, sending, error, started, onSend, 
         </div>
       </header>
       <div className="ca-thread">
-        <p className="ca-empty">{draft.does} Nothing starts until you send its first prompt.</p>
+        <p className="ca-empty">{busy ? draft.does : `${draft.does} Nothing starts until you send its first prompt.`}</p>
       </div>
       <div className="ca-composer">
         <div

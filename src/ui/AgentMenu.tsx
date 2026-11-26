@@ -14,14 +14,18 @@
 // The rows under the lines are the effort (StartControls.tsx `EffortFoot`) and, where a start
 // picks one, where it runs (`PlaceRow`): each account has a place its sessions start in (its
 // `start` in config.toml, Settings › Accounts), which a start goes by unless another is picked for
-// it alone; Make default keeps the one picked as the account's (asked 2026-10-19).
+// it alone; Make default keeps the one picked as the account's (asked 2026-10-19). Under them, where
+// nothing of the session's own opens (in the background, in Codealong), the quick panel's switch
+// for showing it in the main window as it starts (`ShowRow`, newSession.ts `showsStart`).
 
 import { useMemo, type ComponentProps } from 'react';
+import { opensNothing } from '../newSession';
+import { keysIn } from '../platform';
 import { agentChipWords, agentId, agentOptions, autoPick, effortStep, isAuto, isGroup, modelName, ownModels, parseAgent, pickFromGroup, placeNote, takesModel, type ModelOption } from '../start';
 import type { Lane, RoutingGroup, StartAccount, StartPlace, Usage } from '../types';
 import { BoxMenu } from './ModelMenu';
 import type { PickerSection } from './Picker';
-import { Seg } from './primitives';
+import { CheckBox, Seg } from './primitives';
 import { Kbd } from './primitives';
 import { agentMenuSections, EffortFoot } from './StartControls';
 
@@ -44,13 +48,22 @@ export interface PlaceRow {
     whose: string;
     onKeep: () => void;
   };
+  /** The quick panel's switch for showing the session in the main window as it starts, offered
+   *  where the place picked opens nothing of its own (`[sessions] show_started`). */
+  shows?: ShowRow;
+}
+
+export interface ShowRow {
+  on: boolean;
+  onFlip: (on: boolean) => void;
 }
 
 /** The rows under an agent menu's lines: its effort and where it runs, either left out where
  *  there's none to pick. */
 export function AgentFoot({ effort, place }: { effort?: ComponentProps<typeof EffortFoot> | null; place?: PlaceRow | null }) {
   const placed = place && place.places.length > 1 ? place : null;
-  if ((!effort || effort.efforts.length === 0) && !placed) return null;
+  const shows = place?.shows && opensNothing(place.value) ? place.shows : null;
+  if ((!effort || effort.efforts.length === 0) && !placed && !shows) return null;
   const kept = placed?.usual;
   return (
     <div className="ca-picker-foot-rows">
@@ -78,6 +91,14 @@ export function AgentFoot({ effort, place }: { effort?: ComponentProps<typeof Ef
             kept && <span className="ca-picker-foot-note">{kept.whose === 'their' ? 'Their default' : `${kept.whose}’s default`}</span>
           )}
         </div>
+      )}
+      {shows && (
+        // Under the controls, unlabelled, as a quiet setting of the place's: the menu keeps the keyboard.
+        <label className="ca-picker-foot-row ca-picker-foot-check" title={keysIn('Bring Codealong’s window forward on the new session as it starts, rather than leave it in the list. ⌥⌘⏎ does the other for one start.')} onMouseDown={(e) => e.preventDefault()}>
+          <span className="ca-picker-foot-label" aria-hidden="true" />
+          <CheckBox checked={shows.on} onChange={shows.onFlip} />
+          <span>Show it as it starts</span>
+        </label>
       )}
     </div>
   );

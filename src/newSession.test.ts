@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { forOpen, listedIn, newSessionAfter, newSessionDraft, type NewSessionShown } from './newSession';
+import { forOpen, listedIn, newSessionAfter, newSessionDraft, showsStart, type NewSessionShown } from './newSession';
 import * as fx from './testing/fixtures';
 
 const shown = (over: string | null): NewSessionShown => ({
@@ -50,5 +50,20 @@ describe('a new session waiting for its first prompt', () => {
     const lanes = [fx.lane({ id: 'l1', sessions: [fx.session({ key: 'claude:work:other' })] }), home];
     expect(listedIn(lanes, 'claude:work:abc')).toBe(home);
     expect(listedIn(lanes, 'claude:work:not-yet')).toBeNull();
+  });
+});
+
+describe('a start the quick panel shows as it starts', () => {
+  it('is one where nothing of its own opens, with the switch on, or off with ⌥ held this once', () => {
+    for (const place of ['background', 'codealong'] as const) {
+      expect([showsStart(place, true, false), showsStart(place, false, true)], place).toEqual([true, true]);
+      expect([showsStart(place, false, false), showsStart(place, true, true)], place).toEqual([false, false]);
+    }
+  });
+
+  it('is never one whose terminal or app comes forward by itself', () => {
+    for (const place of ['terminal', 'claude-app', 'codex-app', null] as const) {
+      expect([showsStart(place, true, false), showsStart(place, false, true)], String(place)).toEqual([false, false]);
+    }
   });
 });

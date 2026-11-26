@@ -2896,7 +2896,8 @@ prompt, its worktree, linked to it); on a PR it shows the PR in Codealong, and �
 GitHub; the PR's right-click menu copies its link. ⏎ or ⇥ on a PR under Review requested or Ready to
 merge opens it in the waiting window, and ⇥ on a session answers it there; the panel puts itself
 away. The last row starts a new session with what you typed as its prompt. ⏎ does the selected row,
-⌘⏎ always starts, ⌥⏎ shows a todo or a PR under Review requested or Ready to merge in Codealong,
+⌘⏎ always starts (⌥⌘⏎ shows it as it starts, or doesn't, the other way from [Show it as it
+starts](#showing-it-as-it-starts)), ⌥⏎ shows a todo or a PR under Review requested or Ready to merge in Codealong,
 ⌘1 to ⌘9 do a row, Escape closes. Each
 open starts empty, so ⏎ goes to what needs you; ↑ brings back what you'd typed before closing, with
 the images attached to it and Improve Codealong's pictures of the windows when you wrote it there
@@ -3231,6 +3232,20 @@ wrote, as the quick panel would have; the panel says it's starting until the ses
 board, which then takes its place, selected, with the cursor in its box. A start that fails says why
 in the box, with what you wrote still there. Picking another row or × puts it away; what you wrote
 is kept for the worktree, so the next new session started there with nothing typed brings it back.
+
+#### Showing it as it starts
+
+*Show it as it starts, under Runs in in the agent menu (⌘O), or Settings › General*
+
+A session started on a prompt in the background or In Codealong only joins the list: nothing of its
+own comes forward, as a terminal or an app does, and the main window stays on what you were reading.
+With **Show it as it starts** checked (it's under Runs in while one of those two is picked), the
+main window comes forward on Sessions instead, its panel saying the new session is starting, as
+above, and the session takes its place once the board lists it, selected, with the cursor in its
+box. Picking another row meanwhile leaves the session in the list, so it never takes the panel from
+what you went on to. A start that fails says why there, with what you wrote in the box to send
+again. ⌥⌘⏎, or ⌥⏎ on the start row, does the other for one start. It's `[sessions] show_started` in
+config.toml, off until you turn it on.
 
 #### In tmux, and while the screen is locked
 

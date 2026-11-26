@@ -145,6 +145,9 @@ export interface Board {
   /** Whether keyboard shortcuts show all the time, from `[appearance] show_keys` (keysShown.ts);
    *  on when it's missing, as by default. Off, they show while ⌘ or ⌃ is held. */
   showKeys?: boolean;
+  /** Whether a session the quick panel starts in the background or in Codealong is shown in the
+   *  main window as it starts, from `[sessions] show_started` (newSession.ts); off when missing. */
+  showStarted?: boolean;
   /** How tool calls appear in conversations, from `[appearance] tools` (toolDisplay.ts);
    *  `folded` when missing, as by default. */
   tools?: ToolDisplay;

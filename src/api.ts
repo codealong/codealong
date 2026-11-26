@@ -743,6 +743,13 @@ export async function keepStartPlace(accounts: string[], place: StartPlace): Pro
   await invoke('keep_start_place', { accounts, place });
 }
 
+/** Sets `[sessions] show_started`: whether a session the quick panel starts in the background or
+ *  in Codealong is shown in the main window as it starts. */
+export async function keepShowStarted(on: boolean): Promise<void> {
+  if (!inTauri) return;
+  await invoke('keep_show_started', { on });
+}
+
 export async function saveAccounts(accounts: AccountCfg[]): Promise<void> {
   if (!inTauri) throw new Error('Saving accounts needs the app.');
   await invoke('save_accounts', { accounts });

@@ -1,12 +1,13 @@
 // A start the quick panel left for its first prompt, as the main window keeps it (App.tsx;
 // newSession.ts has the rules): Sessions' panel shows it in place of the selected row's until
 // another row is picked, and once sent, until the board lists the session it started, which then
-// takes its place with the cursor in its box.
+// takes its place with the cursor in its box. One the quick panel sent already starts as it opens.
 
 import { useEffect, useState } from 'react';
 import { startFromQuick, type Reveal } from './api';
+import { readDraft, writeDraft } from './drafts';
 import { useLatest } from './latest';
-import { forOpen, listedIn, NEW_SESSION_WAIT_MS, newSessionAfter, type NewSessionShown } from './newSession';
+import { forOpen, listedIn, NEW_SESSION_WAIT_MS, newSessionAfter, newSessionDraft, type NewSession, type NewSessionShown } from './newSession';
 import { errorText } from './report';
 import type { Board, Lane, Started } from './types';
 
@@ -65,5 +66,18 @@ export function useNewSession({ selectedKey, board, deviceLanes, reveal, setBoxF
     mine((n) => ({ ...n, started: { key, at: Date.now(), message } }));
     window.setTimeout(() => showStarted.current(), NEW_SESSION_WAIT_MS + 100);
   };
-  return { newShown, setNewShown, sendNew };
+  /** Shows the new session `draft` over the row `over`: waiting for its first prompt, or, sent on
+   *  one in the quick panel already (`sent`), starting on it there and then. */
+  const openNew = (draft: NewSession, over: string | null) => {
+    const shown: NewSessionShown = { draft, over, opened: Date.now(), sending: null, error: null, started: null };
+    setNewShown(shown);
+    if (draft.sent === undefined) return;
+    const sent = draft.sent;
+    // A failure stays in the panel, saying why, with what was written in its box to send again,
+    // and kept for the worktree as the panel's own send keeps it, in case another view shows.
+    sendNew(shown)(draft.spec.prompt, sent).catch(() => {
+      if (!readDraft(newSessionDraft(draft.spec))) writeDraft(newSessionDraft(draft.spec), sent);
+    });
+  };
+  return { newShown, setNewShown, sendNew, openNew };
 }
