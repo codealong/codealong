@@ -50,31 +50,22 @@ export function PeerTalkChips({
         const show = hit ? (onShowSession ?? linkHost.actions()?.showSession) : undefined;
         const menu = hit ? (onSessionMenu ?? linkHost.actions()?.sessionMenu) : undefined;
         const tip = warn
-          ? `Exchanged ${p.count} messages (${p.flips} flips) with “${p.title}” in the last 2 hours (last ${agoPhrase(p.lastAt, now)}). Consolidate under one owner to avoid ping-pong.${show ? ' Click to show it.' : ''}`
-          : `${p.count} messages with “${p.title}” in the last 2 hours (last ${agoPhrase(p.lastAt, now)}).${show ? ' Click to show it.' : ''}`;
+          ? `Exchanged ${p.count} messages (${p.flips} flips) with “${p.title}” in the last 2 hours (last ${agoPhrase(p.lastAt, now)}). Consolidate under one owner to avoid ping-pong`
+          : `${p.count} messages with “${p.title}” in the last 2 hours (last ${agoPhrase(p.lastAt, now)})`;
         return (
-          <button
+          <Chip
             key={p.key}
-            type="button"
-            className={cx('ca-peertalk-btn', warn && 'is-warn')}
+            className={cx('ca-peertalkchip', warn && 'is-warn')}
             title={tip}
-            disabled={!show}
-            onClick={() => hit && show?.(hit.lane, hit.session)}
-            onContextMenu={
-              hit && menu
-                ? (e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    menu(hit.lane, hit.session);
-                  }
-                : undefined
-            }
+            does="show it"
+            act={hit && show ? () => show(hit.lane, hit.session) : undefined}
+            onMenu={hit && menu ? () => menu(hit.lane, hit.session) : undefined}
           >
             <span aria-hidden="true">↔</span>
             <span>{p.count} msgs</span>
             <span aria-hidden="true">·</span>
-            <span className="ca-peertalk-name">{hit?.session.title || p.title}</span>
-          </button>
+            <span className="ca-chipname">{hit?.session.title || p.title}</span>
+          </Chip>
         );
       })}
     </>
@@ -93,7 +84,8 @@ export function TodoOwnerTag({ todo, sessionKey }: { todo: Todo; sessionKey: str
 }
 
 /** Clickable indicator when another session is the primary owner of a todo or open PR this session
- *  is also linked to, so you immediately know which session owns the task. */
+ *  is also linked to, so you immediately know which session owns the task. One chip an owner,
+ *  saying all it owns (`Todo and #12 owner:`) whole, and the owner's title cut to the chip. */
 export function OtherOwnerChips({
   session,
   prs,
@@ -126,35 +118,28 @@ export function OtherOwnerChips({
       })
     : [];
 
-  const items: { id: string; label: string; ownerKey: string }[] = [];
-  if (todo?.primary && todo.primary.session !== session.key) {
-    items.push({ id: `todo:${todo.id}`, label: 'Todo', ownerKey: todo.primary.session });
-  }
-  for (const p of prOwners) {
-    if (!items.some((i) => i.ownerKey === p.ownerKey && i.label === p.what)) {
-      items.push({ id: `pr:${p.what}`, label: p.what, ownerKey: p.ownerKey });
-    }
-  }
-  if (items.length === 0) return null;
+  const owners: { key: string; what: string[] }[] = [];
+  const owns = (what: string, key: string) => {
+    const o = owners.find((x) => x.key === key);
+    if (!o) owners.push({ key, what: [what] });
+    else if (!o.what.includes(what)) o.what.push(what);
+  };
+  if (todo?.primary && todo.primary.session !== session.key) owns('Todo', todo.primary.session);
+  for (const p of prOwners) owns(p.what, p.ownerKey);
+  if (owners.length === 0) return null;
 
   return (
     <>
-      {items.slice(0, 2).map((item) => {
-        const hit = sessionNamed(names, item.ownerKey);
-        const ownerTitle = hit?.session.title ?? item.ownerKey;
+      {owners.slice(0, 2).map((o) => {
+        const hit = sessionNamed(names, o.key);
+        const ownerTitle = hit?.session.title ?? o.key;
         const show = hit ? (onShowSession ?? linkHost.actions()?.showSession) : undefined;
+        const what = o.what.length > 1 ? `${o.what.slice(0, -1).join(', ')} and ${o.what[o.what.length - 1]}` : o.what[0];
         return (
-          <button
-            key={item.id}
-            type="button"
-            className="ca-owner-btn"
-            disabled={!show}
-            title={`${item.label} is owned by “${ownerTitle}”.${show ? ' Click to open the owning session.' : ''}`}
-            onClick={() => hit && show?.(hit.lane, hit.session)}
-          >
-            <span>{item.label} owner:</span>
-            <span className="ca-peertalk-name">{ownerTitle}</span>
-          </button>
+          <Chip key={o.key} className="ca-ownerchip" title={`${what} ${o.what.length > 1 ? 'are' : 'is'} owned by “${ownerTitle}”`} does="open the owning session" act={hit && show ? () => show(hit.lane, hit.session) : undefined}>
+            <span>{what} owner:</span>
+            <span className="ca-chipname">{ownerTitle}</span>
+          </Chip>
         );
       })}
     </>
