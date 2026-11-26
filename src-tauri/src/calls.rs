@@ -155,10 +155,11 @@ calls! {
     }
 
     /// Snoozes sessions until `until` (ms since the epoch), or wakes them with none, each on the
-    /// device it's on. Returns the time of the board that shows it once every device has
-    /// answered: one that didn't snooze its sessions is the error.
-    fn snooze_sessions(c, keys: Vec<String>, until: Option<i64>) -> Result<Option<i64>, String> {
-        actions::run_keys_heard(&c.engine, &c.peers, api::SESSION_SNOOZE, keys, actions::params::Snooze { keys: Vec::new(), until }).map(|v| v.and_then(shown_at))
+    /// device it's on; with `room`, until each one's account has room again, `until` at the
+    /// latest. Returns the time of the board that shows it once every device has answered: one
+    /// that didn't snooze its sessions is the error.
+    fn snooze_sessions(c, keys: Vec<String>, until: Option<i64>, room: Option<bool>) -> Result<Option<i64>, String> {
+        actions::run_keys_heard(&c.engine, &c.peers, api::SESSION_SNOOZE, keys, actions::params::Snooze { keys: Vec::new(), until, room: room.unwrap_or(false) }).map(|v| v.and_then(shown_at))
     }
 
     /// Sets sessions that need you aside until their side conversations answer, each on the device

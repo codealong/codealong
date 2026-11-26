@@ -157,7 +157,7 @@ pub enum Msg {
     AgentSeen(String, AgentSeen, Sender<i64>),
     /// Sessions snoozed until then, or woken now with none. The reply is the time of the board
     /// that shows it, published at once.
-    Snooze(Vec<String>, Option<i64>, Sender<i64>),
+    Snooze(Vec<String>, Option<i64>, bool, Sender<i64>),
     /// Sessions that need you set aside until their side conversations answer. The reply is the
     /// time of the board that shows it, published at once.
     Aside(Vec<String>, Sender<i64>),
@@ -1196,13 +1196,17 @@ impl Engine {
                     self.publish_for("agent seen");
                     let _ = reply.send(self.board.read().map(|b| b.generated_at).unwrap_or(0));
                 }
-                Ok(Msg::Snooze(keys, until, reply)) => {
+                Ok(Msg::Snooze(keys, until, room, reply)) => {
                     let now = now_ms();
                     for k in keys {
                         match until {
                             // Snoozed, it's no longer first: the two are opposites.
                             Some(until) if until > now => {
-                                self.seen.snooze(&k, now, until);
+                                if room {
+                                    self.seen.snooze_for_room(&k, now, until);
+                                } else {
+                                    self.seen.snooze(&k, now, until);
+                                }
                                 self.seen.lower(&k, now, true);
                             }
                             _ => self.seen.wake(&k, now),

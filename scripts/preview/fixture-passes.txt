@@ -228,6 +228,7 @@ PREVIEW_WAIT=60000 scripts/preview.sh peek '' scripts/preview/handoff-check.js
 PREVIEW_WAIT=60000 scripts/preview.sh peek '' scripts/preview/hosted-open-check.js
 PREVIEW_WAIT=60000 scripts/preview.sh peek '' scripts/preview/keep-check.js
 PREVIEW_WAIT=60000 scripts/preview.sh peek '' scripts/preview/limit-check.js
+PREVIEW_WAIT=60000 scripts/preview.sh peek '' scripts/preview/limit-room-check.js
 PREVIEW_WAIT=60000 scripts/preview.sh peek '' scripts/preview/merge-done-check.js
 PREVIEW_WAIT=60000 scripts/preview.sh peek '' scripts/preview/move-account-check.js
 PREVIEW_WAIT=60000 scripts/preview.sh peek '' scripts/preview/move-check.js

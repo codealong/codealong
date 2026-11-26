@@ -319,6 +319,10 @@ impl Engine {
         self.forget_spent_agent_seen(&board);
         self.forget_spent_aside(&board);
         self.wake_called_back(&board);
+        // Rare too: a session snoozed until its account has room, which has it again.
+        if self.wake_with_room(&board) {
+            board = self.compose();
+        }
         self.jev_look(&board);
         // Rare too: a schedule's emblem coming, or a session of it showing.
         if self.look_emblems(&board) {

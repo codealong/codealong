@@ -68,8 +68,9 @@ export type Change =
   /** Marked unread: Your turn again, from when it was marked. */
   | { kind: 'unread'; keys: string[] }
   /** Snoozed until then, or woken now with null. `picked` by Pick a time… (ui/SnoozeDialog.tsx),
-   *  which the window it was asked from waits on (`snoozedFrom`). */
-  | { kind: 'snooze'; keys: string[]; until: number | null; picked?: boolean }
+   *  which the window it was asked from waits on (`snoozedFrom`); `room` until their accounts
+   *  have room, `until` the latest. */
+  | { kind: 'snooze'; keys: string[]; until: number | null; picked?: boolean; room?: boolean }
   /** Set aside until their side conversations answer: out of Needs you, with what's working. */
   | { kind: 'aside'; keys: string[] }
   /** Quieted, or made heard again with false: a quiet one's finished turn is idle. */
@@ -250,11 +251,11 @@ export function sessionAhead(s: Session, changes: Ahead[] | undefined): Session 
     }
     else if (c.kind === 'snooze' && !out.archived) {
       if (c.until != null) {
-        if (out.snoozedUntil !== c.until) out = { ...out, snoozedUntil: c.until, raised: undefined };
+        if (out.snoozedUntil !== c.until || !!out.snoozedForRoom !== !!c.room) out = { ...out, snoozedUntil: c.until, snoozedForRoom: c.room || undefined, raised: undefined };
       } else if (out.snoozedUntil) {
         // Woken, one with nothing to show for itself is Your turn (board.rs, `apply_snooze`).
         const back = out.status === 'idle' || out.status === 'stopped';
-        out = { ...out, snoozedUntil: undefined, ...(back ? { status: 'unread' as const, statusSince: a.at } : {}) };
+        out = { ...out, snoozedUntil: undefined, snoozedForRoom: undefined, ...(back ? { status: 'unread' as const, statusSince: a.at } : {}) };
       }
     }
     // Set aside, one that needs you waits on its side conversation first (board.rs `apply_aside`).
@@ -862,12 +863,13 @@ export function asideAhead(keys: string[]): Promise<void> {
   );
 }
 
-/** Snoozes sessions until `until`, or wakes them now with null, in every window at once. */
-export function snoozeAhead(keys: string[], until: number | null, picked = false): Promise<void> {
+/** Snoozes sessions until `until`, or wakes them now with null, in every window at once; with
+ *  `room`, until their accounts have room, `until` at the latest. */
+export function snoozeAhead(keys: string[], until: number | null, picked = false, room = false): Promise<void> {
   if (keys.length === 0) return Promise.resolve();
-  const a = made({ kind: 'snooze', keys, until, ...(picked && { picked }) });
+  const a = made({ kind: 'snooze', keys, until, ...(picked && { picked }), ...(room && { room }) });
   put(a, true);
-  return snoozeSessions(keys, until).then(
+  return snoozeSessions(keys, until, room).then(
     (shownAt) => answered(a.id, shownAt),
     (e: unknown) => {
       drop(a.id, true);

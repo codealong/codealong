@@ -406,7 +406,7 @@ mod tests {
 
     /// The account `claude`'s usage, read at `as_of`, signed in or not.
     fn read(as_of: i64, signed_in: bool) -> Usage {
-        Usage { account: "claude".into(), harness: Harness::Claude, plan: None, meters: Vec::new(), as_of: Some(as_of), error: None, needs_sign_in: !signed_in, loading: false, no_limits: false, preferred: false, rate_limited: false }
+        Usage { account: "claude".into(), harness: Harness::Claude, plan: None, meters: Vec::new(), as_of: Some(as_of), error: None, needs_sign_in: !signed_in, loading: false, no_limits: false, preferred: false, rate_limited: false, extra_usable: None }
     }
 
     fn board(sessions: Vec<Session>) -> Board {

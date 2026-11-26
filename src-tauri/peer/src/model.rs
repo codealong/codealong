@@ -371,6 +371,10 @@ pub struct Session {
     /// leave it out of Needs you and Your turn until the time comes.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub snoozed_until: Option<i64>,
+    /// Snoozed until its account has room again (`board::room_back`): it's back sooner than
+    /// `snoozed_until`, the latest, once the usage limit that stopped it is over.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub snoozed_for_room: bool,
     /// Quieted from Codealong (`board::apply_quiet`): a turn it ends is idle rather than Your
     /// turn, so it waits on you only when it needs you (asks you something, waits on a call to
     /// allow, stops with an error). It stays quiet until you turn that off. The status already
@@ -875,6 +879,7 @@ impl Session {
             stoppable: false,
             steerable: false,
             snoozed_until: None,
+            snoozed_for_room: false,
             quiet: false,
             raised: None,
             agent_seen: None,
@@ -1675,6 +1680,11 @@ pub struct Usage {
     /// no numbers. Absent from machines of older builds.
     #[serde(default)]
     pub rate_limited: bool,
+    /// Its extra usage, as the usage read says, can carry a turn past the plan's limits: it's on,
+    /// and nothing turns it off (no `disabled_reason`, such as `out_of_credits`). None where the
+    /// read doesn't say. Only the engine of its Mac reads it (`board::room_back`).
+    #[serde(skip)]
+    pub extra_usable: Option<bool>,
 }
 
 /// How busy a machine is, as it reads itself every half a minute (the engine's load.rs): what a

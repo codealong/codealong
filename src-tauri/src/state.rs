@@ -170,6 +170,10 @@ pub struct Snooze {
     pub at: i64,
     /// When it comes back.
     pub until: i64,
+    /// Until its account has room again: it comes back sooner than `until` once the usage limit
+    /// that stopped it is over (`board::room_back`), `until` being the latest.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub room: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -242,6 +246,14 @@ impl SeenState {
     /// Snoozes a session until `until`, in place of any snooze it had.
     pub fn snooze(&mut self, key: &str, at: i64, until: i64) {
         snooze_in(&mut self.snoozed, key, at, until);
+    }
+
+    /// Snoozes a session until its account has room again, `until` at the latest (`Snooze::room`).
+    pub fn snooze_for_room(&mut self, key: &str, at: i64, until: i64) {
+        snooze_in(&mut self.snoozed, key, at, until);
+        if let Some(z) = self.snoozed.iter_mut().find(|z| z.key == key) {
+            z.room = true;
+        }
     }
 
     /// Ends a session's snooze now, as if its time had come: it comes back to the bar.
@@ -503,7 +515,7 @@ pub fn known_accounts() -> Vec<String> {
 
 fn snooze_in(list: &mut Vec<Snooze>, key: &str, at: i64, until: i64) {
     list.retain(|z| z.key != key);
-    list.push(Snooze { key: key.to_string(), at, until });
+    list.push(Snooze { key: key.to_string(), at, until, room: false });
 }
 
 /// A snooze woken stays, ended now, as one whose time has passed does.
@@ -677,7 +689,7 @@ mod tests {
         let mut s = SeenState::default();
         s.snooze("claude:claude:a", 10, 100);
         s.snooze("claude:claude:a", 20, 200);
-        assert_eq!(s.snoozed, vec![Snooze { key: "claude:claude:a".into(), at: 20, until: 200 }]);
+        assert_eq!(s.snoozed, vec![Snooze { key: "claude:claude:a".into(), at: 20, until: 200, room: false }]);
         s.wake("claude:claude:a", 50);
         assert_eq!(s.snooze_of("claude:claude:a").map(|z| (z.at, z.until)), Some((20, 50)));
         // A snooze whose time has passed stays as it ended.
@@ -734,7 +746,7 @@ mod tests {
         s.snooze("claude:claude:a", 10, 100);
         s.snooze_review("o/r#12", 10, 100);
         s.snooze_review("o/r#12", 20, 300);
-        assert_eq!(s.review_snoozes, vec![Snooze { key: "o/r#12".into(), at: 20, until: 300 }]);
+        assert_eq!(s.review_snoozes, vec![Snooze { key: "o/r#12".into(), at: 20, until: 300, room: false }]);
         assert_eq!(s.snoozed.len(), 1);
         s.wake_review("o/r#12", 50);
         assert_eq!(s.review_snoozes[0].until, 50);

@@ -661,7 +661,7 @@ pub(super) fn session_snooze(c: &mut Client, key: &str, when: &SnoozeWhen, json:
     let key = resolve_any_session(c, key)?;
     // Another device's session is snoozed there, by the key its Mac knows it by.
     let own = crate::peerfeed::split_remote(&key).map_or(key.as_str(), |(_, own)| own).to_string();
-    c.act(api::SESSION_SNOOZE, &key, params::Snooze { keys: vec![own], until }, None)?;
+    c.act(api::SESSION_SNOOZE, &key, params::Snooze { keys: vec![own], until, ..Default::default() }, None)?;
     SnoozeOut { key, until, said: snooze_said(until) }.print(json)
 }
 

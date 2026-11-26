@@ -88,6 +88,7 @@ export type Session = Holds<Same<
   | "shortId"
   | "sideAnswer"
   | "signedOut"
+  | "snoozedForRoom"
   | "snoozedUntil"
   | "stalledSince"
   | "startedAt"

@@ -5367,7 +5367,7 @@ mod tests {
         cfg.routing.groups = vec![RoutingGroupCfg { name: "reviewers".into(), strategy: RoutingStrategy::Fallback, members: vec![member("codex"), member("claude")], ..RoutingGroupCfg::default() }];
         let sonnet = Meter { key: "week-sonnet".into(), label: "Sonnet".into(), window: "week".into(), percent: 100.0, resets_at: None, severity: Severity::Critical, model: Some("sonnet".into()) };
         let mut b = board(vec![pr(7, HEAD)], vec![]);
-        b.usage = vec![Usage { account: "claude".into(), harness: Harness::Claude, plan: None, meters: vec![sonnet], as_of: Some(NOW), error: None, needs_sign_in: false, loading: false, no_limits: false, preferred: false, rate_limited: false }];
+        b.usage = vec![Usage { account: "claude".into(), harness: Harness::Claude, plan: None, meters: vec![sonnet], as_of: Some(NOW), error: None, needs_sign_in: false, loading: false, no_limits: false, preferred: false, rate_limited: false, extra_usable: None }];
         let seat = Seat { instead_of: Some("codex".into()), ..named_seat("reviewers", "", "", None) };
         assert_eq!(reviewer_place(&cfg, &b, &seat, None, None).map(|(account, ..)| account).as_deref(), Ok("claude"));
     }
@@ -5388,7 +5388,7 @@ mod tests {
         };
         assert_eq!(picks(&cfg, &b, None).as_deref(), Ok("claude"));
         assert_eq!(picks(&cfg, &b, Some("claude")).as_deref(), Ok("codex"));
-        let signed_out = crate::model::Usage { account: "codex".into(), harness: Harness::Codex, plan: None, meters: Vec::new(), as_of: Some(NOW), error: None, needs_sign_in: true, loading: false, no_limits: false, preferred: false, rate_limited: false };
+        let signed_out = crate::model::Usage { account: "codex".into(), harness: Harness::Codex, plan: None, meters: Vec::new(), as_of: Some(NOW), error: None, needs_sign_in: true, loading: false, no_limits: false, preferred: false, rate_limited: false, extra_usable: None };
         b.usage = vec![signed_out];
         assert_eq!(picks(&cfg, &b, Some("claude")).as_deref(), Ok("claude"), "the other can't take it either");
         b.usage.clear();

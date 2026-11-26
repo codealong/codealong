@@ -36,7 +36,7 @@ pub(super) fn pr_snooze(c: &mut Client, pr: &str, when: &SnoozeWhen, json: bool)
     if until.is_some() && (!(p.review_requested || p.waits_to_merge) || matches!(p.state, PrState::Merged | PrState::Closed)) {
         bail!("{key} doesn't ask for your review, nor wait on you to merge it, so there's nothing of it to snooze.");
     }
-    c.act(api::PR_SNOOZE, &key, params::Snooze { keys: vec![key.clone()], until }, None)?;
+    c.act(api::PR_SNOOZE, &key, params::Snooze { keys: vec![key.clone()], until, ..Default::default() }, None)?;
     SnoozeOut { key, until, said: snooze_said(until) }.print(json)
 }
 

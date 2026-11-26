@@ -1965,6 +1965,7 @@ mod tests {
             no_limits: false,
             preferred: false,
             rate_limited: false,
+            extra_usable: None,
         }
     }
 

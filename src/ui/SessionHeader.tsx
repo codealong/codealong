@@ -51,7 +51,7 @@ import { cameLines, cameLineWords, cameWord, originWord, startingState, starting
 import { CHORDS, chordKeys, chordSigns, type SessionActions } from '../menus';
 import { scopeWords } from '../orchestrators';
 import { showSide } from '../side';
-import { SUGGESTED_CHORD, suggestedIn, suggestedSnooze, untilWords } from '../snooze';
+import { limitSnoozeTitle, SUGGESTED_CHORD, snoozedWords, suggestedIn, suggestedSnooze } from '../snooze';
 import { sessionTokens } from '../api';
 import { cacheShare, money, tokenCount, totalTokens } from '../spend';
 import type { Board, DeviceView, Label, Lane, Pr, Session, SessionSpent, SideGlance, Starting, Target, Todo } from '../types';
@@ -502,12 +502,13 @@ export function SessionHeader({ lane, session: s, apps, now, onOpen, onShowLane,
   const leads = shownHere ? (folder.find((t) => t.id.startsWith('l|editor|'))?.id ?? null) : s.openTarget;
   // Its glyph beside the title says how it stands, so the line under it says only since when.
   const since = s.statusSince ? (s.status === 'working' ? `For ${duration(s.statusSince, now)}` : agoPhrase(s.statusSince, now)) : agoPhrase(s.lastActivity, now);
-  const snoozed = s.snoozedUntil ? ` · snoozed until ${untilWords(s.snoozedUntil, now)}` : '';
-  // A snooze until its usage limit lifts, beside what the banner says of the limit: the first line
-  // of its Snooze menu, run from there (snooze.ts `suggestedIn`), so a window working through what
-  // waits on you goes on to the next, as ⌃⌘8 does.
+  const snoozed = s.snoozedUntil ? ` · snoozed until ${snoozedWords(s, now)}` : '';
+  // A snooze until its usage limit lifts, or until its account has room again (out of credits, or
+  // a limit that doesn't say when it lifts), beside what the banner says of the limit: the first
+  // line of its Snooze menu, run from there (snooze.ts `suggestedIn`), so a window working through
+  // what waits on you goes on to the next, as ⌃⌘8 does.
   const liftsAt = suggestedSnooze(s, now);
-  const snoozeTillLifted = liftsAt?.why === 'limit' ? suggestedIn(actions?.snooze) : null;
+  const snoozeTillLifted = liftsAt && liftsAt.why !== 'reply' ? suggestedIn(actions?.snooze) : null;
   const quiet = s.quiet ? ' · quiet' : '';
   const agentSeen = s.agentSeen ? ' · seen by its agent' : '';
   const raised = s.raised ? ` · moved to the top${raisedBy(s.raised)}` : '';
@@ -653,8 +654,8 @@ export function SessionHeader({ lane, session: s, apps, now, onOpen, onShowLane,
             {limitPhrase(s.limit, now)}
           </span>
           {snoozeTillLifted && liftsAt && (
-            <Button size="sm" title={`It leaves what waits on you until ${untilWords(liftsAt.until, now)}, when the limit lifts (${chordSigns(SUGGESTED_CHORD)})`} onClick={() => snoozeTillLifted.run()}>
-              Snooze until it lifts
+            <Button size="sm" title={`${limitSnoozeTitle(liftsAt, s.limit, now)} (${chordSigns(SUGGESTED_CHORD)})`} onClick={() => snoozeTillLifted.run()}>
+              {liftsAt.why === 'room' ? 'Snooze until it has room' : 'Snooze until it lifts'}
             </Button>
           )}
           {actions?.moveOn ? (

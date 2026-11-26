@@ -238,6 +238,9 @@ export interface Session {
   /** Snoozed from Codealong until then: the floating bar and the mark leave it out of Needs you
    *  and Your turn until the time comes (board::apply_snooze). */
   snoozedUntil?: number;
+  /** Snoozed until its account has room again (board::room_back): back sooner than
+   *  `snoozedUntil`, the latest, once the usage limit that stopped it is over. */
+  snoozedForRoom?: boolean;
   /** Quieted from Codealong: a turn it ends is idle rather than Your turn, so it waits on you
    *  only when it needs you (board::apply_quiet), until you make it heard again. Missing from
    *  older Macs, whose statuses say nothing of it. */

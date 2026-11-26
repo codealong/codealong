@@ -134,6 +134,7 @@ pub fn claude(account: &AccountCfg, now: i64) -> Usage {
             if let Some((used, limit, currency)) = extra_spend(&v) {
                 crate::ledger::note_extra(&account.name, now, used, limit, &currency);
             }
+            u.extra_usable = extra_usable(&v);
             if u.meters.is_empty() {
                 u.error = Some("This plan doesn't report usage limits.".to_string());
             }
@@ -188,6 +189,17 @@ pub fn extra_spend(v: &Value) -> Option<(f64, Option<f64>, String)> {
     let limit = e.get("monthly_limit").and_then(Value::as_f64).map(|l| l / unit);
     let currency = e.get("currency").and_then(Value::as_str).unwrap_or("USD").to_uppercase();
     Some((used, limit, currency))
+}
+
+/// Whether the account's extra usage can carry a turn past the plan's limits, as Claude Code
+/// (2.1.332) judges it before it offers to ask an admin for more: the response's
+/// `extra_usage.is_enabled`, with no `disabled_reason` (`out_of_credits`,
+/// `org_level_disabled_until`, `org_spend_cap_reached`). None for a plan with no extra usage.
+pub fn extra_usable(v: &Value) -> Option<bool> {
+    let e = v.get("extra_usage").filter(|e| e.is_object())?;
+    let on = e.get("is_enabled").and_then(Value::as_bool) == Some(true);
+    let off = e.get("disabled_reason").is_some_and(|r| !r.is_null());
+    Some(on && !off)
 }
 
 /// The usage response's `limits` list: session, week and per-model weeks, in that order. Older
@@ -328,5 +340,15 @@ mod tests {
         let v: Value = serde_json::from_str(r#"{"extra_usage":{"is_enabled":false,"monthly_limit":10000,"used_credits":1234.0,"utilization":12.3,"currency":"USD","decimal_places":2,"disabled_reason":"out_of_credits"}}"#).unwrap();
         assert_eq!(extra_spend(&v), Some((12.34, Some(100.0), "USD".to_string())));
         assert_eq!(extra_spend(&serde_json::json!({"extra_usage": null})), None);
+    }
+
+    #[test]
+    fn extra_usage_carries_a_turn_only_while_on_with_nothing_turning_it_off() {
+        let read = |e: &str| extra_usable(&serde_json::from_str(&format!(r#"{{"extra_usage":{e}}}"#)).unwrap());
+        assert_eq!(read(r#"{"is_enabled":false,"monthly_limit":10000,"used_credits":10000.0,"disabled_reason":"out_of_credits"}"#), Some(false));
+        assert_eq!(read(r#"{"is_enabled":true,"monthly_limit":10000,"used_credits":10000.0,"disabled_reason":"org_level_disabled_until"}"#), Some(false), "the monthly spend limit reached");
+        assert_eq!(read(r#"{"is_enabled":true,"monthly_limit":20000,"used_credits":10000.0,"disabled_reason":null}"#), Some(true), "credits bought, or the limit raised");
+        assert_eq!(read(r#"{"is_enabled":false,"monthly_limit":null,"used_credits":0.0}"#), Some(false), "turned off");
+        assert_eq!(read("null"), None, "a plan without it");
     }
 }

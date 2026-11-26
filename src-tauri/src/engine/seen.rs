@@ -58,6 +58,22 @@ impl Engine {
         self.save_state();
     }
 
+    /// Wakes the sessions snoozed until their accounts have room whose room is back
+    /// (`board::snoozes_with_room`), as their time coming would. True when any woke, for the
+    /// board to be composed again with them back.
+    pub(super) fn wake_with_room(&mut self, board: &Board) -> bool {
+        let now = now_ms();
+        let back = board::snoozes_with_room(board, &self.seen.snoozed, now);
+        if back.is_empty() {
+            return false;
+        }
+        for k in &back {
+            self.seen.wake(k, now);
+        }
+        self.save_state();
+        true
+    }
+
     pub(super) fn forget_spent_agent_seen(&mut self, board: &Board) {
         let spent: Vec<String> = self.seen.agent_seen.iter().filter(|m| board.session(&m.key).is_some_and(|(_, s)| board::agent_seen_spent(s, m.seen.at))).map(|m| m.key.clone()).collect();
         if spent.is_empty() {

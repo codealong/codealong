@@ -135,7 +135,7 @@ mod tests {
     #[test]
     fn auto_move_skips_cross_provider_suggestions_and_non_native_harnesses() {
         use crate::model::{Harness, Usage};
-        let codex_usage = Usage { account: "codex".into(), harness: Harness::Codex, plan: None, meters: Vec::new(), as_of: None, error: None, needs_sign_in: false, loading: false, no_limits: false, preferred: false, rate_limited: false };
+        let codex_usage = Usage { account: "codex".into(), harness: Harness::Codex, plan: None, meters: Vec::new(), as_of: None, error: None, needs_sign_in: false, loading: false, no_limits: false, preferred: false, rate_limited: false, extra_usable: None };
         let claude_usage = Usage { account: "claude2".into(), harness: Harness::Claude, ..codex_usage.clone() };
         // Claude session whose only suggestion is codex: offered manually, never auto-moved.
         let mut b = board(WhenLimited::Move, vec![limited("claude:claude:a", NOW - 1_000, Some("codex"))]);
