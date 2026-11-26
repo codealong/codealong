@@ -2030,6 +2030,11 @@ export function onKeptKeys(cb: (has: boolean) => void): () => void {
   return onWindowEvent<boolean>('kept-keys', cb);
 }
 
+/** Calls `cb` when this kept session's window follows a moved session to its copy in place. */
+export function onKeptSession(cb: (key: string) => void): () => void {
+  return onWindowEvent<string>('kept-session', cb);
+}
+
 /** Calls `cb` when the peek is asked to show a session. */
 export function onPeekOpen(cb: (open: PeekOpen) => void): () => void {
   return onWindowEvent<PeekOpen>('peek-open', cb);

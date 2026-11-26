@@ -12,7 +12,7 @@
 
 import { useEffect, useState } from 'react';
 import { chromeProfiles, closeSession, desktopPins, expandAttachments, forkSession, getAccounts, inPreview, moveSession, moveSessionTo, onDesktopPins, openInChrome, openUrl, ownSessions, pinToDesktop, redrawSessionBackground, resumeSession, sessionCancel, sessionWindow, signIn, stopListening, setPrNudge, setPrPrimary, setReusable, showQuick, unpinFromDesktop, type MergeDone, type MoveOptions, NONE_CHOSEN, type HelpersChosen } from './api';
-import { moveSubmenuLabel, moveTargetsFor, type MoveTarget } from './handoff';
+import { moveSubmenuLabel, moveTargetsFor, type MoveFollow, type MoveTarget } from './handoff';
 import { archiveAhead, asideAhead, doneAhead, labelAhead, quietAhead, raiseAhead, seenAhead, sendAhead, sentWorthSaying, unreadAhead } from './ahead';
 import { copyText } from './clipboard';
 import { showContextMenu, type MenuAction, type MenuGroup, type MenuImage, type MenuSpec } from './contextMenu';
@@ -189,12 +189,12 @@ export interface SessionCan {
    *  it where it shows nothing else, and the window says `why` where it isn't null (null: the
    *  dialog, back in front of you, says it). Without it, `report` says why. */
   failed?: (why: string | null) => void;
-  /** It's moving, and `copy` gives the key of the session that goes on in its place (start.rs
-   *  `move_to`), or null when there's none: it moved as itself, or the move failed. The window
-   *  keeps it in view meanwhile and then shows the copy (the main window's Sessions). Without
-   *  this, a session that leaves a copy has left the list, as an archived one has. Edit from here
-   *  says the same of its copy, which goes on with your edit while the session stays. */
-  moving?: (copy: Promise<string | null>) => void;
+  /** It's moving, and `copy` resolves to the copy's key when known immediately, `{ kind: 'origin' }`
+   *  when the move succeeded asynchronously (matched on the board by `origin.key`), or `null` when
+   *  it moved as itself or failed. The window keeps it open meanwhile and then switches to the copy
+   *  in place (Sessions, Peek, Kept, Notch, Waiting). Without this, a session that leaves a copy
+   *  has left the list, as an archived one has. Edit from here says the same of its copy. */
+  moving?: (copy: Promise<MoveFollow>) => void;
   /** Add to board, and Remove from board on the board it's on, where the window has boards. */
   boards?: MenuSpec;
   /** Toggle items in Sessions to show or hide finished helpers, headless runs and answered side
@@ -249,9 +249,9 @@ export const SESSION_CAN = {
   card: ['terminal', 'editors', 'desktop', 'pin', 'mergeDone', 'doneHelpers', 'labels', 'answering', 'ownTerminal', 'keys'],
   /** The windows' parts for the card they show: the waiting window's (ui/Waiting.tsx), the
    *  notch's (ui/NotchSession.tsx) and the peek's (ui/Peek.tsx). */
-  waiting: ['report', 'open', 'reveal', 'reply', 'rename', 'left', 'failed', 'worktrees'],
-  notch: ['report', 'open', 'reveal', 'rename', 'left', 'failed'],
-  peek: ['report', 'open', 'reveal', 'putBack', 'rename', 'left'],
+  waiting: ['report', 'open', 'reveal', 'reply', 'rename', 'left', 'failed', 'moving', 'worktrees'],
+  notch: ['report', 'open', 'reveal', 'rename', 'left', 'failed', 'moving'],
+  peek: ['report', 'open', 'reveal', 'putBack', 'rename', 'left', 'moving'],
   /** The notch's part, and the peek's, for another session their card's header names (one it
    *  came from, or that came of it): it shows in Codealong, and what's done to it leaves the
    *  window on the session it shows. */
@@ -511,26 +511,26 @@ export function sessionActions(lane: Lane, s: Session, can: SessionCan): Session
       .catch((e: unknown) => report.error(errorText(e)));
   // A window that follows the session shows the copy once it's listed, as it does a moved one's.
   const edit = (cursor: number, prompt: string) => {
-    const copy = busy(`Forking ${s.title}…`, forkSession(s.key, { prompt, from: cursor })).then((started) => {
+    const copy: Promise<MoveFollow> = busy(`Forking ${s.title}…`, forkSession(s.key, { prompt, from: cursor })).then((started) => {
       if (started?.message) report.info(started.message);
-      return started?.key ?? null;
+      return started?.key ? { kind: 'key', key: started.key } : null;
     });
     can.moving?.(copy.catch(() => null));
     copy.catch((e: unknown) => report.error(errorText(e)));
   };
   // A session that moves out is archived, and the copy that goes on in its place is what a window
-  // that follows it shows (`moving`); elsewhere, or with no copy, it has left the list. `leaves`
-  // says whether it goes even when the move names no copy. Moving, it offers no other move
-  // (`movedHere`).
+  // that follows it shows (`moving`), either by exact key or asynchronously by `origin.key`;
+  // elsewhere, it has left the list. `leaves` says whether it goes even when the move names no
+  // copy upfront. Moving, it offers no other move (`movedHere`).
   const moved = (label: string, work: () => Promise<Started | null>, leaves: boolean) => {
     if (movedHere.has(s.key)) return;
     movedHere.add(s.key);
-    const copy = busy(label, work()).then((started) => {
+    const copy: Promise<MoveFollow> = busy(label, work()).then((started) => {
       const key = started?.key && started.key !== s.key ? started.key : null;
       if (!key && !leaves) movedHere.delete(s.key);
-      if ((leaves || key) && !(key && can.moving)) can.left?.('archived');
+      if ((leaves || key) && !can.moving) can.left?.('archived');
       if (started?.message) report.info(started.message);
-      return key;
+      return key ? { kind: 'key', key } : leaves ? { kind: 'origin' } : null;
     });
     can.moving?.(copy.catch(() => null));
     copy.catch((e: unknown) => {

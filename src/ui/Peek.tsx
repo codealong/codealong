@@ -28,7 +28,7 @@
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from 'react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
-import { getBoard, getDevices, inPreview, keepSession, keptClose, keptFocus, keptReady, keptResize, keptSession, onKeptKeys, onPeekHidden, onPeekOpen, onPeekShown, peekDrag, peekFit, peekFocus, peekHide, peekOpen, peekReady, peekResize, sessionPutBack, sideClose } from '../api';
+import { getBoard, getDevices, inPreview, keepSession, keptClose, keptFocus, keptReady, keptResize, keptSession, onKeptKeys, onKeptSession, onPeekHidden, onPeekOpen, onPeekShown, peekDrag, peekFit, peekFocus, peekHide, peekOpen, peekReady, peekResize, sessionPutBack, sideClose } from '../api';
 import { renameAhead, sentWorthSaying } from '../ahead';
 import { BAR_PROJECT_KEY } from '../bar';
 import { shortOf } from '../devices';
@@ -43,6 +43,7 @@ import { attentionRows, ALL_PROJECTS } from '../quick';
 import type { Board, Lane, PeekOpen, Session } from '../types';
 import { useKeyPerf } from '../perf';
 import { useDevices } from '../useDevices';
+import { useMoveFollow } from '../useMoveFollow';
 import { useCardHost, useLiveSession } from './cardHost';
 import { ProjectIcons, projectIconMap, ProjectShown } from './ProjectSaid';
 import { SessionCard, type WindowCan } from './SessionCard';
@@ -151,6 +152,9 @@ export function Peek({ kept = false, side = false }: { kept?: boolean; side?: bo
   // read the session (at launch, the window is there before the first scan is done), and for one
   // on another Mac, your devices (useDevices.ts), as it was when last seen while that Mac is away.
   const [keptKey, setKeptKey] = useState<string | null>(null);
+  // A kept window following a moved session in place (kept.rs `follow`): keep showing the old
+  // session until the board has the copy, then swap `open` seamlessly without closing the window.
+  const [pendingKept, setPendingKept] = useState<string | null>(null);
   const [keptBoard, setKeptBoard] = useState<Board | null>(null);
   const keptElsewhere = keptKey !== null && shortOf(keptKey) !== null;
   const found = open !== null;
@@ -159,6 +163,11 @@ export function Peek({ kept = false, side = false }: { kept?: boolean; side?: bo
     if (!kept) return;
     let over = false;
     const offKeys = onKeptKeys(setEngaged);
+    const offSession = onKeptSession((nextKey) => {
+      if (over || !nextKey) return;
+      setKeptKey(nextKey);
+      setPendingKept(nextKey);
+    });
     void (inPreview ? getBoard().then(previewKey) : keptSession()).then((key) => {
       if (over) return;
       if (key) {
@@ -171,6 +180,7 @@ export function Peek({ kept = false, side = false }: { kept?: boolean; side?: bo
     return () => {
       over = true;
       offKeys();
+      offSession();
     };
   }, [kept]);
   // Read once, then taken push by push until it's found (followBoard.ts): a read that didn't come
@@ -196,6 +206,38 @@ export function Peek({ kept = false, side = false }: { kept?: boolean; side?: bo
   const key = open?.session.key ?? null;
   const told = useMemo(() => (open ? { lane: open.lane, session: open.session } : null), [open]);
   const live = useLiveSession(told, shown);
+  const engagedNow = useLatest(engaged);
+  // Swap a kept window in place once the board has the moved copy announced by `kept-session`.
+  useEffect(() => {
+    if (!kept || !pendingKept) return;
+    if (open?.session.key === pendingKept) {
+      setPendingKept(null);
+      return;
+    }
+    const lanes = live.board?.lanes ?? keptBoard?.lanes;
+    const home = lanes && homeOf(lanes, pendingKept);
+    if (!home) return;
+    setPendingKept(null);
+    setGone(false);
+    setShown(true);
+    setOpen((o) =>
+      o
+        ? { ...o, lane: home.lane, session: home.session }
+        : keptBoard
+          ? { id: 1, lane: home.lane, session: home.session, terminal: keptBoard.apps.terminal, apps: keptBoard.apps, theme: keptBoard.theme, zoom: keptBoard.zoom, room: 0, below: true, focus: false, rename: false }
+          : null,
+    );
+  }, [kept, pendingKept, open?.session.key, live.board?.lanes, keptBoard]);
+  // Moving a session to another account keeps the peek or kept window open and switches to the
+  // copy in place once the board lists it (whether its key came back right away or via origin).
+  const moveFollow = useMoveFollow(key, live.board?.lanes, (copy) => {
+    if (kept || inPreview) {
+      setKeptKey(copy.session.key);
+      setOpen((o) => (o ? { ...o, lane: copy.lane, session: copy.session } : o));
+    } else {
+      void peekOpen(copy.session.key, null, engagedNow.current).catch((e: unknown) => host.report.error(errorText(e)));
+    }
+  });
   const projectIcons = useMemo(() => projectIconMap(live.projects), [live.projects]);
   const { lane, session } = live;
   const theme = live.theme ?? open?.theme ?? 'system';
@@ -386,7 +428,7 @@ export function Peek({ kept = false, side = false }: { kept?: boolean; side?: bo
   // A session Codealong runs lives in the main window's panel, so where it lives (Show in
   // Codealong, its Open here) is the main window too, and going there puts a kept one back.
   const openTarget = (l: Lane, target: string) => (putBack && session.hosted && target === session.openTarget ? putBack() : host.open(l, target));
-  const can: WindowCan = { report, open: openTarget, reveal: () => host.showSession(lane, session), putBack, rename: () => setRenameAsked(session.key), left: away } satisfies CanIn<'peek'>;
+  const can: WindowCan = { report, open: openTarget, reveal: () => host.showSession(lane, session), putBack, rename: () => setRenameAsked(session.key), left: away, moving: (copy) => moveFollow.start(session.key, copy) } satisfies CanIn<'peek'>;
   /** A session it came from, or that came of it, takes the peek's place; from a kept session it
    *  shows in Codealong, and the kept one stays. Its menu is its own. */
   const showKin = (l: Lane, s: Session) => (kept ? host.showSession(l, s) : void peekOpen(s.key, null, engaged).catch((e: unknown) => report.error(errorText(e))));

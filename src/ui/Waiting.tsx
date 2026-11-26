@@ -53,6 +53,7 @@ import { reuse } from '../reuse';
 import { repoReviews } from '../repoSettings';
 import type { Board, Lane, PrItem, Session, Todo } from '../types';
 import { useDeviceLanes, useDevices, useObserve } from '../useDevices';
+import { useMoveFollow } from '../useMoveFollow';
 import { shownSession, useWaitingQueue } from '../useWaitingQueue';
 import { reloadCard } from './cardHost';
 import { dialogUp } from './focusTrap';
@@ -228,6 +229,9 @@ export function Waiting() {
     };
   }, [fresh, upNow, shownNow]);
 
+  // Keep the waiting window open on a moved session and switch to its copy once the board lists it.
+  const moveFollow = useMoveFollow(shownKey, board?.lanes, (copy) => show(copy.session.key));
+
   // With nothing shown, or one that's gone from the board, the first that waits takes the window,
   // once the board's been read since it was brought up; a PR shown from a session's chip goes
   // back to the session.
@@ -235,10 +239,10 @@ export function Waiting() {
   const read = readFor === opened;
   const backTo = cameFrom?.key ?? null;
   useEffect(() => {
-    if (!up || !read || !board || board.loading || (key !== null && (replying || reviewing || todoing))) return;
+    if (!up || !read || !board || board.loading || moveFollow.moving || (key !== null && (replying || reviewing || todoing))) return;
     setRenameKey(null);
     setKey(backTo ?? (first ? WINDOW_READS.keyOf(first) : null));
-  }, [up, read, board, key, replying, reviewing, todoing, first, backTo]);
+  }, [up, read, board, moveFollow.moving, key, replying, reviewing, todoing, first, backTo]);
 
   // A todo that stops waiting on you while it shows (started from the quick panel, done or given
   // another day in another window) has nothing more to show here, as a session that answers has:
@@ -304,6 +308,7 @@ export function Waiting() {
             } else if (said) way.say(said);
           }
         : undefined,
+    moving: s.key === shownKey ? (copy) => moveFollow.start(s.key, copy) : undefined,
     worktrees: board?.lanes,
   }) satisfies menus.CanIn<'waiting'>;
   const sessionMenu = (lane: Lane, s: Session): MenuSpec =>

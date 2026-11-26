@@ -1149,6 +1149,35 @@ async fn start_session(app: tauri::AppHandle, mirror: State<'_, view::Mirror>, s
     .await?
 }
 
+/// Whether `label` is a floating or dedicated conversation window (peek, kept, notch, waiting)
+/// that stays open to follow a moved session instead of yielding focus to a terminal or external
+/// app.
+fn is_conversation_window(label: &str) -> bool {
+    label == peek::LABEL || label == bar::LABEL || label == waiting::LABEL || label.starts_with(kept::PREFIX)
+}
+
+/// Finds the session `from` moved to on `board`: `known` when the launch returned its key right
+/// away, else the newest non-archived fork whose `origin.key == from` that wasn't already on the
+/// board in `before` (matched asynchronously by `origins::pending_handoff`).
+fn find_moved_copy(board: &model::Board, from: &str, known: Option<&str>, before: &std::collections::HashSet<String>) -> Option<String> {
+    if let Some(copy) = known {
+        return board.session(copy).map(|_| copy.to_string());
+    }
+    board
+        .lanes
+        .iter()
+        .flat_map(|l| &l.sessions)
+        .filter(|s| {
+            s.key != from
+                && !s.archived
+                && s.visitor.is_none()
+                && !before.contains(&s.key)
+                && s.origin.as_ref().is_some_and(|o| o.key == from && o.how == model::OriginHow::Fork)
+        })
+        .max_by_key(|s| s.started_at.unwrap_or(s.last_activity))
+        .map(|s| s.key.clone())
+}
+
 /// Moves or hands off a session to another account (same harness or cross-provider), or with
 /// `lane` to that worktree, as the server does it (calls.rs `move_session`). Unless `keep` is
 /// true, its card on the desktop and its kept window follow the copy once the board has it.
@@ -1156,6 +1185,7 @@ async fn start_session(app: tauri::AppHandle, mirror: State<'_, view::Mirror>, s
 #[allow(clippy::too_many_arguments)]
 async fn move_session(
     app: tauri::AppHandle,
+    window: tauri::Window,
     mirror: State<'_, view::Mirror>,
     key: String,
     account: Option<String>,
@@ -1168,37 +1198,57 @@ async fn move_session(
 ) -> Result<start::Started, String> {
     let mirror = mirror.inner().clone();
     let kept = keep.unwrap_or(false);
+    let stay_in_codealong = lane.is_none() && is_conversation_window(window.label());
     blocking(move || {
+        let before: std::collections::HashSet<String> = if !kept && lane.is_none() {
+            mirror.read(|b| {
+                b.lanes
+                    .iter()
+                    .flat_map(|l| &l.sessions)
+                    .filter(|s| s.origin.as_ref().is_some_and(|o| o.key == key && o.how == model::OriginHow::Fork))
+                    .map(|s| s.key.clone())
+                    .collect()
+            })
+        } else {
+            std::collections::HashSet::new()
+        };
         let started: start::Started = view::call_as(
             "move_session",
             serde_json::json!({ "key": key, "account": account, "lane": lane, "model": model, "effort": effort, "place": place, "prompt": prompt, "keep": keep }),
         )?;
-        // Bring the terminal or target app forward when the new session opens in one.
-        match place {
-            Some(start::Place::Codealong | start::Place::Background) => {}
-            Some(p) => {
-                if let Some(bundle) = quick::start_app(p, &mirror.read(|b| b.apps.terminal_id.clone())) {
-                    front::bring_forward(&app, bundle);
+        // Bring the terminal or target app forward when the new session opens in one, unless the
+        // move came from a conversation window that stays up to follow the copy.
+        if !stay_in_codealong {
+            match place {
+                Some(start::Place::Codealong | start::Place::Background) => {}
+                Some(p) => {
+                    if let Some(bundle) = quick::start_app(p, &mirror.read(|b| b.apps.terminal_id.clone())) {
+                        front::bring_forward(&app, bundle);
+                    }
                 }
-            }
-            None if lane.is_some() => bring_terminal_forward(&app, &mirror, &key),
-            None => {
-                // Only bring the terminal forward when the started message says it went to one.
-                if started.message.as_deref().is_some_and(|m| m.contains("terminal") || m.contains(&mirror.read(|b| b.apps.terminal.clone()))) {
-                    bring_terminal_forward(&app, &mirror, &key);
+                None if lane.is_some() => bring_terminal_forward(&app, &mirror, &key),
+                None => {
+                    // Only bring the terminal forward when the started message says it went to one.
+                    if started.message.as_deref().is_some_and(|m| m.contains("terminal") || m.contains(&mirror.read(|b| b.apps.terminal.clone()))) {
+                        bring_terminal_forward(&app, &mirror, &key);
+                    }
                 }
             }
         }
         if !kept {
-            if let Some(copy) = started.key.clone().filter(|c| *c != key) {
+            let known = started.key.clone().filter(|c| *c != key);
+            if known.is_some() || lane.is_none() {
                 std::thread::spawn(move || {
                     let until = std::time::Instant::now() + std::time::Duration::from_secs(60);
-                    while !mirror.read(|b| b.session(&copy).is_some()) {
+                    let copy = loop {
+                        if let Some(found) = mirror.read(|b| find_moved_copy(b, &key, known.as_deref(), &before)) {
+                            break found;
+                        }
                         if std::time::Instant::now() > until {
                             return;
                         }
                         std::thread::sleep(std::time::Duration::from_millis(500));
-                    }
+                    };
                     desktop::follow(&app, &key, &copy);
                     kept::follow(&app, &key, &copy);
                 });
@@ -2084,5 +2134,41 @@ mod tests {
         let code = irohnet::Ticket::new(iroh::SecretKey::generate().public()).encode();
         let svg = link_qr_svg(&code).unwrap();
         assert!(svg.contains("<svg") && svg.contains("#000000") && svg.contains("#ffffff"), "{svg}");
+    }
+
+    #[test]
+    fn find_moved_copy_matches_known_key_or_new_fork_origin() {
+        let from = "claude:a:1";
+        let old_fork = model::Session {
+            key: "codex:b:old".into(),
+            origin: Some(model::SessionOrigin { key: from.into(), how: model::OriginHow::Fork }),
+            started_at: Some(100),
+            ..model::Session::new(model::Harness::Codex, "b", "old")
+        };
+        let new_copy = model::Session {
+            key: "codex:b:new".into(),
+            origin: Some(model::SessionOrigin { key: from.into(), how: model::OriginHow::Fork }),
+            started_at: Some(200),
+            ..model::Session::new(model::Harness::Codex, "b", "new")
+        };
+        let mut lane = model::Lane::new("/r/app", "App", "app");
+        lane.sessions = vec![old_fork, new_copy];
+        let board = model::Board { lanes: vec![lane], ..model::Board::default() };
+        let before = std::collections::HashSet::from(["codex:b:old".to_string()]);
+
+        assert_eq!(find_moved_copy(&board, from, Some("codex:b:new"), &before).as_deref(), Some("codex:b:new"));
+        assert_eq!(find_moved_copy(&board, from, Some("codex:b:missing"), &before), None);
+        assert_eq!(find_moved_copy(&board, from, None, &before).as_deref(), Some("codex:b:new"));
+        let all_before = std::collections::HashSet::from(["codex:b:old".to_string(), "codex:b:new".to_string()]);
+        assert_eq!(find_moved_copy(&board, from, None, &all_before), None);
+    }
+
+    #[test]
+    fn conversation_windows_stay_focused_on_account_move() {
+        assert!(is_conversation_window(peek::LABEL));
+        assert!(is_conversation_window(bar::LABEL));
+        assert!(is_conversation_window(waiting::LABEL));
+        assert!(is_conversation_window(&format!("{}1", kept::PREFIX)));
+        assert!(!is_conversation_window("main"));
     }
 }

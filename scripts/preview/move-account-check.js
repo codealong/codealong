@@ -89,11 +89,14 @@
       check('it opens on the first other account', go && go.textContent === 'Move to ' + to, go ? go.textContent : 'no button');
       check('which has the keyboard, so ⏎ moves it', document.activeElement === go, document.activeElement ? document.activeElement.outerHTML.slice(0, 80) : 'nothing');
       if (others.length > 1) check('it lets you pick the account', !!q('.ca-movedlg-to .ca-segctl', dlg), 'no choice');
+      var hidesBefore = calls('peek_hide').length;
       go.click();
       await until(function () { return calls('move_session').length > 0; }, 3000, 'Move asked for no move');
       var asked = calls('move_session')[0][1];
       check('Move asks to move it to that account', asked.key === key && asked.account === to, JSON.stringify(asked));
       await until(function () { return !dialog(); }, 3000, 'the dialog stayed up after Move');
+      await wait(150);
+      check('moving to another account keeps the peek open to follow the copy', calls('peek_hide').length === hidesBefore, String(calls('peek_hide').length - hidesBefore));
     } catch (e) {
       return stopped(e);
     }
