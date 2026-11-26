@@ -42,6 +42,7 @@ import { seenable } from '../lanes';
 import type { CanIn, Left } from '../menus';
 import { inOrder, WAITS, type Waits } from '../queue';
 import { errorText } from '../report';
+import { useMoveFollow } from '../useMoveFollow';
 import type { BarItem, BarReview, BarTodo, Board, PrItem } from '../types';
 import { useWaitingQueue } from '../useWaitingQueue';
 import { useCardHost, useLiveSession, type Told } from './cardHost';
@@ -441,6 +442,8 @@ export function NotchSession({ sessionKey, rename, now, queue, notice, onBack, k
   }, [sessionKey]);
 
   const live = useLiveSession(told, true);
+  // Keep the notch open on a moved session and switch to its copy once the board lists it.
+  const moveFollow = useMoveFollow(live.session?.key ?? null, live.board?.lanes, (copy) => onShow(copy.session.key));
   // A click on a PR's chip, or on a link to it in the conversation: the PR in the session's
   // place, on the tab the link goes to.
   const followPr = (pr: PrItem, tab: PrTab | null = null) => {
@@ -480,6 +483,7 @@ export function NotchSession({ sessionKey, rename, now, queue, notice, onBack, k
     left: (done) => onLeft(session.key, done),
     // A card's Merge and done… dialog is never surely in front of you, so there's always a why.
     failed: (why) => why && onFailed(session.key, why),
+    moving: (copy) => moveFollow.start(session.key, copy),
   } satisfies CanIn<'notch'>;
 
   /** Keeps the session on the desktop, in a window of its own where its card is, and the notch

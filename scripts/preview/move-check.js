@@ -66,7 +66,11 @@
         var asked = calls('move_session')[0][1];
         check('picking it asks to move the session there', asked.key === key && asked.account === other, JSON.stringify(asked));
         await wait(300);
-        check('and says what happened', document.body.textContent.indexOf('Moved “x” to ' + other) >= 0 || calls('peek_hide').length > 0);
+        var noted = calls('plugin:event|emit_to').some(function (c) {
+          var p = c[1] && c[1].payload;
+          return p && typeof p.message === 'string' && p.message.indexOf('Moved “x” to ' + other) >= 0;
+        });
+        check('and says what happened without closing the peek', (noted || document.body.textContent.indexOf('Moved “x” to ' + other) >= 0) && calls('peek_hide').length === 0, 'noted=' + noted + ' hides=' + calls('peek_hide').length);
       }
     } catch (e) {
       return stopped(e);

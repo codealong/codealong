@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { isNativeMove, moveDialogTitle, moveDialogWords, moveSubmenuLabel, moveTargetsFor } from './handoff';
+import { findMovedCopy, forkOriginKeys, isNativeMove, moveDialogTitle, moveDialogWords, moveSubmenuLabel, moveTargetsFor } from './handoff';
+import * as fx from './testing/fixtures';
 import type { AccountInfo, Session } from './types';
 
 const acct = (name: string, harness: AccountInfo['harness'], over: Partial<AccountInfo> = {}): AccountInfo => ({
@@ -96,5 +97,22 @@ describe('handoff copy', () => {
     expect(moveDialogWords(sess(), codex, 'Ghostty', false, { keep: true, model: 'gpt-5.5' }, 'GPT-5.5')).toBe(
       'Starts a new Codex session under codex on GPT-5.5 with a handoff brief and a link to the full transcript on disk; this session stays open.',
     );
+  });
+});
+
+describe('findMovedCopy', () => {
+  it('matches an exact key or a newly arrived fork origin while ignoring older forks', () => {
+    const from = 'claude:a:1';
+    const oldFork = fx.session({ key: 'codex:b:old', origin: { key: from, how: 'fork' }, startedAt: 100 });
+    const newCopy = fx.session({ key: 'codex:b:new', origin: { key: from, how: 'fork' }, startedAt: 200 });
+    const lane = fx.lane({ id: '/r/app', sessions: [oldFork, newCopy] });
+
+    const before = forkOriginKeys([fx.lane({ id: '/r/app', sessions: [oldFork] })], from);
+    expect([...before]).toEqual(['codex:b:old']);
+
+    expect(findMovedCopy([lane], from, 'codex:b:new', before)?.session.key).toBe('codex:b:new');
+    expect(findMovedCopy([lane], from, 'codex:b:missing', before)).toBeNull();
+    expect(findMovedCopy([lane], from, null, before)?.session.key).toBe('codex:b:new');
+    expect(findMovedCopy([lane], from, null, new Set(['codex:b:old', 'codex:b:new']))).toBeNull();
   });
 });

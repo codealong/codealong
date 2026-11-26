@@ -163,6 +163,17 @@ impl Inner {
     fn terminals(&self) -> Vec<String> {
         self.windows.iter().filter_map(|(_, k)| k.terminal.clone()).collect()
     }
+
+    /// Reassigns `from`'s session window to `to` in place, returning its label. Returns `None`
+    /// when `from` has no session window or `to` already has one.
+    fn follow_key(&mut self, from: &str, to: &str) -> Option<String> {
+        if self.label_of(to, false).is_some() {
+            return None;
+        }
+        let (label, kept) = self.windows.iter_mut().find(|(_, k)| k.key == from && k.kind() == Kind::Session)?;
+        kept.key = to.to_string();
+        Some(label.clone())
+    }
 }
 
 /// Makes a window for each session kept before, and starts the loop that keeps them up.
@@ -443,19 +454,18 @@ fn tell_sides(app: &AppHandle) {
 }
 
 /// Keeps `to` where session `from` is kept: a session moved to another account goes on as a new
-/// session (start.rs `move_to`), and its window goes with it. A page reads the session it keeps
-/// as it loads, so the copy gets a window of its own where the old one was, and the old one
-/// closes. Nothing changes when `to` is kept already.
+/// session (start.rs `move_to`, handoff.rs), and its window follows it in place rather than
+/// closing and opening another. Nothing changes when `to` is kept already.
 pub fn follow(app: &AppHandle, from: &str, to: &str) {
     let Some(state) = app.try_state::<State>() else { return };
-    let (old, frame) = {
-        let Ok(inner) = state.inner.lock() else { return };
-        let Some((label, kept)) = inner.windows.iter().find(|(_, k)| k.key == from && k.kind() == Kind::Session).filter(|_| inner.label_of(to, false).is_none()) else { return };
-        (label.clone(), kept.frame)
+    let label = {
+        let Ok(mut inner) = state.inner.lock() else { return };
+        let Some(label) = inner.follow_key(from, to) else { return };
+        inner.save();
+        label
     };
-    let label = add(app, Kept { key: to.to_string(), frame, side: false, terminal: None }, false);
-    open(app, label, Kind::Session);
-    close(app, &old);
+    tell_sessions(app);
+    let _ = app.emit_to(&label, "kept-session", to);
 }
 
 /// Makes a new kept window, off the main thread, which making a window waits on.
@@ -777,5 +787,26 @@ mod tests {
         let written = serde_json::to_string(&Saved { sessions: vec![term.clone()] }).unwrap();
         assert!(written.contains("\"terminal\":\"term-1\""), "{written}");
         assert_eq!(serde_json::from_str::<Saved>(&written).unwrap().sessions, [term]);
+    }
+
+    /// Following a moved session swaps its key in place without touching side or terminal windows,
+    /// and does nothing if the target session already has a window of its own.
+    #[test]
+    fn follow_swaps_a_kept_sessions_key_in_place() {
+        let frame = r(10.0, 20.0, 520.0, 640.0);
+        let kept = |key: &str, side: bool| Kept { key: key.into(), frame, side, terminal: None };
+        let mut inner = Inner {
+            windows: vec![
+                ("kept-1".into(), kept("claude:a:1", false)),
+                ("kept-2".into(), kept("claude:a:1", true)),
+                ("kept-3".into(), kept("codex:b:9", false)),
+            ],
+            ..Inner::default()
+        };
+        assert_eq!(inner.follow_key("claude:a:1", "codex:b:9"), None, "target already has a window");
+        assert_eq!(inner.follow_key("claude:a:1", "codex:b:2").as_deref(), Some("kept-1"));
+        assert_eq!(inner.label_of("codex:b:2", false).as_deref(), Some("kept-1"));
+        assert_eq!(inner.label_of("claude:a:1", false), None);
+        assert_eq!(inner.label_of("claude:a:1", true).as_deref(), Some("kept-2"), "side window stays put");
     }
 }

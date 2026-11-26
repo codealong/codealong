@@ -5,7 +5,57 @@
 
 import type { MoveOptions } from './api';
 import { HARNESS_WORD, MOVES_ACCOUNTS } from './harness';
-import type { AccountInfo, Harness, Session, StartPlace } from './types';
+import type { AccountInfo, Harness, Lane, Session, StartPlace } from './types';
+
+/** What a move or edit-from-here resolves to for a window that follows it (`SessionCan.moving`):
+ *  - `{ kind: 'key', key }`: the copy's key is known immediately;
+ *  - `{ kind: 'origin' }`: the move succeeded asynchronously (e.g. a cross-provider terminal/app
+ *    launch) and the copy will appear on the board with `origin.key === fromKey`;
+ *  - `null`: it moved in-place as itself, or the move failed. */
+export type MoveFollow = { kind: 'key'; key: string } | { kind: 'origin' } | null;
+
+/** Keys of sessions already on `lanes` whose origin is a fork of `fromKey`, snapshotted before a
+ *  move so async follow matching ignores older forks or kept handoffs. */
+export function forkOriginKeys(lanes: readonly Lane[], fromKey: string): ReadonlySet<string> {
+  const known = new Set<string>();
+  for (const lane of lanes) {
+    if (lane.device) continue;
+    for (const session of lane.sessions) {
+      if (session.origin?.key === fromKey && session.origin.how === 'fork') known.add(session.key);
+    }
+  }
+  return known;
+}
+
+/** Finds the session `fromKey` moved to on `lanes`: by exact `targetKey` when known, else the
+ *  newest non-archived fork whose `origin.key === fromKey` that isn't in `knownKeys`. */
+export function findMovedCopy(
+  lanes: readonly Lane[],
+  fromKey: string,
+  targetKey: string | null,
+  knownKeys?: ReadonlySet<string>,
+): { lane: Lane; session: Session } | null {
+  if (targetKey) {
+    for (const lane of lanes) {
+      const session = lane.sessions.find((s) => s.key === targetKey && !s.visitor);
+      if (session) return { lane, session };
+    }
+    return null;
+  }
+  let best: { lane: Lane; session: Session; at: number } | null = null;
+  for (const lane of lanes) {
+    if (lane.device) continue;
+    for (const session of lane.sessions) {
+      if (session.key === fromKey || session.visitor || session.archived) continue;
+      if (knownKeys?.has(session.key)) continue;
+      if (session.origin?.key === fromKey && session.origin.how === 'fork') {
+        const at = session.startedAt ?? session.lastActivity;
+        if (!best || at > best.at) best = { lane, session, at };
+      }
+    }
+  }
+  return best ? { lane: best.lane, session: best.session } : null;
+}
 
 /** One account a session can move or hand off to. */
 export interface MoveTarget {

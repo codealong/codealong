@@ -8,6 +8,7 @@ import type { Dispatch, SetStateAction } from 'react';
 import type { HelperCount, ListRow, RunCount, SideCount } from './boardLists';
 import type { RefKind } from './canvas/model';
 import type { MenuSpec } from './contextMenu';
+import { forkOriginKeys } from './handoff';
 import type { View } from './mainViews';
 import * as menus from './menus';
 import type { Pins } from './pins';
@@ -20,6 +21,16 @@ import type { SessionItem } from './ui/SessionsView';
 import type { SettingsSection } from './ui/SettingsDialog';
 import type { Archived } from './ui/Toasts';
 import type { ComposerContext } from './ui/TodoView';
+
+/** A session being followed in Sessions while a move or edit-from-here creates its copy. */
+export interface MovingSession {
+  from: SessionItem;
+  /** Exact key when returned, `'origin'` when matched asynchronously by `origin.key`, or `null`
+   *  while the move request is still in flight. */
+  to: string | 'origin' | null;
+  /** Pre-existing forks of `from` snapshotted before the move started. */
+  known: ReadonlySet<string>;
+}
 
 /** What the window has, as one render has it. */
 export interface MainHas {
@@ -52,7 +63,7 @@ export interface MainHas {
   doneHelpers: menus.DoneHelpersCan | undefined;
   /** The row selected, and the session shown in Sessions as you moved it. */
   selected: ListRow | null;
-  setMoving: Dispatch<SetStateAction<{ from: SessionItem; to: string | null } | null>>;
+  setMoving: Dispatch<SetStateAction<MovingSession | null>>;
   /** Add to board › for one thing. */
   boardItems: (ref: RefKind, keys: string[]) => MenuSpec;
   /** Counts and toggle state for finished helpers, headless runs and side conversations in Sessions. */
@@ -112,8 +123,11 @@ export function sessionCanOf(has: MainHas, lane: Lane, s: Session, pin: 'session
     moving: (copy) => {
       if (view !== 'sessions' || selected?.kind !== 'agent' || selected.session.key !== s.key) return;
       const from = selected;
-      has.setMoving({ from, to: null });
-      void copy.then((to) => has.setMoving((m) => (m?.from !== from ? m : to ? { from, to } : null)));
+      const known = forkOriginKeys(board?.lanes ?? [], s.key);
+      has.setMoving({ from, to: null, known });
+      void copy.then((to) =>
+        has.setMoving((m) => (m?.from !== from ? m : to ? { from, to: to.kind === 'key' ? to.key : 'origin', known } : null)),
+      );
     },
     boards: has.boardItems('session', [s.key]),
     related:

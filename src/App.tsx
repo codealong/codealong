@@ -15,6 +15,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type Dispatch, type SetStateAction } from 'react';
 import { showContextMenu, type MenuSpec } from './contextMenu';
 import { useEditorIcons } from './editors';
+import { findMovedCopy } from './handoff';
 import { movedTargets } from './lineage';
 import { homeOf, runsShownKey, sidesShownKey, type BoardRow, type Filter } from './lanes';
 import { answerLink, onCloseIdle, onCloseStale, onUsageMenu, onWebsiteMenu, onWindowToast, onNewWindow, onSetupMenu, onCheckUpdates, openProjectWindow, openUrl, orderAccounts, refresh, refreshUsage, setPinned, setPinnedPrs, setPinnedRepos, setPinnedWorktrees, setTheme, setupNeeded, showQuick, windowLabel, WEBSITE, type Reveal } from './api';
@@ -97,7 +98,7 @@ import { useLatest } from './latest';
 import { reorderKey, useMainKeys } from './mainKeys';
 import { accountActsOf } from './accountActs';
 import { cardActsOf } from './canvas/cardActs';
-import { laneCanOf, sessionCanOf, type MainHas } from './mainCan';
+import { laneCanOf, sessionCanOf, type MainHas, type MovingSession } from './mainCan';
 import { helperActsOf } from './mainHelpers';
 import { panelKindOf, selectedRow, shownSessionOf } from './mainSelection';
 import { viewGroupActs, type GroupsHas } from './mainGroups';
@@ -239,9 +240,8 @@ export function App() {
   }, []);
   const [query, setQuery] = useState('');
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
-  // The session shown in Sessions as you moved it (menus.ts `moving`), and its copy's key once the
-  // move says it: the panel holds it until the copy is listed, then shows the copy.
-  const [moving, setMoving] = useState<{ from: SessionItem; to: string | null } | null>(null);
+  // The session shown in Sessions as you moved it (menus.ts `moving`) until its copy takes its place.
+  const [moving, setMoving] = useState<MovingSession | null>(null);
   const [storedView, setView] = useStored<View>(VIEW_KEY, VIEW_STORED, 'sessions');
   // Boards are an experiment, off until Settings › Experimental turns them on: till then the
   // Board view isn't among the views, its keys go nowhere, and one remembered from when they were
@@ -1277,7 +1277,7 @@ export function App() {
       setMoving(null);
       return;
     }
-    const copy = moving.to ? homes.get(moving.to) : undefined;
+    const copy = moving.to === 'origin' ? findMovedCopy(lanes, moving.from.session.key, null, moving.known) : moving.to ? homes.get(moving.to) : undefined;
     if (!copy) return;
     setMoving(null);
     const row = activeSessions.find((r) => r.session.key === copy.session.key);
@@ -1289,7 +1289,7 @@ export function App() {
     }
     // After the reveal, which puts away whatever the panel was showing in the session's place.
     if (drill?.from === moving.from.key) setDrill({ ...drill, from: row?.key ?? sessionItemOf(copy).key });
-  }, [moving, selected?.key, picking, homes, activeSessions, unfoldSessionRow, reveal, drill]);
+  }, [moving, selected?.key, picking, lanes, homes, activeSessions, unfoldSessionRow, reveal, drill]);
   useEffect(() => {
     if (!moving?.to) return;
     const t = window.setTimeout(() => setMoving(null), COPY_WAIT_MS);

@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { asideAhead, doneAhead, labelAhead, quietAhead, raiseAhead, seenAhead } from './ahead';
 import { getAccounts, moveSession, moveSessionTo, openInChrome, openUrl, resumeSession, sendToSession, setPrPrimary, type Done, type MergeDone, NONE_CHOSEN } from './api';
+import type { MoveFollow } from './handoff';
 import type { MenuAction, MenuGroup, MenuSpec } from './contextMenu';
 import { carryOnIn, chordLetter, chordSigns, chorded, CHORDS, DONE_HOLD_MS, SESSION_CAN, SUGGESTION_CHORDS, suggestionChord, doneTitle, fileMenu, keyed, laneActions, laneMenu, lanesActions, lanesMenu, mergesWith, prMenu, prsActions, prsMenu, repoMenu, sessionActions, sessionMenu, sessionsActions, sessionsMenu, todoMenu, todoPanelMenu, todosMenu, toggleWaiting, TRY_AGAIN, linkMenu, unfinishedHelpers, helpersChosen, type CanPlace, type DoneHelpersAsk, type MergeDoneAsk, type SessionCan, type SessionsCan, type TodoEdit } from './menus';
 import type { MergeForm } from './merge';
@@ -275,7 +276,7 @@ describe('sessionMenu', () => {
     const run = async (key: string, can: Partial<SessionCan>, clicks = 1) => {
       const said: string[] = [];
       const left: string[] = [];
-      const copies: (string | null)[] = [];
+      const copies: MoveFollow[] = [];
       const menu = menuOf(key, { report: { error: (m) => said.push(`error: ${m}`), info: (m) => said.push(m) }, left: (d) => left.push(d), ...(can.moving && { moving: (c) => void c.then((k) => copies.push(k)) }) });
       const item = ((menu.find((i) => i !== 'separator' && 'items' in i && i.label === 'Move to worktree') as MenuGroup).items[0] as MenuGroup).items[0] as MenuAction;
       for (let i = 0; i < clicks; i++) item.run();
@@ -286,7 +287,7 @@ describe('sessionMenu', () => {
     // click while it moves, or the menu after, moves nothing again.
     to.mockClear();
     to.mockResolvedValue({ key: 'claude:c:2', message: 'Moved “Fix login” to api-new.' });
-    expect(await run('claude:c:1', { moving: noop }, 2)).toEqual({ said: ['Moved “Fix login” to api-new.'], left: [], copies: ['claude:c:2'] });
+    expect(await run('claude:c:1', { moving: noop }, 2)).toEqual({ said: ['Moved “Fix login” to api-new.'], left: [], copies: [{ kind: 'key', key: 'claude:c:2' }] });
     expect(to.mock.calls).toEqual([['claude:c:1', '/r/api-new']]);
     expect(folders('claude:c:1')).toBeUndefined();
     expect(await run('claude:c:3', {})).toEqual({ said: ['Moved “Fix login” to api-new.'], left: ['archived'], copies: [] });
@@ -334,7 +335,7 @@ describe('sessionMenu', () => {
       expect(asks({ status: 'stopped', live: false, limit: { ...limit, moveTo: null } })).toEqual({ to: ['c2'], suggested: null, goesOn: true });
       const run = async (key: string, can: Partial<SessionCan>) => {
         const left: string[] = [];
-        const copies: (string | null)[] = [];
+        const copies: MoveFollow[] = [];
         const move = sessionActions(lane(), session({ key }), { ...base, left: (d) => left.push(d), ...(can.moving && { moving: (c) => void c.then((k) => copies.push(k)) }) }).move as MenuAction;
         expect(move.label).toBe('Move to c2');
         move.run();
@@ -342,14 +343,15 @@ describe('sessionMenu', () => {
         return { left, copies };
       };
       to.mockResolvedValue({ key: 'claude:c2:9', message: 'Moved “Fix login” to c2: it goes on in a new terminal in api.' });
-      expect(await run('claude:c:11', { moving: noop })).toEqual({ left: [], copies: ['claude:c2:9'] });
+      expect(await run('claude:c:11', { moving: noop })).toEqual({ left: [], copies: [{ kind: 'key', key: 'claude:c2:9' }] });
       expect(to).toHaveBeenLastCalledWith('claude:c:11', 'c2');
       // Moved out, it offers no other move here.
       expect(sessionActions(lane(), session({ key: 'claude:c:11' }), base).move).toBeUndefined();
       expect(await run('claude:c:12', {})).toEqual({ left: ['archived'], copies: [] });
-      // A job whose ID the service didn't say: it's archived all the same, with no copy to show.
+      // An async launch whose session ID isn't known upfront: a window that follows moves stays
+      // open and waits for the copy by `origin.key` instead of closing or leaving the card.
       to.mockResolvedValue({ key: null, message: 'Moved “Fix login” to c2: it goes on as a background job.' });
-      expect(await run('claude:c:13', { moving: noop })).toEqual({ left: ['archived'], copies: [null] });
+      expect(await run('claude:c:13', { moving: noop })).toEqual({ left: [], copies: [{ kind: 'origin' }] });
       // Cross-provider accounts join the submenu with their provider name; keeping the original open
       // hands off without marking the session moved or leaving the list.
       const codex = { name: 'cx', harness: 'codex' as const, home: '~/.codex', command: 'codex', makesPages: false, copiesSettings: false, folderExists: true, signedIn: true, email: null, signInNote: null };
@@ -572,7 +574,7 @@ describe('what each window can do to a session', () => {
     todos: ['main'],
     archive: ['main'],
     undoDone: ['main'],
-    moving: ['main'],
+    moving: ['main', 'waiting', 'notch', 'peek'],
     boards: ['main'],
     related: ['main'],
   };

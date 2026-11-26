@@ -2,11 +2,11 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import './testing/dom';
 import * as fx from './testing/fixtures';
-import { laneCanOf, sessionCanOf, type MainHas } from './mainCan';
+import { laneCanOf, sessionCanOf, type MainHas, type MovingSession } from './mainCan';
+import type { MoveFollow } from './handoff';
 import * as menus from './menus';
 import type { Pins } from './pins';
 import { sessionItemOf } from './boardLists';
-import type { SessionItem } from './ui/SessionsView';
 
 // What the main window can do to a session and a worktree (mainCan.ts), from what a render of
 // it has: what its menus and keys then run is menus.ts's, tested there.
@@ -15,7 +15,7 @@ const kestrel = fx.session({ key: 'claude:northwind:kestrel', title: 'Kestrel', 
 const app = fx.lane({ id: '/r/northwind/app', project: 'Northwind', callsign: 'app', sessions: [kestrel] });
 
 let did: string[] = [];
-let moving: { from: SessionItem; to: string | null } | null = null;
+let moving: MovingSession | null = null;
 beforeEach(() => {
   did = [];
   moving = null;
@@ -143,26 +143,30 @@ describe('what the main window can do to a session', () => {
   it('holds a session moved from its panel in Sessions until its copy is known, and no other', async () => {
     const row = sessionItemOf({ lane: app, session: kestrel });
     // Not the one shown, or not in Sessions: nothing is held.
-    sessionCanOf(has(), app, kestrel, 'session').moving?.(Promise.resolve('copy'));
-    sessionCanOf(has({ view: 'kanban', selected: row }), app, kestrel, 'session').moving?.(Promise.resolve('copy'));
+    sessionCanOf(has(), app, kestrel, 'session').moving?.(Promise.resolve({ kind: 'key', key: 'copy' }));
+    sessionCanOf(has({ view: 'kanban', selected: row }), app, kestrel, 'session').moving?.(Promise.resolve({ kind: 'key', key: 'copy' }));
     const other = fx.session({ key: 'claude:northwind:atlas' });
-    sessionCanOf(has({ selected: sessionItemOf({ lane: app, session: other }) }), app, kestrel, 'session').moving?.(Promise.resolve('copy'));
+    sessionCanOf(has({ selected: sessionItemOf({ lane: app, session: other }) }), app, kestrel, 'session').moving?.(Promise.resolve({ kind: 'key', key: 'copy' }));
     expect(moving).toBeNull();
     // The one shown: held as it was, then with its copy's key.
-    sessionCanOf(has({ selected: row }), app, kestrel, 'session').moving?.(Promise.resolve('claude:atlas:copy'));
-    expect(moving).toEqual({ from: row, to: null });
+    sessionCanOf(has({ selected: row }), app, kestrel, 'session').moving?.(Promise.resolve({ kind: 'key', key: 'claude:atlas:copy' }));
+    expect(moving).toEqual({ from: row, to: null, known: new Set() });
     await Promise.resolve();
-    expect(moving).toEqual({ from: row, to: 'claude:atlas:copy' });
+    expect(moving).toEqual({ from: row, to: 'claude:atlas:copy', known: new Set() });
+    // An async move without an upfront key stays held to match by origin.
+    sessionCanOf(has({ selected: row }), app, kestrel, 'session').moving?.(Promise.resolve({ kind: 'origin' }));
+    await Promise.resolve();
+    expect(moving).toEqual({ from: row, to: 'origin', known: new Set() });
     // A move that left no copy lets it go.
     sessionCanOf(has({ selected: row }), app, kestrel, 'session').moving?.(Promise.resolve(null));
     await Promise.resolve();
     expect(moving).toBeNull();
     // Another session held since isn't touched by the first one's answer.
-    let settle: (key: string | null) => void = () => {};
+    let settle: (key: MoveFollow) => void = () => {};
     sessionCanOf(has({ selected: row }), app, kestrel, 'session').moving?.(new Promise((resolve) => (settle = resolve)));
-    const later = { from: sessionItemOf({ lane: app, session: other }), to: null };
+    const later: MovingSession = { from: sessionItemOf({ lane: app, session: other }), to: null, known: new Set() };
     moving = later;
-    settle('claude:atlas:copy');
+    settle({ kind: 'key', key: 'claude:atlas:copy' });
     await Promise.resolve();
     expect(moving).toBe(later);
   });
