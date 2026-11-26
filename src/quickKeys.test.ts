@@ -300,7 +300,7 @@ function box(over: Partial<QuickBoxKeys> = {}, { text = '', caret = text.length 
     pickSkill: (row) => void did.push(`finish /${row.skill.name}`),
     answerSession: (_lane, session) => void did.push(`answer ${session.title}`),
     answerIn: (key) => void did.push(`in the waiting window: ${key}`),
-    start: () => void did.push('start'),
+    start: (flip) => void did.push(flip ? 'start, the other way' : 'start'),
     recallAt: (at) => void did.push(at < 0 ? 'the empty box again' : `bring back prompt ${at}`),
     ...over,
   };
@@ -322,13 +322,13 @@ function inBox(chord: string, over: Partial<QuickBoxKeys> = {}, holds: Box = {})
 }
 
 describe.each(PLATFORMS)('the quick panel’s keys in its box, as %s presses them', (platform) => {
-  it('does the row selected with ⏎, the other way with ⌥⏎, starts with ⌘⏎, and leaves ⇧⏎ to make a new line', () => {
+  it('does the row selected with ⏎, the other way with ⌥⏎, starts with ⌘⏎ (the other way with ⌥⌘⏎), and leaves ⇧⏎ to make a new line', () => {
     setPlatform(platform);
     expect(inBox('Enter')).toEqual([`do ${KESTREL}`]);
     expect(inBox('Enter', { active: COMPOSE })).toEqual([`do ${COMPOSE}`]);
     expect(inBox('Alt+Enter', { active: WREN })).toEqual([`do ${WREN}, the other way`]);
     expect(inBox('Cmd+Enter')).toEqual(['start']);
-    expect(inBox('Alt+Cmd+Enter')).toEqual(['start']);
+    expect(inBox('Alt+Cmd+Enter')).toEqual(['start, the other way']);
     expect([inBox('Shift+Enter'), inBox('Shift+Cmd+Enter')]).toEqual([LEFT, LEFT]);
   });
 

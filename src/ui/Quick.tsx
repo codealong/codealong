@@ -93,6 +93,7 @@ import * as menus from '../menus';
 import { prRefOf } from '../prLinks';
 import { tildePath } from '../format';
 import { useLogo } from '../logo';
+import { showsStart } from '../newSession';
 import { useRowDrag } from './useRowDrag';
 import { ALL_PROJECTS, CHATS, GENERAL_CHAT, attachmentsNote, attentionRows, draftCodec, findPrs, foldedWords, GROUP_WORD, holdsPrompt as holdsAPrompt, findSessions, findTodos, folderChoices, folderStart, FOUND_SESSIONS, inProject, MAX_ROWS, nextDraft, primaryRunningWords, projectCounts, projectLabel, projectShownIn, QUICK_PLACEHOLDER, queryWords, readyTodos, recallList, pickInProject, recentRows, repoChoices, repoKey, repoWorktrees, SEND_TO_PLACEHOLDER, sendTargets, shortcutLabel, startLaneIn, startTitle, todosStayNote, worktreeName, type Machines, type QuickDraft, type RowGroup, type TodoRow, withPrompt as historyWith } from '../quick';
 import {
@@ -142,6 +143,7 @@ import { useTheme } from './ThemeSwitch';
 import { useGlass } from '../glass';
 import { Tip } from './Tip';
 import { useNow } from './useNow';
+import { useShowStarted } from './useShowStarted';
 import { errorText, type Report } from '../report';
 import { openWhere, where } from '../open';
 import { asText, flag, readStored, strings, useStored, writeStored } from '../stored';
@@ -306,6 +308,8 @@ export function Quick() {
     setHeardAt(at);
   };
   const [error, setError] = useState<string | null>(null);
+  // Whether a start in the background or in Codealong shows its session as it starts.
+  const [showOn, flipShow] = useShowStarted(board?.showStarted, setError);
   // What a menu's action did (copied, closed), for a moment.
   const [info, setInfo] = useState<string | null>(null);
   useEffect(() => {
@@ -1463,8 +1467,9 @@ export function Quick() {
   };
 
   /** Starts a session: in the worktree chosen below, or where a suggestion says; on what's typed,
-   *  or on a `prompt` of the panel's own (Switch to Codealong Dev?'s), which nothing is added to. */
-  const start = (over?: { lane: Lane; newWorktree: boolean; agent?: string; only?: string[]; prompt?: string }) => {
+   *  or on a `prompt` of the panel's own (Switch to Codealong Dev?'s), which nothing is added to.
+   *  `flip` (⌥) shows it as it starts, or doesn't, the other way from the switch, this once. */
+  const start = (over?: { lane: Lane; newWorktree: boolean; agent?: string; only?: string[]; prompt?: string }, flip = false) => {
     // Not while a press is heard into the box: what it shows isn't what it holds yet.
     if (hearingHere) return;
     const where = over?.lane ?? startLane;
@@ -1491,9 +1496,12 @@ export function Quick() {
     if (!over) noteDone({ kind: 'start', target: where.id, newWorktree: newTree }, 'start-row');
     const targetOnModel = sgChoice ? onModelWords(sgChoice.startsOn, sgChoice.effortWord, ownModels(sgChoice.accountInfo, models)) : onModel;
     // With nothing to start on, and nothing of its own opening to write it in, the main window
-    // opens a new session for its first prompt, which starts it (newSession.ts).
-    if (startsOnFirstSend(targetPlace, !!prompt.trim())) {
+    // opens a new session for its first prompt, which starts it (newSession.ts); and one on a
+    // prompt, already on its way, when the switch says to show it as it starts.
+    const shown = !!prompt.trim() && showsStart(targetPlace, showOn, flip);
+    if (startsOnFirstSend(targetPlace, !!prompt.trim()) || shown) {
       const does = startDoes({ lane: where, who: `${targetAccount}${targetOnModel}`, onModel: targetOnModel, place: targetPlace, newWorktree: newTree, prompted: true, terminal: terminalName, behind });
+      if (shown) keepPrompt(fullPrompt);
       clearPrompt();
       setTodoIds([]);
       setNewWorktree(false);
@@ -1501,7 +1509,7 @@ export function Quick() {
       setError(null);
       setActiveKey(null);
       void hideQuick();
-      void showMain({ kind: 'new', draft: { spec, does, placeLabel: places.find((p) => p.place === targetPlace)?.label ?? targetPlace, harness: harness ?? null } });
+      void showMain({ kind: 'new', draft: { spec, does, placeLabel: places.find((p) => p.place === targetPlace)?.label ?? targetPlace, harness: harness ?? null, ...(shown && { sent: over?.prompt ?? fullPrompt }) } });
       return;
     }
     const label = startingLabel(targetPlace, targetAccount, targetOnModel, where, newTree, deviceInfo?.name ?? null);
@@ -1832,7 +1840,7 @@ export function Quick() {
     if (row) noteRow(row, alt);
     // Send to has no new session's row to fall back on.
     if (!row) {
-      if (!inSendTo) start();
+      if (!inSendTo) start(undefined, alt);
     } else if (row.kind === 'suggest') suggest(row.s, alt);
     else if (row.kind === 'sendto') openSendTo();
     else if (row.kind === 'todo') (alt ? revealTodo : openTodo)(row);
@@ -1913,7 +1921,7 @@ export function Quick() {
 
   // The box's keys (quickKeys.ts).
   const onInputKey = (e: React.KeyboardEvent<HTMLTextAreaElement>) =>
-    onQuickBoxKey(e, { hearingHere, listen, inSendTo, rows, keys, active, recallable, recall, attached, setError, listenToIt, activate, closeSendTo, move, pickSkill, answerSession, answerIn, start, recallAt });
+    onQuickBoxKey(e, { hearingHere, listen, inSendTo, rows, keys, active, recallable, recall, attached, setError, listenToIt, activate, closeSendTo, move, pickSkill, answerSession, answerIn, start: (flip) => start(undefined, flip), recallAt });
 
   // The panel's own keys, wherever the focus is in it (quickKeys.ts). A menu's filter handles its
   // own first. The calmer machine is taken by a function further down.
@@ -2050,6 +2058,7 @@ export function Quick() {
         onPick: pickPlace,
         stepped: stepsPlace,
         usual: keepers.length > 0 && placeNow ? { kept: keptAt(keepers, accounts, placeNow), whose: keepers.length === 1 ? keepers[0] : 'their', onKeep: () => keepPlace(keepers, placeNow) } : undefined,
+        shows: { on: showOn, onFlip: flipShow },
       }}
     />
   );

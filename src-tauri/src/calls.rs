@@ -603,6 +603,12 @@ calls! {
         start::keep_place(&accounts, place).map_err(words)
     }
 
+    /// The quick panel's switch for whether a session it starts in the background or in Codealong
+    /// is shown in the main window as it starts: `[sessions] show_started` in config.toml.
+    fn keep_show_started(c, on: bool) -> Result<(), String> {
+        config::save_show_started(on).map_err(words)
+    }
+
     /// What the setup wizard offers (setup.rs).
     fn setup_view(c) -> Result<setup::View, String> {
         setup::view_once_read().map_err(words)

@@ -35,6 +35,10 @@ export interface SessionsCfg {
    *  before its tab closes or its job stops to free what its agent holds; a click or a reply
    *  resumes it (hibernate.rs). 0, or none, is off. */
   hibernate_after?: number;
+  /** A session the quick panel starts in the background or in Codealong is shown in the main
+   *  window as it starts (newSession.ts); the quick panel's agent menu has the switch. Files from
+   *  before it have none: off. */
+  show_started?: boolean;
 }
 
 /** An `[[accounts]]` table in config.toml. */

@@ -5,8 +5,13 @@
 // new-session page and Codex's new-thread page are: nothing starts until you send. The send
 // starts it as the quick panel would have, and the panel stays, saying it's starting, until the
 // board lists the session, which is then selected with the cursor in its box.
+//
+// A start on a prompt goes the same way, already sent as the panel opens, when the quick panel's
+// switch (`[sessions] show_started`) says to show what it starts (`showsStart`): otherwise the
+// session only joins the list, while the panel stays on what you picked, since by the time it
+// shows you may be reading another. Picking another row before it shows lets it go there.
 
-import type { Harness, Lane, StartSpec } from './types';
+import type { Harness, Lane, StartPlace, StartSpec } from './types';
 
 /** A start left for its first prompt: the start as it goes, on no prompt yet, what sending does,
  *  in the start row's words (start.ts `startDoes`), the place as the start row's chip says it
@@ -17,6 +22,22 @@ export interface NewSession {
   does: string;
   placeLabel: string;
   harness: Harness | null;
+  /** What it was started on, as written, when the quick panel started it on a prompt
+   *  (`showsStart`): it's on its way as it opens, on `spec.prompt`. */
+  sent?: string;
+}
+
+/** Whether nothing of a session's own opens where it starts: in the background or in Codealong,
+ *  where a terminal or an app would come forward by itself. */
+export function opensNothing(place: StartPlace | null): boolean {
+  return place === 'background' || place === 'codealong';
+}
+
+/** Whether a start from the quick panel shows its session in the main window as it starts: where
+ *  nothing of its own opens, with the switch on (`on`), or off with ⌥ held for this start alone
+ *  (`flip`). */
+export function showsStart(place: StartPlace | null, on: boolean, flip: boolean): boolean {
+  return opensNothing(place) && on !== flip;
 }
 
 /** A new session as the main window shows it: over the row that was selected as it opened, which

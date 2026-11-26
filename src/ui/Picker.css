@@ -153,6 +153,13 @@
   height: 22px;
   padding: 0 8px;
 }
+/* The quick panel's switch under where a start runs, lined up with the controls over it and as
+   quiet as a note beside them. */
+.ca-picker-foot-check {
+  font: var(--type-caption);
+  color: var(--ink-2);
+  cursor: default;
+}
 .ca-picker-foot-note {
   overflow: hidden;
   margin-left: auto;

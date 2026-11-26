@@ -883,11 +883,11 @@ export function App() {
       takeLink();
       return;
     }
-    // Sessions, with the new session in its panel and the cursor in its box.
+    // Sessions, with the new session in its panel: the cursor in its box, or on its way already.
     if (r.kind === 'new') {
       setView('sessions');
       setDrill(null);
-      setNewShown({ draft: r.draft, over: selectedKey, opened: Date.now(), sending: null, error: null, started: null });
+      openNew(r.draft, selectedKey);
       return;
     }
     if (r.kind === 'terminal') {
@@ -1163,7 +1163,7 @@ export function App() {
   // A start the quick panel left for its first prompt (useNewSession.ts, newSession.ts): Sessions'
   // panel shows it in place of the selected row's until another row is picked, and once sent, until
   // the board lists the session it started, which then takes its place with the cursor in its box.
-  const { newShown, setNewShown, sendNew } = useNewSession({ selectedKey, board, deviceLanes, reveal, setBoxFocus, setToast });
+  const { newShown, setNewShown, sendNew, openNew } = useNewSession({ selectedKey, board, deviceLanes, reveal, setBoxFocus, setToast });
   // A session you click in Sessions is one you mean to answer: the cursor goes to its panel's box,
   // once the click has given the list the keyboard, as a press does. The list's chords work from
   // the box too (`listChord`), and Escape in the box gives the list the keyboard back.

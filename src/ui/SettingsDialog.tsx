@@ -377,6 +377,11 @@ function GeneralPane({ cfg, view, disabled, onSave, now }: PaneProps & { view: C
           <ProfileSelect value={String(searchDays)} profiles={dayOptions(searchDays)} onChange={(d) => void onSave({ ...cfg, search: { days: Number(d) } })} />
           <small>The quick panel, the main window's filter over its list ({keysSaid('⌥⌘F')}) and <code>codealong sessions find</code> look for your words in the prompts and replies of sessions active this recently, not just in their titles. Tool output is left out. Codealong keeps this text in memory, a few megabytes a week.</small>
         </label>
+        <label className="ca-field ca-settings-check">
+          <CheckBox checked={cfg.sessions?.show_started ?? false} onChange={(on) => void onSave({ ...cfg, sessions: { continue_after_network_error: true, ...cfg.sessions, show_started: on } })} />
+          <span>Show what the quick panel starts</span>
+          <small>{keysIn('A session the quick panel starts in the background or in Codealong comes up in the main window as it starts, rather than only joining the list. The quick panel’s agent menu (⌘O) has the same switch, and ⌥⌘⏎ there does the other for one start.')}</small>
+        </label>
         <label className="ca-field">
           <span>Terminal</span>
           <ProfileSelect value={cfg.apps.terminal} profiles={view.terminals} onChange={(terminal) => void onSave({ ...cfg, apps: { ...cfg.apps, terminal } })} />

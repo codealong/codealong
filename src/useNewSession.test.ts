@@ -2,6 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, engine, mountHook } from './testing/dom';
 import type { Reveal } from './api';
+import { readDraft, writeDraft } from './drafts';
 import { NEW_SESSION_WAIT_MS, type NewSession, type NewSessionShown } from './newSession';
 import * as fx from './testing/fixtures';
 import type { Board, Lane, Started } from './types';
@@ -168,5 +169,54 @@ describe('sending it', () => {
     answer({ key: KEY, message: null });
     await act(() => sent);
     expect(w.current.newShown).toEqual(opened({ opened: 2 }));
+  });
+});
+
+describe('one the quick panel sent already (`[sessions] show_started`)', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    writeDraft('new:' + app.id, '');
+  });
+  const sent: NewSession = { ...draft, spec: { ...draft.spec, prompt: 'Fix the importer' }, sent: 'fix the importer' };
+
+  it('starts on it as it opens over the row selected, saying it’s on its way, then gives way to the session', async () => {
+    engine.answer('start_from_quick', { key: KEY, message: null });
+    const w = mountHook(useNewSession, has());
+    act(() => w.current.openNew(sent, 'row-a'));
+    expect(w.current.newShown).toMatchObject({ draft: sent, over: 'row-a', sending: 'fix the importer', error: null });
+    await act(() => vi.advanceTimersByTimeAsync(0));
+    expect(engine.sent('start_from_quick')).toEqual([{ spec: sent.spec }]);
+    w.rerender(has({ board: listing() }));
+    expect(revealed).toEqual([{ kind: 'session', laneId: app.id, key: KEY }]);
+    expect(did).toEqual([`cursor in ${app.id}::${KEY}`]);
+  });
+
+  it('lets it go when another row is picked before it shows, so it never takes the panel later', async () => {
+    engine.answer('start_from_quick', { key: KEY, message: null });
+    const w = mountHook(useNewSession, has());
+    act(() => w.current.openNew(sent, 'row-a'));
+    await act(() => vi.advanceTimersByTimeAsync(0));
+    w.rerender(has({ selectedKey: 'row-b' }));
+    w.rerender(has({ selectedKey: 'row-b', board: listing() }));
+    expect([w.current.newShown, revealed, did]).toEqual([null, [], []]);
+  });
+
+  it('keeps the panel with why it failed, and what was written for the next new session there', async () => {
+    engine.answer('start_from_quick', () => {
+      throw new Error('That account is signed out.');
+    });
+    const w = mountHook(useNewSession, has());
+    act(() => w.current.openNew(sent, 'row-a'));
+    await act(() => vi.advanceTimersByTimeAsync(0));
+    expect(w.current.newShown).toMatchObject({ sending: null, error: 'That account is signed out.' });
+    expect(readDraft('new:' + app.id)).toBe('fix the importer');
+  });
+
+  it('starts nothing for one that waits for its first prompt', async () => {
+    const w = mountHook(useNewSession, has());
+    act(() => w.current.openNew(draft, 'row-a'));
+    await act(() => vi.advanceTimersByTimeAsync(0));
+    expect(w.current.newShown).toMatchObject({ draft, over: 'row-a', sending: null });
+    expect(engine.sent('start_from_quick')).toEqual([]);
   });
 });

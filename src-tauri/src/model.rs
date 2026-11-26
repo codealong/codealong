@@ -240,6 +240,10 @@ pub struct Board {
     /// engine's board that doesn't say is read as on.
     #[serde(default = "crate::config::default_show_keys")]
     pub show_keys: bool,
+    /// Whether a session the quick panel starts in the background or in Codealong is shown in the
+    /// main window as it starts, from config.toml's `[sessions] show_started` (src/newSession.ts).
+    #[serde(default)]
+    pub show_started: bool,
     /// How tool calls appear in conversations, from config.toml's `[appearance] tools`
     /// (`src/toolDisplay.ts`).
     #[serde(default)]

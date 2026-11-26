@@ -563,6 +563,7 @@ export type Board = Holds<Same<
   | "schedulesProblem"
   | "sessions"
   | "showKeys"
+  | "showStarted"
   | "sides"
   | "signIns"
   | "starting"
@@ -1241,7 +1242,8 @@ export type SessionsCfg = Holds<Same<
   | "live_replies"
   | "resume_for_any_session"
   | "resume_for_pr_news"
-  | "resume_for_sessions_it_started",
+  | "resume_for_sessions_it_started"
+  | "show_started",
   Names<Types.SessionsCfg>
 >>;
 

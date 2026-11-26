@@ -52,7 +52,9 @@ export interface QuickBoxKeys {
   pickSkill: (row: SkillRow) => void;
   answerSession: (lane: Lane, session: Session) => void;
   answerIn: (key: string) => void;
-  start: () => void;
+  /** Starts a session; `flip` (⌥⌘⏎) shows it as it starts, or doesn't, the other way from the
+   *  quick panel's switch, this once. */
+  start: (flip?: boolean) => void;
   /** Brings back the prompt at `at` of `recallable` into the box, or the empty box at -1. */
   recallAt: (at: number, el: HTMLTextAreaElement) => void;
 }
@@ -123,7 +125,7 @@ export function onQuickBoxKey(e: ReactKeyboardEvent<HTMLTextAreaElement>, box: Q
   if (e.key === 'Enter') {
     if (e.shiftKey) return;
     e.preventDefault();
-    if (cmd(e)) start();
+    if (cmd(e)) start(e.altKey);
     else activate(active, e.altKey);
     return;
   }
