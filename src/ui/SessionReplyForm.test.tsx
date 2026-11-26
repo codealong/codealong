@@ -14,12 +14,15 @@ const email: Question = { question: 'Where to send the report', header: 'Email',
 const token: Question = { question: 'Paste the deploy token', options: [], form: { secret: true } };
 const form: Pending = { id: 'form-7', label: 'Asks you · The deploy server needs a few details.', input: 'The deploy server needs a few details.', cannot: null, questions: [region, email, token] };
 
-function mount() {
+// Claude Code's AskUserQuestion in a session Codealong runs, which claude-agent-acp asks as a form.
+const fixWhere: Question = { question: 'What should I change?', header: 'Fix where', options: [{ label: 'Main repo' }, { label: 'Phone only' }], form: {} };
+const asked: Pending = { id: 'form-9', label: 'Asks you · What should I change?', input: null, cannot: null, questions: [fixWhere] };
+
+function mount(pending: Pending = form, session = fx.session({ key: 'codex:codex:t1', harness: 'codex', account: 'codex', status: 'needs', need: 'question', live: true, hosted: true, asks: false })) {
   engine.answer('device_start_options', () => ({ accounts: [], codexProjects: [], claudeModels: [] }));
-  engine.answer('session_pending', () => form);
+  engine.answer('session_pending', () => pending);
   const host = document.body.appendChild(document.createElement('div'));
   const root = createRoot(host);
-  const session = fx.session({ key: 'codex:codex:t1', harness: 'codex', account: 'codex', status: 'needs', need: 'question', live: true, hosted: true, asks: false });
   act(() => root.render(createElement(Reply, { session, terminal: 'Ghostty', onOpen: vi.fn() })));
   return {
     host,
@@ -39,6 +42,17 @@ const write = (input: HTMLInputElement, text: string) =>
     input.dispatchEvent(new Event('input', { bubbles: true }));
   });
 const step = (host: HTMLElement, words: string) => [...host.querySelectorAll('.ca-question-steps button')].find((b) => b.textContent?.includes(words));
+// Types into the session's message box and presses Return there.
+const sendFromBox = (host: HTMLElement, text: string) => {
+  const box = host.querySelector('.ca-composer textarea[aria-label^="Message to"]') as HTMLTextAreaElement;
+  act(() => {
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(box, text);
+    box.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  act(() => {
+    box.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+  });
+};
 
 describe('a form in the reply box', () => {
   it('says what it wants, asks each field for what it takes, and goes once what it needs is answered', async () => {
@@ -70,6 +84,23 @@ describe('a form in the reply box', () => {
     await settle();
     const sent = engine.calls.filter((c) => c.cmd === 'session_answer').at(-1);
     expect(sent?.args).toMatchObject({ key: 'codex:codex:t1', id: 'form-7', answer: 'allow', answers: { Region: 'Europe', 'Where to send the report': 'me@example.com', 'Paste the deploy token': 'abc' } });
+    unmount();
+  });
+
+  // Its questions hold the turn, so a message sent instead would wait behind them for good: it
+  // declines them with what you wrote, as in any other session.
+  it('declines the questions with what you write in the message box, rather than queueing it behind them', async () => {
+    const session = fx.session({ key: 'claude:claude:s9', harness: 'claude', account: 'claude', status: 'needs', need: 'question', excerpt: asked.label, live: true, hosted: true, asks: false });
+    const { host, unmount } = mount(asked, session);
+    await settle();
+    await settle();
+    expect(host.querySelector('.ca-composer textarea[aria-label^="Message to"]')?.getAttribute('aria-placeholder')).toBe('Or decline it, and write to claude instead');
+    engine.answer('session_answer', () => 'Sent what you wrote as its answer.');
+    sendFromBox(host, 'Use the main repo, but look at the helper triage first');
+    await settle();
+    const answered = engine.calls.filter((c) => c.cmd === 'session_answer').at(-1);
+    expect(answered?.args).toMatchObject({ key: 'claude:claude:s9', id: 'form-9', answer: 'deny', answers: null, message: 'Use the main repo, but look at the helper triage first' });
+    expect(engine.calls.some((c) => c.cmd === 'send_to_session')).toBe(false);
     unmount();
   });
 });

@@ -966,6 +966,14 @@ fn answer_here(engine: &Handle, c: &Call) -> Result<Value, String> {
         if let Some(a) = &answers {
             return acp::answer_form(key, &id, a).map(Value::String).map_err(words);
         }
+        // Questions declined with words: the words answer them, as a hook's deny carries them in
+        // a terminal (`Adapter::deny_saying`), where its form takes them.
+        if let Some(m) = saying {
+            if let Some(said) = acp::answer_saying(key, &id, m).map_err(words)? {
+                note_talking(engine, c, key);
+                return Ok(Value::String(said));
+            }
+        }
         // A session Codealong runs takes a message while it waits, after its current turn.
         let said = noting_deny(engine, c, key, answer == api::Answer::Deny, || acp::answer(key, &id, answer)).map_err(words)?;
         return match saying {

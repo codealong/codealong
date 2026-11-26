@@ -1142,9 +1142,11 @@ agent that instead, as Claude Code's own "No, and tell Claude what to do differe
 panel shows your words as a message of yours; nothing is typed at a prompt that's up. Questions are
 declined the same way, so you can write back in your own words rather than pick an answer: the
 agent's turn goes on with what you wrote (an answer of your own to one question still goes in that
-question's box, and Answer sends it). Elsewhere Send
+question's box, and Answer sends it). In a session run In Codealong, what you wrote goes as your own
+answer to each of its questions, since its agent hears nothing from a decline but that you skipped
+them; a form an MCP server asks is declined, and your words follow once its turn ends. Elsewhere Send
 works again once the session isn't waiting (a session run In Codealong takes it at once, after its
-current turn). An answer that lets the session go on (Allow, Always, Deliver, your picks, or a deny
+current turn, while it waits on a call). An answer that lets the session go on (Allow, Always, Deliver, your picks, or a deny
 with words) shows it working in every window as you give it, before its agent has said it went on;
 one that doesn't go brings the call back, saying why. After a plain Deny the session shows as its
 agent has it once that's read: Claude Code ends the turn there, others carry on.
