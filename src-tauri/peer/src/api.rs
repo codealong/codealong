@@ -567,6 +567,11 @@ pub mod params {
     pub struct Snooze {
         pub keys: Vec<String>,
         pub until: Option<i64>,
+        /// Until each one's account has room again, `until` at the latest: it comes back sooner
+        /// once the usage limit that stopped it is over. A device of a build before 2026-11-26
+        /// snoozes it until `until`.
+        #[serde(skip_serializing_if = "std::ops::Not::not")]
+        pub room: bool,
     }
 
     /// `session-quiet`: quiet, or heard again.

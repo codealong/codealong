@@ -467,6 +467,16 @@ for the minute or few until it's told to carry on, is in Working while it goes o
 as Your turn once that's done; with `continue_when_lifted` off, it's back for you to send it
 something.
 
+Where its account is out of credits too (its extra usage was refused), or the limit doesn't say
+when it lifts (an Antigravity quota, say), the button is **Snooze until it has room** (and the
+menu's first line Until it has room): it's back as soon as Codealong sees the account has room
+again, which can be before the limit lifts. For a Claude Code account, that's its usage reading
+room (a limit reset used) or its extra usage on again (credits bought, or the spend limit
+raised), read every couple of minutes; for any account, another of its sessions on this Mac
+getting a turn through. It's back when the limit lifts at the latest, or a month after the
+refusal where it says no time. While it's snoozed so, it says until it has room in place of a
+time (Room on its row).
+
 #### Network errors
 
 A Claude Code session, or an Antigravity one in its command line, whose turn ended because it

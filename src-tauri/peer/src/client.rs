@@ -485,7 +485,7 @@ impl Client {
     /// Snoozes sessions on `device` until `until` (ms since the epoch), or wakes them with none:
     /// each leaves Needs you and Your turn there and everywhere else until then.
     pub fn snooze(&self, device: &str, keys: &[String], until: Option<i64>) -> std::result::Result<(), String> {
-        self.ask(device, api::SESSION_SNOOZE, of(params::Snooze { keys: keys.to_vec(), until }), ACT_WAIT).map(|_| ())
+        self.ask(device, api::SESSION_SNOOZE, of(params::Snooze { keys: keys.to_vec(), until, ..Default::default() }), ACT_WAIT).map(|_| ())
     }
 
     /// Quiets sessions on `device`, or makes them heard again: a quiet one's turns don't wait on
@@ -556,7 +556,7 @@ impl Client {
 
     /// Snoozes your review of PRs on `device` (`owner/name#number`) until `until`, or wakes it.
     pub fn pr_snooze(&self, device: &str, keys: &[String], until: Option<i64>) -> std::result::Result<(), String> {
-        self.ask(device, api::PR_SNOOZE, of(params::Snooze { keys: keys.to_vec(), until }), ACT_WAIT).map(|_| ())
+        self.ask(device, api::PR_SNOOZE, of(params::Snooze { keys: keys.to_vec(), until, ..Default::default() }), ACT_WAIT).map(|_| ())
     }
 
     /// Where each of `device`'s accounts can start a session, and the models it can ask for.

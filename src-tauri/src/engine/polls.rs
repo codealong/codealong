@@ -15,6 +15,7 @@ fn keep_last_good(prev: Option<&Usage>, mut fresh: Usage) -> Usage {
             fresh.meters = prev.meters.clone();
             fresh.plan = fresh.plan.or_else(|| prev.plan.clone());
             fresh.as_of = prev.as_of;
+            fresh.extra_usable = prev.extra_usable;
         }
     }
     fresh
@@ -276,6 +277,7 @@ mod tests {
             no_limits: false,
             preferred: false,
             rate_limited: false,
+            extra_usable: None,
         }
     }
 

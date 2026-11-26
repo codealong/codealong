@@ -28,7 +28,7 @@ import { useLatest } from '../latest';
 import { useViewKeys } from '../mainKeys';
 import { barAhead, barView, observe, seenAhead, snoozeAhead, useAhead } from '../ahead';
 import { ALL_PROJECTS, inProject } from '../quick';
-import { snoozeMenu, untilWords } from '../snooze';
+import { snoozedWords, snoozeMenu } from '../snooze';
 import type { BarFeed, BarItem, BarListening, BarRecent, BarReview, BarSnoozed, BarTodo, MeetingOffer, PeekShown, Status } from '../types';
 import { queueKinds } from '../queue';
 import { MarkLive } from './MarkLive';
@@ -257,7 +257,7 @@ function SnoozedPill({ items, now, onOpen, measure }: { items: BarSnoozed[]; now
     <button
       type="button"
       className="ca-hud-pill is-snoozed"
-      title={measure ? undefined : `${items.length === 1 ? '1 session' : `${items.length} sessions`} snoozed, back on the bar when their time comes:\n${items.map((i) => `${i.title} · ${place(i.project, i.callsign)} · until ${untilWords(i.snoozedUntil, now)}`).join('\n')}`}
+      title={measure ? undefined : `${items.length === 1 ? '1 session' : `${items.length} sessions`} snoozed, back on the bar when their time comes:\n${items.map((i) => `${i.title} · ${place(i.project, i.callsign)} · until ${snoozedWords(i, now)}`).join('\n')}`}
       data-snoozed={measure ? '' : undefined}
       onClick={onOpen}
       onContextMenu={
@@ -862,7 +862,7 @@ export function Bar() {
     const t = Date.now();
     const terminal = feed?.terminal ?? 'Terminal';
     const menu: MenuSpec = snoozed.map((i) => ({
-      label: `${i.title} · ${placeOf(i.project, i.callsign)} · until ${untilWords(i.snoozedUntil, t)}`,
+      label: `${i.title} · ${placeOf(i.project, i.callsign)} · until ${snoozedWords(i, t)}`,
       items: [
         { label: 'Open in main window', run: () => reveal(i) },
         { label: i.target?.label ?? openWords(i.openTarget, i.terminal ?? terminal), run: () => wakeAndOpen(i) },

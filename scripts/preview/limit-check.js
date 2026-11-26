@@ -2,8 +2,9 @@
 // the bar's peek: its header says which limit and when it lifts, and offers the move to the
 // account with room as a button, which asks for move_session with that account; its menu's Move
 // to says it goes on. Beside it, Snooze until it lifts snoozes it until then (snooze.ts
-// `suggestedSnooze`), as its Snooze menu's first line and ⌃⌘8 do. The limit is put on a real
-// Claude Code session, since a board rarely has one.
+// `suggestedSnooze`), as its Snooze menu's first line and ⌃⌘8 do (limit-room-check.js has one
+// out of credits, snoozed until its account has room). The limit is put on a real Claude Code
+// session, since a board rarely has one.
 //   PREVIEW_WAIT=60000 scripts/preview.sh peek '' scripts/preview/limit-check.js
 (function () {
   var get = function (file) {
@@ -42,8 +43,8 @@
         l.sessions.forEach(function (s) {
           if (s.key !== key) return;
           s.status = 'error';
-          s.excerpt = 'You’ve hit your monthly spend limit · raise it at claude.ai/settings/usage';
-          s.limit = { meter: 'week', resetsAt: lifts, spendCapped: true, at: Date.now() - 60000, moveTo: other, continues: true };
+          s.excerpt = 'You’ve hit your weekly limit';
+          s.limit = { meter: 'week', resetsAt: lifts, at: Date.now() - 60000, moveTo: other, continues: true };
         });
       });
       return b;
@@ -85,7 +86,7 @@
       snooze.click();
       await until(function () { return calls('snooze_sessions').length > 0; }, 3000);
       var snoozed = calls('snooze_sessions')[0][1];
-      check('the snooze runs until the limit lifts', snoozed.keys.join() === key && snoozed.until === lifts, JSON.stringify(snoozed));
+      check('the snooze runs until the limit lifts', snoozed.keys.join() === key && snoozed.until === lifts && !snoozed.room, JSON.stringify(snoozed));
     } catch (e) {
       return stopped(e);
     }

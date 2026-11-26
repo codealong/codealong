@@ -976,7 +976,7 @@ mod tests {
         b.lanes[0].sessions.clear();
         b.prs[0].review_requested = true;
         let key = b.prs[0].key.clone();
-        let snooze = |until: i64| vec![Snooze { key: key.clone(), at: NOW - 1_000, until }];
+        let snooze = |until: i64| vec![Snooze { key: key.clone(), at: NOW - 1_000, until, room: false }];
         apply_review_snoozes(&mut b.prs, &snooze(NOW + 60_000), NOW);
         assert_eq!(b.prs[0].snoozed_until, Some(NOW + 60_000));
         assert_eq!(logo_status(&b.lanes, &b.prs), LogoStatus::Idle);
@@ -1718,7 +1718,7 @@ mod tests {
     #[test]
     fn an_account_that_reads_signed_out_with_sessions_stopped_on_it_offers_a_sign_in() {
         let out = |key: &str, continues: bool| Session { title: key.into(), signed_out: Some(SignedOut { at: NOW - 60_000, said: "OAuth token revoked · Please run /login".into(), continues }), ..crate::fixtures::session(key) };
-        let usage = |account: &str, signed_in: bool| Usage { account: account.into(), harness: Harness::Claude, plan: None, meters: Vec::new(), as_of: Some(NOW), error: None, needs_sign_in: !signed_in, loading: false, no_limits: false, preferred: false, rate_limited: false };
+        let usage = |account: &str, signed_in: bool| Usage { account: account.into(), harness: Harness::Claude, plan: None, meters: Vec::new(), as_of: Some(NOW), error: None, needs_sign_in: !signed_in, loading: false, no_limits: false, preferred: false, rate_limited: false, extra_usable: None };
         let mut board = Board { lanes: vec![crate::fixtures::lane("/r", vec![out("a", true), out("b", true), crate::fixtures::session("c")])], usage: vec![usage("claude", false)], ..Board::default() };
         let said = signed_out_notices(&board);
         assert_eq!(said.len(), 1);

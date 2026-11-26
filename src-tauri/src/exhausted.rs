@@ -363,7 +363,7 @@ mod tests {
         assert!(!err.contains("claude2"), "{err}");
 
         // Non-boundary account exhausted: DOES suggest roomy non-boundary account, and skips boundary & near-limit accounts.
-        let usage_of = |account: &str, meters: Vec<Meter>| Usage { account: account.into(), harness: crate::model::Harness::Claude, plan: None, meters, as_of: Some(NOW), error: None, needs_sign_in: false, loading: false, no_limits: false, preferred: false, rate_limited: false };
+        let usage_of = |account: &str, meters: Vec<Meter>| Usage { account: account.into(), harness: crate::model::Harness::Claude, plan: None, meters, as_of: Some(NOW), error: None, needs_sign_in: false, loading: false, no_limits: false, preferred: false, rate_limited: false, extra_usable: None };
         let usages = vec![
             usage_of("claude", vec![Meter { key: "session".into(), label: "5h".into(), window: "5h".into(), percent: 100.0, resets_at: Some(NOW + HOUR), severity: Severity::Critical, model: None }]),
             usage_of("claude2", vec![Meter { key: "week".into(), label: "Week".into(), window: "Week".into(), percent: 10.0, resets_at: Some(NOW + 24 * HOUR), severity: Severity::Normal, model: None }]),

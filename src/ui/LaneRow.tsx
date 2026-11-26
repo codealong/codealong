@@ -365,7 +365,7 @@ function SessionLines({ s, now, stripFor = false, where, end, todos, onShowTodo,
           <RunsChip runs={runs} shown={runsShown} onToggle={onToggleRuns} actions={helperActions} now={now} />
           <SidesChip sides={sides} shown={sidesShown} unread={!!s.sideAnswer} onToggle={onToggleSides} actions={sideActions} now={now} />
           <RaisedChip raised={s.raised} />
-          <SnoozeChip until={s.snoozedUntil} now={now} />
+          <SnoozeChip until={s.snoozedUntil} now={now} forRoom={s.snoozedForRoom} />
           {!s.orchestrator && <QuietChip quiet={s.quiet} />}
           <Listens sessionKey={s.key} />
           <AgentSeenChip seen={s.agentSeen} />
@@ -464,12 +464,14 @@ export function MovedChip({ to, onShow, inRow = false }: { to: Placed | null | u
 /** A snooze's chip: how long until it's back, as short as the age beside it, and the time and
  *  what the snooze keeps it out of (`away`) in its tooltip. A snoozed review's is this too
  *  (PrsView.tsx). */
-export function SnoozeChip({ until, now, away = 'off the floating bar' }: { until: number | null | undefined; now: number; away?: string }) {
+export function SnoozeChip({ until, now, away = 'off the floating bar', forRoom = false }: { until: number | null | undefined; now: number; away?: string; forRoom?: boolean }) {
   if (until == null) return null;
+  // Until its account has room, its time is only the latest: it says so in place of the time.
+  const title = forRoom ? `Snoozed until its account has room: ${away} until then, ${untilWords(until, now)} at the latest, then back` : `Snoozed until ${untilWords(until, now)}: ${away} until then, then back`;
   return (
-    <Chip className="ca-snoozechip" title={`Snoozed until ${untilWords(until, now)}: ${away} until then, then back`}>
+    <Chip className="ca-snoozechip" title={title}>
       <Icon name="zzz" size={12} />
-      {untilShort(until, now)}
+      {forRoom ? 'Room' : untilShort(until, now)}
     </Chip>
   );
 }
@@ -728,7 +730,7 @@ function AgentRowView({ lane, session: s, domId, now, age, slim = false, selecte
               <RunsChip runs={runs} shown={runsShown} onToggle={onToggleRuns} actions={helperActions} now={now} />
               <SidesChip sides={sides} shown={sidesShown} unread={!!s.sideAnswer} onToggle={onToggleSides} actions={sideActions} now={now} />
               <RaisedChip raised={s.raised} />
-              <SnoozeChip until={s.snoozedUntil} now={now} />
+              <SnoozeChip until={s.snoozedUntil} now={now} forRoom={s.snoozedForRoom} />
               {!s.orchestrator && <QuietChip quiet={s.quiet} />}
               <Listens sessionKey={s.key} />
               <AgentSeenChip seen={s.agentSeen} />

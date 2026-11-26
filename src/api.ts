@@ -136,11 +136,12 @@ export async function markUnread(keys: string[]): Promise<number | null> {
 }
 
 /** Snoozes sessions until `until` (ms since the epoch), or wakes them now with null, each on the
- *  device it's on. Returns the time of the board that shows it, as `markSeen` does, and rejects
+ *  device it's on; with `room`, until each one's account has room again, `until` at the latest
+ *  (board::room_back). Returns the time of the board that shows it, as `markSeen` does, and rejects
  *  with why when a device didn't; windows snooze through ahead.ts. */
-export async function snoozeSessions(keys: string[], until: number | null): Promise<number | null> {
+export async function snoozeSessions(keys: string[], until: number | null, room = false): Promise<number | null> {
   if (!inTauri || keys.length === 0) return null;
-  return (await invoke<number | null>('snooze_sessions', { keys, until })) ?? null;
+  return (await invoke<number | null>('snooze_sessions', { keys, until, ...(room && { room }) })) ?? null;
 }
 
 /** Sets sessions that need you aside until their side conversations answer, each on the device

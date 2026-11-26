@@ -63,6 +63,7 @@ pub fn loading(account: &AccountCfg) -> Usage {
         no_limits: false,
         preferred: false,
         rate_limited: false,
+        extra_usable: None,
     }
 }
 
@@ -142,7 +143,7 @@ mod tests {
 
     fn read(account: &str, as_of: i64, percent: f64) -> Usage {
         let meter = Meter { key: "week".into(), label: "Week".into(), window: "Weekly, all models".into(), percent, resets_at: None, severity: Severity::Normal, model: None };
-        Usage { account: account.into(), harness: Harness::Claude, plan: None, meters: vec![meter], as_of: Some(as_of), error: None, needs_sign_in: false, loading: false, no_limits: false, preferred: false, rate_limited: false }
+        Usage { account: account.into(), harness: Harness::Claude, plan: None, meters: vec![meter], as_of: Some(as_of), error: None, needs_sign_in: false, loading: false, no_limits: false, preferred: false, rate_limited: false, extra_usable: None }
     }
 
     fn account(name: &str) -> AccountCfg {

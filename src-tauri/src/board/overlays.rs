@@ -369,7 +369,8 @@ pub fn apply_suggestions(s: &mut Session, suggested: Option<&Suggestions>) {
 /// gone) is Your turn from then until you've seen it: a snooze always brings its session back. A
 /// prompt you sent it after snoozing it ends the snooze without that: you took it up. So does a
 /// turn it took by itself since that left it waiting on you (`snooze_called_back`), which the
-/// engine then wakes for good.
+/// engine then wakes for good. One until its account has room says so (`snoozed_for_room`): the
+/// engine wakes it once the room is back (`room_back`).
 pub fn apply_snooze(s: &mut Session, snooze: Option<&Snooze>, seen_at: i64, now: i64) {
     let Some(z) = snooze else { return };
     if s.last_prompt_at > z.at || s.archived || snooze_called_back(s, z.at) {
@@ -377,10 +378,55 @@ pub fn apply_snooze(s: &mut Session, snooze: Option<&Snooze>, seen_at: i64, now:
     }
     if now < z.until {
         s.snoozed_until = Some(z.until);
+        s.snoozed_for_room = z.room;
     } else if seen_at < z.until && matches!(s.status, Status::Idle | Status::Stopped) {
         s.status = Status::Unread;
         s.status_since = Some(z.until);
     }
+}
+
+/// Whether a session snoozed until its account has room (`Snooze::room`) has it again: the usage
+/// limit that stopped it is over. Its own turn went through since (it has no limit now); the
+/// limit lifted when it said it would; a turn on its account went through after the refusal
+/// (`account`: the account's sessions on this Mac, as `start::refused_accounts` reads them, and
+/// for a per-model limit only one on a model that spends it, as `exhausted::check` has it); or
+/// its account's usage, read since, says so: the limit it names in the reading and no limit its
+/// model spends near full (a reset used, say), or, where its extra usage was refused too, extra
+/// usage on again (`Usage::extra_usable`: credits bought, or the spend limit raised). A limit
+/// that names no meter is never read from the meters, which can be far from full where a spend
+/// limit stopped it.
+pub fn room_back(s: &Session, account: &[&Session], usage: Option<&Usage>, now: i64) -> bool {
+    let Some(limit) = &s.limit else { return true };
+    if limit.resets_at.is_some_and(|r| r <= now) {
+        return true;
+    }
+    let meters = usage.map_or(&[][..], |u| u.meters.as_slice());
+    let per_model = crate::exhausted::limit_model(limit.meter.as_deref());
+    let through = |o: &&Session| {
+        o.limit.is_none()
+            && o.status != Status::Working
+            && o.last_activity > limit.at
+            && (per_model.is_none() || (o.model.is_some() && crate::start::spends(o.model.as_deref(), per_model, meters)))
+    };
+    if account.iter().any(through) {
+        return true;
+    }
+    let Some(u) = usage.filter(|u| u.as_of.is_some_and(|t| t > limit.at) && !u.needs_sign_in) else { return false };
+    let read = limit.meter.as_deref().is_some_and(|k| u.meters.iter().any(|m| m.key == k));
+    (read && !crate::start::near_limit(u, limit.model.as_deref(), None)) || (limit.spend_capped && u.extra_usable == Some(true))
+}
+
+/// The sessions of `snoozed`, snoozed until their accounts have room and not back yet, whose room
+/// is back on `board` (`room_back`), each read against its account's sessions and usage on this
+/// Mac: the engine wakes them, as their time coming would.
+pub fn snoozes_with_room(board: &Board, snoozed: &[Snooze], now: i64) -> Vec<String> {
+    let here: Vec<&Session> = board.lanes.iter().filter(|l| l.device.is_none()).flat_map(|l| &l.sessions).collect();
+    let back = |z: &Snooze| {
+        let Some(s) = here.iter().find(|s| s.key == z.key) else { return false };
+        let account: Vec<&Session> = here.iter().copied().filter(|o| o.account == s.account && o.key != s.key).collect();
+        room_back(s, &account, board.usage.iter().find(|u| u.account == s.account), now)
+    };
+    snoozed.iter().filter(|z| z.room && z.until > now && back(z)).map(|z| z.key.clone()).collect()
 }
 
 /// Whether a turn a session took without you since it was snoozed at `at` (a scheduled wakeup or
@@ -791,7 +837,7 @@ mod tests {
     fn a_snooze_keeps_a_session_off_until_its_time_then_brings_it_back() {
         const MIN: i64 = 60_000;
         let a = acct("claude2");
-        let z = Snooze { key: "k".into(), at: NOW - 10 * MIN, until: NOW + 50 * MIN };
+        let z = Snooze { key: "k".into(), at: NOW - 10 * MIN, until: NOW + 50 * MIN, room: false };
         let unread = claude_session(&a, Some(&reg("idle", NOW - 20 * MIN)), Some(&tr()), NOW - 30 * MIN, NOW, &Quiet::default()).unwrap();
         assert_eq!(unread.status, Status::Unread);
         assert!(unread.last_prompt_at < z.at);
@@ -958,7 +1004,7 @@ mod tests {
         apply_unread(&mut marked, Some(&UnreadMark { key: ended.key.clone(), at: NOW - 5 * MIN }), NOW - 30 * MIN);
         assert_eq!(marked.status, Status::Unread);
         let mut woke = quiet(&ended);
-        apply_snooze(&mut woke, Some(&Snooze { key: ended.key.clone(), at: NOW - 15 * MIN, until: NOW - MIN }), NOW - 30 * MIN, NOW);
+        apply_snooze(&mut woke, Some(&Snooze { key: ended.key.clone(), at: NOW - 15 * MIN, until: NOW - MIN, room: false }), NOW - 30 * MIN, NOW);
         assert_eq!(woke.status, Status::Unread);
     }
 
@@ -1721,5 +1767,82 @@ mod tests {
         ];
         let ids: Vec<&str> = helpers_of(&lanes, "claude:claude:boss").iter().map(|s| s.id.as_str()).collect();
         assert_eq!(ids, ["a", "c"]);
+    }
+
+    /// The account `claude`'s usage, read at `as_of`, with these meters and this word of its
+    /// extra usage.
+    fn usage_read(as_of: i64, meters: Vec<Meter>, extra_usable: Option<bool>) -> Usage {
+        Usage { as_of: Some(as_of), meters, loading: false, extra_usable, ..crate::usage::loading(&acct("claude")) }
+    }
+
+    fn meter(key: &str, percent: f64) -> Meter {
+        let severity = if percent >= 90.0 { Severity::Critical } else { Severity::Normal };
+        Meter { key: key.into(), label: key.into(), window: key.into(), percent, resets_at: Some(NOW + 3 * 3_600_000), severity, model: key.strip_prefix("model:").map(str::to_string) }
+    }
+
+    #[test]
+    fn a_limit_is_over_once_it_lifts_a_turn_on_its_account_goes_through_or_its_usage_has_room() {
+        const MIN: i64 = 60_000;
+        // Stopped ten minutes ago at its weekly limit, with no extra usage to carry it, until
+        // three hours from now.
+        let limit = SessionLimit { meter: Some("week".into()), resets_at: Some(NOW + 180 * MIN), spend_capped: true, at: NOW - 10 * MIN, ..SessionLimit::default() };
+        let s = Session { status: Status::Error, limit: Some(limit.clone()), ..crate::fixtures::session("a") };
+        assert!(!room_back(&s, &[], None, NOW), "nothing says so yet");
+        assert!(room_back(&s, &[], None, NOW + 180 * MIN), "it lifted when it said");
+        assert!(room_back(&Session { limit: None, ..s.clone() }, &[], None, NOW), "its own turn went through");
+
+        // Another session on the account: one that went through after the refusal says so; one
+        // from before it, one still working and one stopped at the limit too don't.
+        let other = |last: i64, status: Status, limited: bool| Session { status, last_activity: last, limit: limited.then(|| limit.clone()), ..crate::fixtures::session("b") };
+        assert!(room_back(&s, &[&other(NOW - MIN, Status::Unread, false)], None, NOW));
+        assert!(!room_back(&s, &[&other(NOW - 20 * MIN, Status::Idle, false)], None, NOW));
+        assert!(!room_back(&s, &[&other(NOW - MIN, Status::Working, false)], None, NOW));
+        assert!(!room_back(&s, &[&other(NOW - MIN, Status::Error, true)], None, NOW));
+
+        // Its usage: only a reading since the refusal counts, and the limit at full has no room
+        // unless extra usage is on again.
+        let full = vec![meter("session", 30.0), meter("week", 100.0)];
+        assert!(!room_back(&s, &[], Some(&usage_read(NOW - MIN, full.clone(), Some(false))), NOW), "still out of credits");
+        assert!(room_back(&s, &[], Some(&usage_read(NOW - MIN, full.clone(), Some(true))), NOW), "credits bought");
+        assert!(!room_back(&s, &[], Some(&usage_read(NOW - 20 * MIN, full.clone(), Some(true))), NOW), "read before it was refused");
+        let signed_out = Usage { needs_sign_in: true, ..usage_read(NOW - MIN, full.clone(), Some(true)) };
+        assert!(!room_back(&s, &[], Some(&signed_out), NOW), "a reading turned away says nothing");
+        let reset = vec![meter("session", 0.0), meter("week", 0.0)];
+        assert!(room_back(&s, &[], Some(&usage_read(NOW - MIN, reset.clone(), None)), NOW), "a reset used");
+        let capped = Session { limit: Some(SessionLimit { spend_capped: false, ..limit.clone() }), ..s.clone() };
+        assert!(!room_back(&capped, &[], Some(&usage_read(NOW - MIN, full.clone(), Some(true))), NOW), "extra usage didn't stop it, so it can't free it");
+
+        // A limit that names no meter (Antigravity's quota, a monthly spend limit) isn't read from
+        // meters that may be far from full.
+        let unnamed = Session { limit: Some(SessionLimit { meter: None, resets_at: None, spend_capped: false, ..limit.clone() }), ..s.clone() };
+        assert!(!room_back(&unnamed, &[], Some(&usage_read(NOW - MIN, reset, None)), NOW));
+        assert!(room_back(&unnamed, &[&other(NOW - MIN, Status::Idle, false)], None, NOW), "but a turn through on its account still says so");
+
+        // A per-model limit is over only by a turn on a model that spends it.
+        let opus = Session { limit: Some(SessionLimit { meter: Some("model:Opus".into()), model: Some("claude-opus-5-5".into()), ..limit.clone() }), ..s.clone() };
+        let on = |model: &str| Session { model: Some(model.into()), ..other(NOW - MIN, Status::Unread, false) };
+        assert!(!room_back(&opus, &[&on("claude-sonnet-5")], None, NOW));
+        assert!(room_back(&opus, &[&on("claude-opus-5-5")], None, NOW));
+    }
+
+    #[test]
+    fn only_a_snooze_until_room_is_woken_and_only_once_its_room_is_back() {
+        const MIN: i64 = 60_000;
+        let limit = SessionLimit { meter: Some("week".into()), resets_at: Some(NOW + 180 * MIN), spend_capped: true, at: NOW - 10 * MIN, ..SessionLimit::default() };
+        let limited = |key: &str| Session { status: Status::Error, limit: Some(limit.clone()), ..crate::fixtures::session(key) };
+        let snooze = |key: &str, room: bool| Snooze { key: key.into(), at: NOW - 5 * MIN, until: NOW + 180 * MIN, room };
+        let snoozed = [snooze("a", true), snooze("b", false), Snooze { until: NOW - MIN, ..snooze("c", true) }];
+        let board = |usage: Vec<Usage>| Board { lanes: vec![crate::fixtures::lane("/r", vec![limited("a"), limited("b"), limited("c")])], usage, ..Board::default() };
+        let full = vec![meter("week", 100.0)];
+        assert!(snoozes_with_room(&board(vec![usage_read(NOW - MIN, full.clone(), Some(false))]), &snoozed, NOW).is_empty(), "no room yet");
+        assert_eq!(snoozes_with_room(&board(vec![usage_read(NOW - MIN, full, Some(true))]), &snoozed, NOW), ["a"], "the one until room, not one until a time nor one back already");
+
+        // While it's snoozed it says it's until room.
+        let mut s = limited("a");
+        apply_snooze(&mut s, Some(&snoozed[0]), 0, NOW);
+        assert_eq!((s.snoozed_until, s.snoozed_for_room), (Some(NOW + 180 * MIN), true));
+        let mut timed = limited("b");
+        apply_snooze(&mut timed, Some(&snoozed[1]), 0, NOW);
+        assert_eq!((timed.snoozed_until, timed.snoozed_for_room), (Some(NOW + 180 * MIN), false));
     }
 }

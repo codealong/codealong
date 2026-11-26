@@ -167,6 +167,10 @@ pub struct BarItem {
     pub terminal: Option<String>,
     /// When it's back, while it's snoozed.
     pub snoozed_until: Option<i64>,
+    /// Its snooze is until its account has room (`Session::snoozed_for_room`), `snoozed_until`
+    /// the latest.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub snoozed_for_room: bool,
     /// Quieted: its turns don't wait on you (`board::apply_quiet`).
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub quiet: bool,
@@ -322,6 +326,7 @@ pub fn feed(shown: Shown) -> BarFeed {
                 target,
                 terminal: s.terminal.clone(),
                 snoozed_until: s.snoozed_until,
+                snoozed_for_room: s.snoozed_for_room,
                 quiet: s.quiet,
                 raised: s.raised.clone(),
                 finished: s.waits_finished(),

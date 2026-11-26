@@ -198,11 +198,12 @@ impl Handle {
         rx.recv_timeout(SHOWN_WAIT).ok()
     }
 
-    /// Snoozes sessions until `until`, or wakes them with none. Returns the time of the board
-    /// that shows it, as `mark_seen_shown` does.
-    pub fn snooze(&self, keys: Vec<String>, until: Option<i64>) -> Option<i64> {
+    /// Snoozes sessions until `until`, or wakes them with none; with `room`, until each one's
+    /// account has room again, `until` at the latest (`state::Snooze::room`). Returns the time of
+    /// the board that shows it, as `mark_seen_shown` does.
+    pub fn snooze(&self, keys: Vec<String>, until: Option<i64>, room: bool) -> Option<i64> {
         let (tx, rx) = channel();
-        self.tx.send(Msg::Snooze(keys, until, tx)).ok()?;
+        self.tx.send(Msg::Snooze(keys, until, room, tx)).ok()?;
         rx.recv_timeout(SHOWN_WAIT).ok()
     }
 

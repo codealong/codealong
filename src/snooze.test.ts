@@ -1,6 +1,10 @@
-import { describe, expect, it } from 'vitest';
-import { askWords, reviewSnoozeMenu, snoozeChoices, snoozeChorded, snoozeMenu, suggestedIn, suggestedSnooze, suggestedWhy, untilWords } from './snooze';
+import { describe, expect, it, vi } from 'vitest';
+import { snoozeAhead } from './ahead';
+import { askWords, limitSnoozeTitle, reviewSnoozeMenu, snoozeChoices, snoozeChorded, snoozedWords, snoozeMenu, suggestedIn, suggestedSnooze, suggestedWhy, untilWords } from './snooze';
 import type { MenuAction, MenuGroup } from './contextMenu';
+
+// What a menu's time asks for, without an engine to ask.
+vi.mock('./ahead', async (original) => ({ ...(await original<typeof import('./ahead')>()), snoozeAhead: vi.fn(() => Promise.resolve()) }));
 
 // Local times, so the tests read the same in any time zone.
 const at = (day: number, hour: number, minute = 0) => new Date(2026, 8, day, hour, minute).getTime();
@@ -112,12 +116,11 @@ describe('snooze', () => {
     expect(suggestedSnooze(stopped, NOW)).toEqual({ until: lifts, why: 'limit' });
     // The limit is what holds it up, whatever its last reply said of later.
     expect(suggestedSnooze({ ...stopped, insight: { waitsUntil: oct(1, 9) } }, NOW)?.why).toBe('limit');
-    // Not once it's working again, nor for a limit that doesn't say when it lifts, nor one that
-    // lifts in a moment or has lifted: its reply's time stands then, where it has one.
+    // Not once it's working again, nor for a limit that lifts in a moment or has lifted: its
+    // reply's time stands then, where it has one.
     const thursday = { waitsUntil: oct(1, 9) };
     expect(suggestedSnooze({ ...stopped, status: 'working' }, NOW)).toBeNull();
     expect(suggestedSnooze({ ...stopped, status: 'working', insight: thursday }, NOW)?.why).toBe('reply');
-    expect(suggestedSnooze({ ...stopped, limit: { ...limit, resetsAt: null } }, NOW)).toBeNull();
     expect(suggestedSnooze({ ...stopped, limit: { ...limit, resetsAt: at(28, 14, 12) } }, NOW)).toBeNull();
     expect(suggestedSnooze({ ...stopped, limit: { ...limit, resetsAt: at(28, 14) }, insight: thursday }, NOW)?.why).toBe('reply');
     // Nor for a session that's snoozed already or archived.
@@ -127,6 +130,39 @@ describe('snooze', () => {
     const menu = snoozeMenu(['k'], NOW, { onDone: () => {}, suggested: suggestedSnooze(stopped, NOW), chords: true });
     expect(labels(menu)[0]).toBe('Until 10 PM, when its limit lifts');
     expect(snoozeChorded(menu, '8')?.label).toBe('Until 10 PM, when its limit lifts');
+  });
+
+  it('offers a snooze until its account has room where credits ran out or the limit says no time', () => {
+    const lifts = at(29, 18);
+    const limit = { meter: 'week', resetsAt: lifts, spendCapped: true, at: at(28, 13), moveTo: null };
+    const stopped = { archived: false, status: 'error' as const, limit };
+    // Out of credits: buying more frees it before the limit lifts, which is the latest.
+    expect(suggestedSnooze(stopped, NOW)).toEqual({ until: lifts, why: 'room' });
+    // No time said: a month after the refusal at the latest, and nothing once that's all but here.
+    const unsaid = { ...stopped, limit: { ...limit, resetsAt: null, spendCapped: false, meter: null } };
+    expect(suggestedSnooze(unsaid, NOW)).toEqual({ until: at(28, 13) + 31 * 24 * 3_600_000, why: 'room' });
+    expect(suggestedSnooze({ ...unsaid, limit: { ...unsaid.limit, at: NOW - 31 * 24 * 3_600_000 + 60_000 } }, NOW)).toBeNull();
+    expect(suggestedSnooze({ ...stopped, status: 'working' }, NOW)).toBeNull();
+
+    // Its menu's first line says no time, and snoozes until room with the latest time.
+    const menu = snoozeMenu(['k'], NOW, { onDone: () => {}, suggested: suggestedSnooze(stopped, NOW), chords: true });
+    expect(labels(menu)[0]).toBe('Until it has room');
+    expect(snoozeChorded(menu, '8')?.label).toBe('Until it has room');
+    snoozeChorded(menu, '8')?.run();
+    expect(snoozeAhead).toHaveBeenLastCalledWith(['k'], lifts, false, true);
+    // A time of the menu's own is a plain snooze.
+    snoozeChorded(menu, '1')?.run();
+    expect(snoozeAhead).toHaveBeenLastCalledWith(['k'], at(28, 14, 25), false, false);
+    // Snoozed so, it says so in place of its time.
+    expect(labels(snoozeMenu(['k'], NOW, { onDone: () => {}, until: lifts, forRoom: true }))).toContain('Wake now');
+    expect(snoozeMenu(['k'], NOW, { onDone: () => {}, until: lifts, forRoom: true }).label).toBe('Snoozed until it has room');
+    expect(snoozedWords({ snoozedUntil: lifts, snoozedForRoom: true }, NOW)).toBe('it has room');
+    expect(snoozedWords({ snoozedUntil: lifts }, NOW)).toBe('tomorrow 6 PM');
+
+    // The banner's button says what frees it, and the latest it lasts.
+    expect(limitSnoozeTitle({ until: lifts, why: 'room' }, limit, NOW)).toBe('It leaves what waits on you until its account has room again: once credits are bought, its spend limit is raised or a reset is used, and when the limit lifts, tomorrow 6 PM, at the latest');
+    expect(limitSnoozeTitle({ until: oct(28, 13), why: 'room' }, unsaid.limit, NOW)).toBe('It leaves what waits on you until its account has room again: once another turn on it goes through or its usage reads room, and Oct 28, 1 PM at the latest');
+    expect(limitSnoozeTitle({ until: at(28, 22), why: 'limit' }, { ...limit, spendCapped: false }, NOW)).toBe('It leaves what waits on you until 10 PM, when the limit lifts');
   });
 
   it('puts the suggested time first in the menu, with a chord of its own', () => {

@@ -373,7 +373,7 @@ export function QuickRow({ r, list }: { r: Row; list: RowsShown }) {
           Archived
         </Chip>
       )}
-      <SnoozeChip until={s2.snoozedUntil} now={now} away="out of what waits on you" />
+      <SnoozeChip until={s2.snoozedUntil} now={now} away="out of what waits on you" forRoom={s2.snoozedForRoom} />
       {there && <DeviceBadge device={there} now={now} />}
       {/* Every orchestrator is called Orchestrator: what it keeps watch over tells them apart. */}
       {s2.orchestrator ? <RowPlace lead={s2.account} project="" place={scopeWords(s2.orchestrator.project)} /> : <RowPlace lead={s2.account} project={r.lane.project} place={r.lane.callsign} />}

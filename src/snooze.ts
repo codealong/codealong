@@ -7,16 +7,22 @@
 // time is offered a snooze until then (`suggestedSnooze`): first in its Snooze menu, with a chord
 // of its own, and above its box (ui/SnoozeSuggestion.tsx). One stopped at its usage limit is
 // offered one until the limit lifts the same way, its banner's button in place of the line above
-// its box (ui/SessionHeader.tsx).
+// its box (ui/SessionHeader.tsx); and one whose account is out of credits, or whose limit doesn't
+// say when it lifts, one until its account has room again, which the engine ends once the limit
+// is over (board::room_back), at the latest when it lifts.
 
 import { snoozeAhead, snoozedFrom, snoozeReviewsAhead } from './ahead';
 import { showMain, todoOp } from './api';
 import type { MenuAction, MenuGroup } from './contextMenu';
 import { readBy, readerOf } from './insights';
-import type { PrItem, Session, Todo } from './types';
+import type { PrItem, Session, SessionLimit, Todo } from './types';
 
 const MIN = 60_000;
 const HOUR = 60 * MIN;
+/** The longest a snooze until room lasts, from the refusal, where the limit doesn't say when it
+ *  lifts: as long as the engine counts a refusal as word that its account is out (start.rs
+ *  `REFUSED_FOR`), which a monthly spend limit's month is inside. */
+const ROOM_LONGEST = 31 * 24 * HOUR;
 /** Tomorrow's snooze ends at this hour, and before this hour "tomorrow" still means this morning. */
 export const MORNING = 9;
 const SMALL_HOURS = 5;
@@ -44,9 +50,10 @@ const MENU_CHORDS = [...SNOOZE_CHORDS, SUGGESTED_CHORD];
 /** A time to offer a snooze until, and why then. */
 export interface SuggestedSnooze {
   until: number;
-  /** What comes then: its last reply says the work goes on (`reply`), or the usage limit that
-   *  stopped it lifts (`limit`). */
-  why: 'reply' | 'limit';
+  /** What comes then: its last reply says the work goes on (`reply`), the usage limit that
+   *  stopped it lifts (`limit`), or its account has room again (`room`: out of credits, or a limit
+   *  that doesn't say when it lifts), `until` being the latest. */
+  why: 'reply' | 'limit' | 'room';
   /** Who read the reply that way, by name: Jev, or the agent that tagged it (insights.ts
    *  `readerOf`), said with the time wherever it's offered (`suggestedWhy`). None for a limit,
    *  which its harness said. */
@@ -57,9 +64,24 @@ export interface SuggestedSnooze {
 
 /** What ends a suggested time's line wherever it's offered, by why it's suggested: who read the
  *  reply that way, as two readers can (Jev, or the agent that tagged it), or the limit that
- *  lifts then. */
+ *  lifts then. A snooze until room says no time (`suggestedLabel`). */
 export function suggestedWhy(s: Pick<SuggestedSnooze, 'why' | 'reader'>): string {
-  return s.why === 'limit' ? 'when its limit lifts' : `as ${s.reader ?? 'Jev'} read its reply`;
+  return s.why === 'reply' ? `as ${s.reader ?? 'Jev'} read its reply` : 'when its limit lifts';
+}
+
+/** What a snooze until room runs to, in place of its time. */
+const ROOM_WORDS = 'it has room';
+
+/** The suggested time's line in a Snooze menu: `Until 10 PM, when its limit lifts`, or `Until it
+ *  has room`. */
+function suggestedLabel(s: Pick<SuggestedSnooze, 'until' | 'why' | 'reader'>, now: number): string {
+  return s.why === 'room' ? `Until ${ROOM_WORDS}` : `Until ${untilWords(s.until, now)}, ${suggestedWhy(s)}`;
+}
+
+/** When a session's snooze ends, in words: its time (`untilWords`), or `it has room` for one
+ *  until its account has room (`Session.snoozedForRoom`), whose time is only the latest. */
+export function snoozedWords(s: { snoozedUntil?: number | null; snoozedForRoom?: boolean }, now: number): string {
+  return s.snoozedForRoom ? ROOM_WORDS : untilWords(s.snoozedUntil ?? now, now);
 }
 
 /** A suggested time less than this far off isn't worth a snooze. */
@@ -68,24 +90,38 @@ const WORTH = 5 * MIN;
 /**
  * The time to offer a snooze until for a session: when the usage limit that stopped its turn
  * lifts (`Session.limit`), as nothing goes on before then, and Codealong may tell it to carry on
- * a few minutes after (`SessionLimit.continues`); else when its last reply says the work goes
- * on, with nothing for you or it to do before then, as Jev read it (insights.rs
- * `waits_question`) or an agent that tagged it said (`codealong session tag --waits-until`).
- * None for a limit that doesn't say when it lifts and a reply that names no such time (nor one
+ * a few minutes after (`SessionLimit.continues`); until its account has room again where the
+ * limit can be over at a time nobody said (`room`): extra usage refused too (out of credits,
+ * which buying more ends) or no time said, the lift (else a month after the refusal) the latest;
+ * else when its last reply says the work goes on, with nothing for you or it to do before then,
+ * as Jev read it (insights.rs `waits_question`) or an agent that tagged it said (`codealong
+ * session tag --waits-until`). None for a reply that names no such time (nor one
  * that asks you something, which the engine holds of every read it shows, insights.rs
  * `settle_put_off`), once the time is all but here, and for a session that's snoozed already or
  * archived. Only offered: nothing snoozes by itself.
  */
 export function suggestedSnooze(s: Pick<Session, 'insight' | 'snoozedUntil' | 'archived' | 'limit'> & Partial<Pick<Session, 'status'>>, now: number): SuggestedSnooze | null {
   if (s.snoozedUntil || s.archived) return null;
-  const lifts = s.status !== 'working' ? s.limit?.resetsAt : null;
-  if (lifts && lifts - now >= WORTH) return { until: lifts, why: 'limit' };
+  const limit = s.status !== 'working' ? s.limit : null;
+  const lifts = limit?.resetsAt;
+  const latest = limit && (lifts ?? limit.at + ROOM_LONGEST);
+  if (limit && latest && latest - now >= WORTH) return { until: latest, why: limit.spendCapped || lifts == null ? 'room' : 'limit' };
   const until = s.insight?.waitsUntil;
   if (!until || until - now < WORTH) return null;
   // Who read the day: Jev's, under a tag that read something else, is said as Jev's.
   const read = s.insight?.waitsByJev ? undefined : s.insight;
   const note = read?.by && read.note ? `: ${read.note}` : '';
   return { until, why: 'reply', reader: readerOf(read), by: `${readBy(read)}${note}` };
+}
+
+/** What the limit banner's snooze does, under the pointer (ui/SessionHeader.tsx): until the limit
+ *  lifts, or until the account has room again, and what brings that. */
+export function limitSnoozeTitle(s: Pick<SuggestedSnooze, 'until' | 'why'>, limit: Pick<SessionLimit, 'spendCapped' | 'resetsAt'> | null | undefined, now: number): string {
+  const when = untilWords(s.until, now);
+  if (s.why !== 'room') return `It leaves what waits on you until ${when}, when the limit lifts`;
+  const how = limit?.spendCapped ? 'credits are bought, its spend limit is raised or a reset is used' : 'another turn on it goes through or its usage reads room';
+  const latest = limit?.resetsAt != null ? `when the limit lifts, ${when},` : when;
+  return `It leaves what waits on you until its account has room again: once ${how}, and ${latest} at the latest`;
 }
 
 /** The next morning at nine: this morning's in the small hours. */
@@ -180,6 +216,8 @@ interface SnoozeOpts {
   label?: string;
   /** When the snooze it has now ends, for one that's snoozed. */
   until?: number | null;
+  /** The snooze it has now is until its account has room, `until` only the latest. */
+  forRoom?: boolean;
   /** Gets each snooze as it goes, to say how it went the window's way. */
   onDone: (act: Promise<void>) => void;
   /** Each time says its chord, where the window takes them. */
@@ -193,12 +231,12 @@ interface SnoozeOpts {
  *  window for another (ui/SnoozeDialog.tsx), whichever window this is, where it can (`ask`); and
  *  Wake now for one that's snoozed already. The time suggested for it comes first, apart from the
  *  rest. */
-function timesMenu(set: (until: number | null) => Promise<void>, ask: SnoozeAsk | null, now: number, opts: SnoozeOpts, label: string): MenuGroup {
+function timesMenu(set: (until: number | null, room?: boolean) => Promise<void>, ask: SnoozeAsk | null, now: number, opts: SnoozeOpts, label: string): MenuGroup {
   const done = opts.onDone;
-  const time = (c: SnoozeChoice): TimeAction => ({ label: c.label, run: () => done(set(c.until)), chord: c.chord, ...(opts.chords ? { accelerator: c.chord } : {}) });
-  const items: (TimeAction | MenuAction | 'separator')[] = snoozeChoices(now).map(time);
+  const time = (c: SnoozeChoice, room = false): TimeAction => ({ label: c.label, run: () => done(set(c.until, room)), chord: c.chord, ...(opts.chords ? { accelerator: c.chord } : {}) });
+  const items: (TimeAction | MenuAction | 'separator')[] = snoozeChoices(now).map((c) => time(c));
   const suggested = opts.suggested;
-  if (suggested) items.unshift(time({ label: `Until ${untilWords(suggested.until, now)}, ${suggestedWhy(suggested)}`, until: suggested.until, chord: SUGGESTED_CHORD }), 'separator');
+  if (suggested) items.unshift(time({ label: suggestedLabel(suggested, now), until: suggested.until, chord: SUGGESTED_CHORD }, suggested.why === 'room'), 'separator');
   if (ask) {
     items.push({
       label: 'Pick a time…',
@@ -217,7 +255,8 @@ function timesMenu(set: (until: number | null) => Promise<void>, ask: SnoozeAsk 
 
 /** The Snooze submenu for sessions: the times, and Wake now for one that's snoozed already. */
 export function snoozeMenu(keys: string[], now: number, opts: SnoozeOpts): MenuGroup {
-  return timesMenu((until) => snoozeAhead(keys, until), { keys, reviews: false }, now, opts, opts.label ?? (opts.until ? `Snoozed until ${untilWords(opts.until, now)}` : 'Snooze'));
+  const until = opts.until ? `Snoozed until ${snoozedWords({ snoozedUntil: opts.until, snoozedForRoom: opts.forRoom }, now)}` : 'Snooze';
+  return timesMenu((u, room) => snoozeAhead(keys, u, false, room), { keys, reviews: false }, now, opts, opts.label ?? until);
 }
 
 /** Snooze review for several PRs at once, each an open one that asks for your review or waits on

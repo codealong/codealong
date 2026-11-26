@@ -2186,7 +2186,7 @@ fn open(engine: &Handle, c: &Call) -> Result<Value, String> {
 /// Snoozes sessions (`keys`) until `until` (ms since the epoch), or wakes them with none.
 fn snooze(engine: &Handle, c: &Call) -> Result<Value, String> {
     let p: params::Snooze = c.read()?;
-    Ok(shown_at(c, engine.snooze(p.keys, p.until)))
+    Ok(shown_at(c, engine.snooze(p.keys, p.until, p.room)))
 }
 
 /// A PR's description, reviews, comments and changed files, as this device's `gh` reads them.

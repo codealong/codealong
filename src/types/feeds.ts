@@ -112,6 +112,9 @@ export interface BarItem {
   terminal?: string;
   /** When it's back, while it's snoozed. */
   snoozedUntil: number | null;
+  /** Its snooze is until its account has room (`Session.snoozedForRoom`), `snoozedUntil` the
+   *  latest. */
+  snoozedForRoom?: boolean;
   /** Quieted: its turns don't wait on you. Missing from a feed an older app sent. */
   quiet?: boolean;
   /** Moved to the top of what waits on you (`Session.raised`): first in its group and the
