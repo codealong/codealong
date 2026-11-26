@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import * as fx from '../testing/fixtures';
 import { setPlatform } from '../platform';
 import type { Question, Session } from '../types';
-import { bangSays, bangTitle, boxPlace, remoteAnswerWhere, replyPlaceholder, takesReply, typesCommands } from './SessionReply';
+import { bangSays, bangTitle, boxAnswers, boxPlace, remoteAnswerWhere, replyPlaceholder, takesReply, typesCommands } from './SessionReply';
 import { givenBack, stillOffered } from './QuestionList';
 
 const session = (over: Partial<Session> = {}): Session => fx.session({ live: true, asks: false, hosted: false, ...over });
@@ -32,6 +32,9 @@ describe('replyPlaceholder', () => {
 
   it('keeps its own words for a session Codealong runs', () => {
     expect(replyPlaceholder(session({ hosted: true, status: 'working' }), 'Ghostty', { kind: 'typed', app: 'Ghostty' })).toBe('Send to claude: it takes this after its current turn');
+    expect(replyPlaceholder(session({ hosted: true, status: 'needs', need: 'approval' }), 'Ghostty')).toBe('Send to claude: it takes this after its current turn');
+    // Its questions hold the turn, so what's sent declines them instead of waiting behind them.
+    expect(replyPlaceholder(session({ hosted: true, status: 'needs', need: 'question' }), 'Ghostty')).toBe('Send to claude');
   });
 });
 
@@ -95,6 +98,18 @@ describe('takesReply', () => {
     // terminal does.
     expect(takesReply(session({ status: 'needs', stalledSince: 1, need: 'stuck' }))).toBe(true);
     expect(takesReply(session({ status: 'needs', stalledSince: 1, need: 'stuck', background: 'acme login --device' }))).toBe(true);
+  });
+});
+
+describe('boxAnswers', () => {
+  it('answers what a session waits on with what’s sent, but a call of a session Codealong runs, which takes it after the turn', () => {
+    expect(boxAnswers(session({ status: 'needs', need: 'approval' }))).toBe(true);
+    expect(boxAnswers(session({ status: 'needs', need: 'question' }))).toBe(true);
+    expect(boxAnswers(session({ status: 'needs', asks: true, need: 'reply' }))).toBe(false);
+    expect(boxAnswers(session({ status: 'working' }))).toBe(false);
+    expect(boxAnswers(session({ hosted: true, status: 'needs', need: 'approval' }))).toBe(false);
+    // Its questions hold the turn a message would wait for.
+    expect(boxAnswers(session({ hosted: true, status: 'needs', need: 'question' }))).toBe(true);
   });
 });
 

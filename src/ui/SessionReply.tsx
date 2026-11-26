@@ -103,7 +103,7 @@ import { filesToAttach, keepFiles, useFileDrop } from '../attachInput';
 import { answersDraft, onDraftChange, readAnswers, readDraft, sideDraft, writeDraft, writtenAnswers } from '../drafts';
 import { noteDraftTaken } from '../typingTrace';
 import { HARNESS_APP, HARNESS_WORD, sessionPlace } from '../harness';
-import { asideable, seenable, stoppable, stuckMidTurn, waitsInBackground, waitsOnYou } from '../lanes';
+import { asideable, needOf, seenable, stoppable, stuckMidTurn, waitsInBackground, waitsOnYou } from '../lanes';
 import { beingRead, notAsked, shownSide, showSides, startingSide, useAside, usePopped, useSideAnswer } from '../side';
 import { COMMANDS, commandWords, slashCommand, slashMatches } from '../slash';
 import { completed, matching, mentionsIn, sessionSkills, skillNamed, typedAt, writtenFor } from '../skills';
@@ -155,6 +155,14 @@ export function takesReply(s: Session): boolean {
   return !waitsOnYou(s);
 }
 
+/** Whether a send from the box answers what it waits on, denying the call or declining the
+ *  questions with what you wrote, rather than going as a message. A session Codealong runs takes a
+ *  message after its current turn while it waits on a call; questions hold that turn until they're
+ *  answered, so a message would wait behind them. */
+export function boxAnswers(s: Session): boolean {
+  return waitsOnYou(s) && (!s.hosted || needOf(s) === 'question');
+}
+
 /** Whether what goes `way` lands in the session's own box as if typed there, its terminal or a
  *  background job's, so a harness's command (`/model`) goes in as one (send.rs `Route::as_typed`).
  *  A message or an app hands the agent the words instead. */
@@ -168,7 +176,7 @@ export function typesCommands(way: Way | null | undefined): boolean {
  *  goes on where its place chip says (`resuming`), else in a terminal. */
 export function replyPlaceholder(s: Session, terminal: string, way?: Way | null, resuming?: { place: StartPlace; behind: boolean } | null): string {
   const to = s.asks ? `Answer ${s.account}` : `Send to ${s.account}`;
-  if (s.hosted) return s.status === 'working' || s.status === 'needs' ? `${to}: it takes this after its current turn` : to;
+  if (s.hosted) return s.status === 'working' || (s.status === 'needs' && !boxAnswers(s)) ? `${to}: it takes this after its current turn` : to;
   // One working only on what its turn left in the background sits at its prompt: this starts a turn.
   const working = s.status === 'working' && !waitsInBackground(s) ? ': it takes this in as it works' : stuckMidTurn(s) ? ': it takes this once the step it’s stuck on ends' : '';
   switch (way?.kind) {
@@ -1885,8 +1893,7 @@ export function Reply({ session, terminal, deviceName, runIn, runsUnder, onOpen,
     <>
       {waiting && <Approval key={`wait:${session.key}`} session={session} terminal={terminal} deviceName={deviceName} onOpen={onOpen} onAnswered={onAnswered} keys={keys} onKeys={takeKeys} onNext={onNext} />}
       <SideStrip key={`side:${session.key}`} sideKey={session.key} words={SESSION_SIDES} />
-      {/* A session Codealong runs takes a message while it waits, after its current turn. */}
-      <Composer key={`box:${session.key}`} session={session} terminal={terminal} autoFocus={autoFocus} waiting={waiting && !session.hosted} onSending={onSending} onSent={onSent} onFailed={onFailed} onNext={onNext} onAsked={onAsked} keyed={keys} onAllow={callKeys?.allow} onDeny={callKeys?.deny} onDenySaying={callKeys?.denySaying} asked={callKeys?.asked} runIn={runIn} runsUnder={runsUnder} sayKeys={sayKeys} moves={moves} onMove={onMove} above={above} />
+      <Composer key={`box:${session.key}`} session={session} terminal={terminal} autoFocus={autoFocus} waiting={boxAnswers(session)} onSending={onSending} onSent={onSent} onFailed={onFailed} onNext={onNext} onAsked={onAsked} keyed={keys} onAllow={callKeys?.allow} onDeny={callKeys?.deny} onDenySaying={callKeys?.denySaying} asked={callKeys?.asked} runIn={runIn} runsUnder={runsUnder} sayKeys={sayKeys} moves={moves} onMove={onMove} above={above} />
     </>
   );
 }

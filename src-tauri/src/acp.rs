@@ -35,6 +35,7 @@ mod handover;
 mod start_mode;
 mod steer;
 pub use handover::{any_running, hand_over, take_over, Handed};
+pub use forms::answer_saying;
 use start_mode::start_mode;
 pub use steer::steer;
 
@@ -2648,6 +2649,33 @@ mod tests {
             ]
         );
         state().sessions.remove(&key);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// What you write in the box instead of answering its questions goes as your answer to them,
+    /// so the turn they hold goes on with it (claude-agent-acp's decline would tell it only that
+    /// you skipped them); a call to allow takes no words that way, and is left waiting for the
+    /// caller to deny it and send them after.
+    #[test]
+    fn words_instead_of_answers_go_as_the_answer() {
+        let dir = store::test_dir("acp-form-words");
+        let form = r#"echo '{"jsonrpc":"2.0","id":"f1","method":"elicitation/create","params":{"sessionId":"s1","toolCallId":"toolu_1","mode":"form","message":"Please answer the following questions.","requestedSchema":{"type":"object","properties":{"question_0":{"type":"string","title":"Fix where","description":"What should I change?","oneOf":[{"const":"Main repo","title":"Main repo"}]},"question_0_custom":{"type":"string","title":"Other","_meta":{"_askUserQuestionCustomAnswer":{"questionId":"question_0","isCustomAnswer":true}}}}}}}'"#;
+        let ok = r#"{"optionId":"ok","kind":"allow_once"},{"optionId":"no","kind":"reject_once"}"#;
+        let script = format!(r#"while IFS= read -r line; do printf '%s\n' "$line" >> "$1"; case "$line" in *'"method":"initialize"'*) echo '{{"jsonrpc":"2.0","id":1,"result":{{}}}}'; {}; {form};; esac; done"#, asks("p1", ok));
+        let account = "test-adapter-form-words";
+        let key = key_of(Harness::Claude, account, "s1");
+        state().sessions.insert(key.clone(), Hosted { account: account.into(), id: "s1".into(), cwd: "/w".into(), loaded: true, running: true, ..Default::default() });
+        let ag = stand_in(account, &script, &dir);
+        ag.initialize().unwrap();
+        wait_until("both to be asked", 10, || state().sessions[&key].permissions.len() == 2);
+        assert_eq!(answer_saying(&key, "call-p1", "Not that one").unwrap(), None);
+        assert_eq!(answer_saying(&key, "form-f1", "Look at the helper triage first").unwrap().as_deref(), Some("Sent what you wrote as its answer."));
+        assert_eq!(pending(&key).map(|p| p.id), Some("call-p1".into()));
+        assert!(answer_saying(&key, "form-f1", "Again").is_err());
+        wait_until("the answer to be read", 10, || heard(&dir).len() == 2);
+        assert_eq!(heard(&dir)[1], r#"{"id":"f1","jsonrpc":"2.0","result":{"action":"accept","content":{"question_0_custom":"Look at the helper triage first"}}}"#);
+        state().sessions.remove(&key);
+        state().agents.remove(account);
         let _ = std::fs::remove_dir_all(&dir);
     }
 

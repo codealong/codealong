@@ -50,6 +50,26 @@ const FORM_ID: &str = "form-";
 /// since the box is there, and picked when words alone answer the field.
 const OTHER_CHOICES: [&str; 2] = ["none of the above", "other"];
 
+/// Answers the questions `id` asks with `words`, what you wrote in the box instead of answering
+/// them, as your own answer to each (`Form::saying`), so the turn goes on with them. None where
+/// the request takes no words that way (a call, an MCP server's form), for the caller to decline
+/// it and send them after: a decline alone tells the agent only that you skipped the questions,
+/// and claude-agent-acp's goes on without them.
+pub fn answer_saying(key: &str, id: &str, words: &str) -> anyhow::Result<Option<String>> {
+    let mut takes = true;
+    let answered = super::reply_to(key, id, |p| {
+        p.form.as_ref().and_then(|f| f.saying(words)).ok_or_else(|| {
+            takes = false;
+            anyhow::anyhow!("It takes no words of yours for an answer.")
+        })
+    });
+    match answered {
+        Ok(_) => Ok(Some("Sent what you wrote as its answer.".into())),
+        Err(_) if !takes => Ok(None),
+        Err(e) => Err(e),
+    }
+}
+
 /// A form, as asked.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub(super) struct Form {
@@ -338,6 +358,18 @@ impl Form {
         }
     }
 
+    /// The reply that gives `words`, what you wrote in the session's box instead of answering, as
+    /// your own answer to each question, so the agent reads them in the turn it waits in. None
+    /// unless every field has a box for words of yours, as the harnesses' question tools give each
+    /// question: an MCP server's field, or a key to paste, would take them for its value.
+    pub(super) fn saying(&self, words: &str) -> Option<Value> {
+        if self.fields.is_empty() || self.fields.iter().any(|f| f.words.is_none()) {
+            return None;
+        }
+        let answers: Map<String, Value> = self.fields.iter().map(|f| (f.question.question.clone(), json!(words))).collect();
+        self.answered(&Value::Object(answers)).ok()
+    }
+
     /// The reply that sends `answers` (by question, a choice's label or words of yours, or a list
     /// of them) as the values the form asked for, or why they can't be: a field left unanswered
     /// that the form needs, or an answer a field doesn't take.
@@ -498,6 +530,37 @@ mod tests {
         assert_eq!(form.answered(&json!({})).unwrap_err(), "Pick an answer first.");
         assert_eq!(form.reply(Answer::Deny).unwrap(), json!({ "action": "decline" }));
         assert!(form.reply(Answer::Allow).is_err());
+    }
+
+    /// What you write in the box instead of answering is your own answer to each question, where
+    /// each has a box for that: Claude Code's, Codex's (its "None of the above" picked for the
+    /// words) and Antigravity's questions. A field without one never takes them: an MCP server's,
+    /// or Codex's key to paste.
+    #[test]
+    fn words_instead_of_answers_answer_each_question() {
+        let words = "Can we think this through first?";
+        assert_eq!(read(&claude_two()).unwrap().saying(words).unwrap(), json!({ "action": "accept", "content": { "question_0_custom": words, "question_1_custom": words } }));
+        let stack = json!({ "type": "string", "title": "Which stack?", "_meta": { "codex": { "isOther": true } }, "oneOf": [{ "const": "Rails", "title": "Rails" }, { "const": "None of the above", "title": "None of the above" }] });
+        let note = json!({ "type": "string", "title": "Additional answer or note", "_meta": { "codex": { "questionId": "stack", "role": "user_note" } } });
+        let codex = |extra: Option<(&str, Value)>| {
+            let mut props = json!({ "stack": stack.clone(), "stack_note": note.clone() });
+            if let Some((k, v)) = extra {
+                props[k] = v;
+            }
+            read(&json!({ "mode": "form", "toolCallId": "item_1", "message": "Codex needs your input to continue.", "requestedSchema": { "type": "object", "required": ["stack"], "properties": props } })).unwrap()
+        };
+        assert_eq!(codex(None).saying(words).unwrap()["content"], json!({ "stack": "None of the above", "stack_note": words }));
+        assert_eq!(codex(Some(("token", json!({ "type": "string", "title": "Paste the deploy token", "_meta": { "codex": { "isSecret": true } } })))).saying(words), None);
+        let agy = read(&json!({ "mode": "form", "toolCallId": "call_1", "message": "The agent has 1 question.", "requestedSchema": { "type": "object", "properties": {
+            "q1": { "type": "string", "title": "Which color?", "oneOf": [{ "const": "1", "title": "Red" }] },
+            "q1_other": { "type": "string", "title": "Other" },
+        } } }))
+        .unwrap();
+        assert_eq!(agy.saying(words).unwrap()["content"], json!({ "q1_other": words }));
+        let mcp = read(&json!({ "mode": "form", "message": "Details", "requestedSchema": { "type": "object", "properties": { "name": { "type": "string", "title": "Name" } } } })).unwrap();
+        assert_eq!(mcp.saying(words), None);
+        let nothing = read(&json!({ "mode": "form", "message": "Connect?", "requestedSchema": { "type": "object", "properties": {} } })).unwrap();
+        assert_eq!(nothing.saying(words), None);
     }
 
     /// One question of Claude Code's has its words in the form's message.
