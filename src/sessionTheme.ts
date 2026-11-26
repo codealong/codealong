@@ -629,6 +629,19 @@ export function themeCssVars(color: SessionThemeColor, intensity: SessionThemeIn
   } as CSSProperties;
 }
 
+/** Whether a session's AI background is a light or a dark picture, by how light its middle is
+ *  (backgrounds.rs `analyze`); null when it has none. The picture shows as drawn, so the words and
+ *  glass over it go by the picture, never by the app's light or dark theme. */
+export function artScheme(theme: Pick<AssignedSessionTheme, 'backdrop' | 'backdropImage'> | null | undefined): 'light' | 'dark' | null {
+  if (!theme?.backdropImage) return null;
+  return (theme.backdrop?.luminance ?? 128) < 130 ? 'dark' : 'light';
+}
+
+/** The class giving a part of a window the tokens of `scheme` (tokens.css). */
+export function schemeClass(scheme: 'light' | 'dark' | null): 'ca-scheme-light' | 'ca-scheme-dark' | null {
+  return scheme === 'dark' ? 'ca-scheme-dark' : scheme === 'light' ? 'ca-scheme-light' : null;
+}
+
 // ── Shared reactive store across components and windows (through stored.ts) ────────────────────
 
 export interface SessionThemeMode {

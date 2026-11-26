@@ -3,6 +3,8 @@
 
 import { describe, expect, it } from 'vitest';
 import {
+  artScheme,
+  schemeClass,
   assignSessionColors,
   emblemPreferredColor,
   hexHue,
@@ -142,5 +144,24 @@ describe('assignSessionColors', () => {
     for (const key of ['--st-l-1', '--st-l-2', '--st-l-accent', '--st-l-accent2', '--st-d-1', '--st-d-2', '--st-d-accent', '--st-d-accent2']) {
       expect(vars[key], key).toContain('#2a8068');
     }
+  });
+});
+
+describe('artScheme', () => {
+  const art = (luminance: number) => ({ backdrop: { picture: 'bg.jpg', name: 'Moonlit glass delta', luminance }, backdropImage: 'bg.jpg' });
+
+  it("takes a panel's look from how light its picture is, not from the app's theme", () => {
+    expect(artScheme(art(48))).toBe('dark');
+    expect(artScheme(art(178))).toBe('light');
+    expect(artScheme(art(129))).toBe('dark');
+    expect(artScheme(art(130))).toBe('light');
+    expect(schemeClass(artScheme(art(48)))).toBe('ca-scheme-dark');
+    expect(schemeClass(artScheme(art(178)))).toBe('ca-scheme-light');
+  });
+
+  it('leaves a session without a picture to the app', () => {
+    expect(artScheme({ backdrop: null, backdropImage: null })).toBeNull();
+    expect(artScheme(null)).toBeNull();
+    expect(schemeClass(null)).toBeNull();
   });
 });

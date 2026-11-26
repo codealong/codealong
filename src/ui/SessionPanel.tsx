@@ -53,7 +53,7 @@ import { runFolder } from './RunButton';
 import { SessionHeader, type SessionHeaderProps } from './SessionHeader';
 import { SessionBackdrop } from './SessionBackdrop';
 import { useSessionTheme } from './SessionThemeProvider';
-import { themeCssVars } from '../sessionTheme';
+import { artScheme, schemeClass, themeCssVars } from '../sessionTheme';
 import { Reply } from './SessionReply';
 import { SessionThread } from './SessionThread';
 import { SnoozeSuggestion } from './SnoozeSuggestion';
@@ -509,6 +509,9 @@ export function SessionPanel({ variant = 'panel', zoom, queue, notice, hotkeys, 
   const theme = useSessionTheme(s);
   const hasBackdrop = !!theme && (!theme.aiEnabled || !!theme.assigned.backdropImage);
   const fullTheme = hasBackdrop && theme.prefs.surface === 'full';
+  // An AI background shows as drawn, in full color, and sets the panel's look by itself: a dark
+  // picture gives the panel dark words and glass whatever the app's theme (SessionBackdrop.css).
+  const art = fullTheme ? artScheme(theme.assigned) : null;
   const themeStyle = theme ? themeCssVars(theme.assigned.color, theme.prefs.intensity, theme.assigned.accentOverride) : undefined;
   const body = (
     <>
@@ -588,7 +591,7 @@ export function SessionPanel({ variant = 'panel', zoom, queue, notice, hotkeys, 
     return (
       <div
         ref={placeDialogs}
-        className={cx('ca-reply', hasBackdrop && 'ca-st-panel', fullTheme && 'is-full', hasBackdrop && !theme.aiEnabled && `is-${theme.prefs.vibe}`)}
+        className={cx('ca-reply', hasBackdrop && 'ca-st-panel', fullTheme && 'is-full', hasBackdrop && !theme.aiEnabled && `is-${theme.prefs.vibe}`, art && 'is-art', schemeClass(art))}
         data-find="conversation"
         data-shows-session={key}
         style={themeStyle ? { ...themeStyle, ...cardZoom(zoom) } : cardZoom(zoom)}
@@ -604,7 +607,7 @@ export function SessionPanel({ variant = 'panel', zoom, queue, notice, hotkeys, 
     );
   }
   return (
-    <aside className={cx('ca-insp', 'ca-sessinsp', hasBackdrop && 'ca-st-panel', fullTheme && 'is-full', hasBackdrop && !theme.aiEnabled && `is-${theme.prefs.vibe}`)} style={themeStyle} aria-label={`${s.title} details`} data-find="conversation" data-shows-session={key}>
+    <aside className={cx('ca-insp', 'ca-sessinsp', hasBackdrop && 'ca-st-panel', fullTheme && 'is-full', hasBackdrop && !theme.aiEnabled && `is-${theme.prefs.vibe}`, art && 'is-art', schemeClass(art))} style={themeStyle} aria-label={`${s.title} details`} data-find="conversation" data-shows-session={key}>
       {body}
     </aside>
   );

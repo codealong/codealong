@@ -165,8 +165,15 @@ describe('SessionThemeProvider, SessionBackdrop, and sessionMenu theme items', (
         <Probe session={drawn} />
       </SessionThemeProvider>,
     );
-    expect(drawnView.el.querySelector('.ca-st-layer.is-has-ai.is-light-art[data-strength="medium"] .ca-st-ai')).not.toBeNull();
+    expect(drawnView.el.querySelector('.ca-st-layer.is-has-ai .ca-st-ai')).not.toBeNull();
     expect(drawnView.el.querySelector('.ca-st-canvas')).toBeNull();
+    // The picture shows as drawn in either theme: nothing marks it for a veil or an inversion.
+    const layerClass = () => drawnView.el.querySelector('.ca-st-layer')!.className;
+    const inLight = layerClass();
+    act(() => document.documentElement.setAttribute('data-theme', 'dark'));
+    expect(layerClass()).toBe(inLight);
+    expect(inLight).not.toMatch(/light-art|dark-art/);
+    document.documentElement.removeAttribute('data-theme');
     const drawnLabels = sessionMenu(lane, drawn, dummyCan).filter((i): i is MenuAction | MenuGroup => i !== 'separator').map((i) => i.label);
     expect(drawnLabels).toContain('Redraw background');
     expect(drawnLabels).not.toContain('Theme color');

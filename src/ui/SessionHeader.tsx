@@ -72,6 +72,7 @@ import { runFolder } from './RunButton';
 import { AddChip, LabelChip, TodoGlyph } from './TodoBits';
 import { SessionBackdrop } from './SessionBackdrop';
 import { useSessionTheme } from './SessionThemeProvider';
+import { artScheme, schemeClass } from '../sessionTheme';
 import { keysIn } from '../platform';
 
 /** The PRs it worked on, and the pages it made, each shown as chips before a "+N": a long session
@@ -529,9 +530,11 @@ export function SessionHeader({ lane, session: s, apps, now, onOpen, onShowLane,
   const toMain = !inMain && !(s.hosted && !device) ? actions?.reveal : undefined;
   const theme = useSessionTheme(s);
   const hasBackdrop = !!theme && (!theme.aiEnabled || !!theme.assigned.backdropImage);
+  // A picture behind the header alone sets its look, as one behind the whole panel sets the panel's.
+  const art = hasBackdrop && theme.prefs.surface === 'header' ? artScheme(theme.assigned) : null;
 
   return (
-    <header className={cx('ca-sessinsp-head', hasBackdrop && 'ca-st-head')} onContextMenu={headerMenu(onMenu && (() => onMenu()))}>
+    <header className={cx('ca-sessinsp-head', hasBackdrop && 'ca-st-head', art && 'is-art', schemeClass(art))} onContextMenu={headerMenu(onMenu && (() => onMenu()))}>
       {hasBackdrop && theme.prefs.surface === 'header' && <SessionBackdrop theme={theme.assigned} vibe={theme.prefs.vibe} intensity={theme.prefs.intensity} place="header" working={s.status === 'working'} aiOnly={theme.aiEnabled} />}
       {back && <PanelBack back={back} />}
       {lineage?.from && <KinRow kin={lineage.from} now={now} parent onShow={onShowSession} onMenu={onSessionMenu} />}

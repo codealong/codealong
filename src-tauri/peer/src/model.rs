@@ -574,7 +574,8 @@ pub struct SessionBackdrop {
     /// Dominant chromatic accent hex (`#rrggbb`) sampled from the artwork, if chromatic enough.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub accent: Option<String>,
-    /// Average perceived luminance (`0..=255`) in the center reading region, for contrast veils.
+    /// Average perceived luminance (`0..=255`) in the center reading region: whether the panel
+    /// over the picture is light or dark (sessionTheme.ts `artScheme`).
     #[serde(default = "default_backdrop_luminance")]
     pub luminance: u8,
 }

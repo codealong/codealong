@@ -77,7 +77,6 @@ export function SessionBackdrop({ theme, vibe, intensity, place, working = false
   const hasAi = !!theme.backdropImage && place !== 'preview';
   const suppressMesh = aiOnly && place !== 'preview';
   const showMesh = !hasAi && !suppressMesh;
-  const darkArt = (theme.backdrop?.luminance ?? 128) < 130;
 
   const meshUrl = useMemo(() => (showMesh ? renderMeshDataUrl(chord, theme.seed, vibe, mode) : null), [showMesh, chord, theme.seed, vibe, mode]);
   const grainUrl = useMemo(() => getGrainTileUrl(), []);
@@ -102,10 +101,8 @@ export function SessionBackdrop({ theme, vibe, intensity, place, working = false
         `is-${place}`,
         `is-${vibe}`,
         hasAi && 'is-has-ai',
-        hasAi && (darkArt ? 'is-dark-art' : 'is-light-art'),
         working && 'is-working',
       )}
-      data-strength={intensity}
       style={layerStyle}
       aria-hidden="true"
     >

@@ -50,12 +50,7 @@ impl Engine {
         };
         let team = crate::backgrounds::team_for(board, &lane.repo);
         let style = crate::backgrounds::effective_prompt(&self.cfg, team, &lane.project);
-        let theme_mode = match self.cfg.appearance.theme {
-            Theme::Dark => "dark",
-            Theme::Light => "light",
-            Theme::System => "system",
-        };
-        let prompt = crate::backgrounds::draw_prompt(session, &self.backgrounds.taken(&key), theme_mode, style);
+        let prompt = crate::backgrounds::draw_prompt(session, &self.backgrounds.taken(&key), style);
         self.backgrounds.drawing = Some(key.clone());
         let tx = self.tx.clone();
         throttle::background(
