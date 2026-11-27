@@ -242,6 +242,17 @@ impl Store {
         (at != key).then_some(at)
     }
 
+    /// Marks each of `sessions` that moved with the copy it goes on as among them
+    /// (`Session::moved_to`), so the windows treat it as the engine does: neither sent to nor
+    /// resumed, nor moved again.
+    pub fn mark_moves(&self, sessions: &mut [crate::model::Session]) {
+        let moves = self.move_index();
+        let keys: HashSet<String> = if moves.is_empty() { HashSet::new() } else { sessions.iter().map(|s| s.key.clone()).collect() };
+        for s in sessions.iter_mut() {
+            s.moved_to = if moves.is_empty() { None } else { moves.moved_to(&s.key, |k| keys.contains(k)) };
+        }
+    }
+
     /// Every move to another account or harness (`moved_to`), as the session it moved from and
     /// its copy, the oldest first, so one moved on again comes after the move that made it.
     pub fn moves(&self) -> Vec<(String, String)> {
@@ -795,6 +806,29 @@ mod tests {
         assert_eq!(store.moved_to("claude:claude:c", all).as_deref(), Some("codex:codex:m"));
         store.kept.insert("codex:codex:m".into());
         assert_eq!(store.moved_to("claude:claude:c", all), None);
+    }
+
+    /// A session that moved is marked with the copy it goes on as, followed on where that one
+    /// moved, while the board has it. Not one handed off with the original kept open, nor one
+    /// whose copy isn't on the board, nor the copy itself.
+    #[test]
+    fn sessions_that_moved_are_marked_with_their_copy() {
+        let mut store = Store::default();
+        let fork = |from: &str, at| Entry { from: from.into(), how: OriginHow::Fork, at, helper: false, report: false, known: true };
+        store.sessions.insert("claude:claude:copy".into(), fork("claude:claude-work:moved", 10));
+        store.sessions.insert("codex:codex:again".into(), fork("claude:claude:copy", 20));
+        store.sessions.insert("codex:codex:kept".into(), fork("claude:claude:open", 10));
+        store.kept.insert("codex:codex:kept".into());
+        store.sessions.insert("claude:claude2:gone".into(), fork("claude:claude:left", 10));
+        let keys = ["claude:claude-work:moved", "claude:claude:copy", "codex:codex:again", "claude:claude:open", "codex:codex:kept", "claude:claude:left"];
+        let mut sessions: Vec<Session> = keys.iter().map(|k| crate::fixtures::session(k)).collect();
+        store.mark_moves(&mut sessions);
+        let marked: Vec<Option<&str>> = sessions.iter().map(|s| s.moved_to.as_deref()).collect();
+        assert_eq!(marked, vec![Some("codex:codex:again"), Some("codex:codex:again"), None, None, None, None]);
+
+        // With no moves noted, a mark left from before goes.
+        Store::default().mark_moves(&mut sessions);
+        assert!(sessions.iter().all(|s| s.moved_to.is_none()));
     }
 
     #[test]

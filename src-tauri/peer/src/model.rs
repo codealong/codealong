@@ -295,6 +295,12 @@ pub struct Session {
     /// saw it running (`board::run_started_by`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub origin: Option<SessionOrigin>,
+    /// The session it moved to and goes on as, by its key, while the board has that one: a move
+    /// to another account or harness, followed on where that one moved too (the engine's
+    /// origins.rs `Store::moved_to`), not a handoff that kept it open. It's neither sent to nor
+    /// resumed (send.rs `ensure_not_moved`), and moves no further.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub moved_to: Option<String>,
     /// Set when the session says it's busy but nothing has happened for a long while: it's stuck
     /// mid-turn, usually on a command waiting for input. When it went quiet.
     pub stalled_since: Option<i64>,
@@ -838,6 +844,7 @@ impl Session {
             terminal: None,
             continues: None,
             origin: None,
+            moved_to: None,
             stalled_since: None,
             need: None,
             background: None,

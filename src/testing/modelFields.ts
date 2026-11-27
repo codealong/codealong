@@ -68,6 +68,7 @@ export type Session = Holds<Same<
   | "mode"
   | "model"
   | "modes"
+  | "movedTo"
   | "name"
   | "need"
   | "openTarget"

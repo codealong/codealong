@@ -376,6 +376,11 @@ describe('sessionMenu', () => {
       expect(leftKept).toEqual([]);
       expect(keptInfo).toEqual(['Handed off “Fix login” to cx.']);
       expect(sessionActions(lane(), session({ key: 'claude:c:15' }), base).move).toBeDefined();
+      // One the engine says moved (`Session.movedTo`: from another window, a command, or before
+      // the window opened) offers no move either, which a kept handoff's never says.
+      expect(sessionActions(lane(), session({ key: 'claude:c:16' }), base).moveAccounts).toBeDefined();
+      const gone = sessionActions(lane(), session({ key: 'claude:c:16', movedTo: 'claude:c2:16' }), base);
+      expect([gone.move, gone.moveAccounts, gone.moveOn]).toEqual([undefined, undefined, undefined]);
     } finally {
       await readAccounts([], later + 183_000);
       vi.useRealTimers();

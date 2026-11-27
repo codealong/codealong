@@ -297,6 +297,7 @@ PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/history-check.
 PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/hold-check.js
 PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/leave-next-check.js
 PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/merge-done-check.js
+PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/moved-box-check.js
 PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/network-error-check.js
 PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/new-session-check.js
 PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/panel-queue-check.js

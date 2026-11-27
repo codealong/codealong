@@ -425,8 +425,12 @@ the pinned sessions, on its card on the desktop, in its kept window, on its term
 schedules (including when the target harness assigns its ID only after launching). Moved from
 its panel in Sessions, the panel stays on it while it moves and then shows the copy, selected in the
 list, rather than going on to the next that waits on you; a PR opened from its chip meanwhile stays,
-its way back going to the copy. A session moving, or moved, offers no second move in the window it
-was moved from, so a double-click doesn't make two copies. For native Claude Code moves, Claude Code
+its way back going to the copy. A session moving offers no second move in the window it's moved
+from, so a double-click doesn't make two copies, and once moved it offers none anywhere, whichever
+window or command moved it and across relaunches, while its copy is on the board. Its panel's box is
+the copy's: a line above it says *Moved to* the copy's account, with a chip that shows the copy, and
+what you write there goes to the copy. One handed off with **Keep original open** isn't moved: it
+goes on as itself, and can be moved or handed off again. For native Claude Code moves, Claude Code
 writes nothing of the copy until you send it something, so until then it shows the conversation it
 was moved with; its terminal closed before then, it stays on the board, stopped, and opening it or
 sending it a message makes it again from that conversation. A move is noted before the copy starts,
