@@ -1,0 +1,57 @@
+{
+  "usage": [
+    {
+      "account": "claude",
+      "harness": "claude",
+      "plan": "Max 20x",
+      "readAgo": 1,
+      "meters": [
+        { "key": "session", "label": "5h", "window": "5-hour session", "percent": 18, "resetsIn": 170 },
+        { "key": "week", "label": "Week", "window": "Weekly, all models", "percent": 32, "resetsIn": 4300 }
+      ]
+    },
+    {
+      "account": "claude2",
+      "harness": "claude",
+      "plan": "Team",
+      "readAgo": 1,
+      "meters": [
+        { "key": "session", "label": "5h", "window": "5-hour session", "percent": 95, "resetsIn": 95, "severity": "critical" },
+        { "key": "week", "label": "Week", "window": "Weekly, all models", "percent": 60, "resetsIn": 4300 }
+      ]
+    },
+    {
+      "account": "codex",
+      "harness": "codex",
+      "plan": "Pro",
+      "readAgo": 1,
+      "meters": [
+        { "key": "session", "label": "5h", "window": "5-hour session", "percent": 71, "resetsIn": 95 },
+        { "key": "week", "label": "Week", "window": "Weekly", "percent": 94, "resetsIn": 4320, "severity": "critical" }
+      ]
+    },
+    {
+      "account": "cursor",
+      "harness": "cursor",
+      "plan": "Pro",
+      "readAgo": 1,
+      "meters": [
+        { "key": "month", "label": "Month", "window": "Monthly", "percent": 82, "resetsIn": 17280, "severity": "warning" }
+      ]
+    },
+    {
+      "account": "antigravity",
+      "harness": "antigravity",
+      "readAgo": 1,
+      "meters": [
+        { "key": "model:Gemini", "label": "Gemini", "window": "Weekly, Gemini models", "percent": 91, "resetsIn": 4320, "severity": "critical", "model": "Gemini" }
+      ]
+    },
+    {
+      "account": "opencode",
+      "harness": "opencode",
+      "noLimits": true,
+      "error": "OpenCode bills the provider you bring, so it has no plan limits to show."
+    }
+  ]
+}

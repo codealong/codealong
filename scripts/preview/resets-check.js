@@ -1,10 +1,12 @@
 // Checks the limit resets in the status bar (ui/StatusBar.tsx, resets.ts): an account holding
-// some has a clock on its chip, the others not; hovering it brings up its card over the chip,
-// which says how many, what kind and when the first expires, stays up while the pointer is on it,
-// and asks again before Use a reset spends one, the first to expire, saying how that went in a
-// toast. Cancel, a double-click on the button that asked, and moving to another account's card
-// spend nothing; one its provider only counts can't be used from here, and its card says so.
-//   PREVIEW_RESETS=scripts/preview/resets-sample.json PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/resets-check.js
+// some and close to a limit has a clock on its chip, the others not (including one holding resets
+// whose limits are low, and one close to a limit with none); hovering it brings up its card over
+// the chip, which says how many, what kind and when the first expires, stays up while the pointer
+// is on it, and asks again before Use a reset spends one, the first to expire, saying how that
+// went in a toast. Cancel, a double-click on the button that asked, and moving to another
+// account's card spend nothing; one its provider only counts can't be used from here, and its card
+// says so.
+//   PREVIEW_USAGE=scripts/preview/resets-usage-sample.json PREVIEW_RESETS=scripts/preview/resets-sample.json PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/resets-check.js
 (function () {
   var chipOf = function (account) {
     return all('.ca-statusbar-accts .ca-uchip').filter(function (c) { return (q('.ca-uchip-name', c) || {}).textContent === account; })[0];
@@ -19,7 +21,7 @@
   until(function () { return q('.ca-statusbar-accts .ca-uchip .ca-uchip-resets'); }, 20000)
     .then(function () {
       var marked = all('.ca-statusbar-accts .ca-uchip').filter(function (c) { return q('.ca-uchip-resets', c); }).map(function (c) { return q('.ca-uchip-name', c).textContent; });
-      check('only an account holding resets is marked', marked.sort().join(',') === 'antigravity,codex,cursor', marked.join(','));
+      check('only an account holding resets and close to a limit is marked', marked.sort().join(',') === 'antigravity,codex,cursor', marked.join(','));
       check('the chip says so to a screen reader', /\. 3 limit resets$/.test(chipOf('codex').getAttribute('aria-label')), chipOf('codex').getAttribute('aria-label'));
       enter(chipOf('codex'));
       return until(card, 3000);
@@ -90,8 +92,14 @@
       return wait(400);
     })
     .then(function () {
-      check('an account without resets has no card for them', !q('.ca-resets'));
+      check('an account holding resets below its limits has no card for them', !q('.ca-resets'));
       leave(chipOf('claude'));
+      enter(chipOf('claude2'));
+      return wait(400);
+    })
+    .then(function () {
+      check('an account close to a limit without resets has no card for them', !q('.ca-resets'));
+      leave(chipOf('claude2'));
       enter(chipOf('antigravity'));
       return until(function () { return q('.ca-usage-popover .ca-resets'); }, 3000);
     })

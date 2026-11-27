@@ -59,7 +59,7 @@ PREVIEW_PLATFORM=linux scripts/preview.sh sessions '' scripts/preview/settings-a
 PREVIEW_PLATFORM=linux scripts/preview.sh sessions '' scripts/preview/settings-find-check.js
 PREVIEW_PLATFORM=linux scripts/preview.sh sessions '' scripts/preview/settings-queue-check.js
 PREVIEW_PLATFORM=linux scripts/preview.sh sessions '' scripts/preview/settings-tmux-check.js
-PREVIEW_RESETS=scripts/preview/resets-sample.json PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/resets-check.js
+PREVIEW_USAGE=scripts/preview/resets-usage-sample.json PREVIEW_RESETS=scripts/preview/resets-sample.json PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/resets-check.js
 PREVIEW_ROUTE=scripts/preview/route-find-sample.json PREVIEW_WAIT=60000 scripts/preview.sh quick '' scripts/preview/quick-words-check.js
 PREVIEW_ROUTE=scripts/preview/route-late-sample.json PREVIEW_WAIT=60000 scripts/preview.sh quick '' scripts/preview/quick-steady-check.js
 PREVIEW_ROUTE=scripts/preview/route-sample.json PREVIEW_WAIT=60000 scripts/preview.sh quick '' scripts/preview/quick-words-check.js
