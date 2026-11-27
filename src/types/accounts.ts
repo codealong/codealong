@@ -35,6 +35,9 @@ export interface Usage {
   preferred?: boolean;
   /** The usage endpoint turned the last read away, and `error` says when it's tried again. */
   rateLimited?: boolean;
+  /** Its extra usage can carry a turn past the plan's limits (is_enabled with no disabled_reason);
+   *  absent when the read doesn't say or from older Macs. */
+  extraUsable?: boolean;
 }
 
 /** Where an account stands on its provider training on what it sends (training.rs). */

@@ -41,6 +41,7 @@
 // (the PRs, the todos, the sessions around it) it leaves out, and that line isn't there.
 
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { accountLimitPhrase, accountLimitSnoozeable, accountLimitSnoozeTitle, accountLimitWords, type AccountLimit } from '../accountLimit';
 import { below } from '../contextMenu';
 import { folderTargets, opensInEditor, useEditorIcons } from '../editors';
 import { absolute, ago, agoPhrase, duration, middleTruncate, tildePath } from '../format';
@@ -162,6 +163,9 @@ export interface SessionHeaderProps {
   /** Asks which account to move it to (MoveAccount.tsx), from the box a usage limit or a cut-off
    *  turn puts under the header, where it can move. */
   onMove?: () => void;
+  /** Active account-level usage limit that a new turn on this session would hit, when this
+   *  session's own last turn didn't stop at a limit (accountLimit.ts `accountLimitFor`). */
+  accountLimit?: AccountLimit | null;
 }
 
 /** Move… in the box a usage limit, cut-off turn or API error puts under the header: it asks which
@@ -463,7 +467,7 @@ function SessionLabels({ session: s, relabel, adds }: { session: Session; relabe
   );
 }
 
-export function SessionHeader({ lane, session: s, apps, now, onOpen, onShowLane, prs = [], onShowPr, onOpenPr, onPrMenu, todos, onShowTodo, lineage, schedule, onShowSchedule, onShowSession, onSessionMenu, onShowStarting, onStartingMenu, onMenu, onSeen, actions, seenAbove, onKeep, keepTitle, onPopOut, onClose, closeTitle, renaming, onRename, device, back, maximized, onMaximize, compact, accountBelow, inMain, onMove }: SessionHeaderProps) {
+export function SessionHeader({ lane, session: s, apps, now, onOpen, onShowLane, prs = [], onShowPr, onOpenPr, onPrMenu, todos, onShowTodo, lineage, schedule, onShowSchedule, onShowSession, onSessionMenu, onShowStarting, onStartingMenu, onMenu, onSeen, actions, seenAbove, onKeep, keepTitle, onPopOut, onClose, closeTitle, renaming, onRename, device, back, maximized, onMaximize, compact, accountBelow, inMain, onMove, accountLimit }: SessionHeaderProps) {
   const [details, setDetails] = useState(false);
   const [allPrs, setAllPrs] = useState(false);
   const [allTodos, setAllTodos] = useState(false);
@@ -698,6 +702,20 @@ export function SessionHeader({ lane, session: s, apps, now, onOpen, onShowLane,
           {actions?.tryAgain && (
             <Button size="sm" title="It’s sent a message saying its last turn ended on an API error, to try again where it left off" onClick={() => actions.tryAgain?.run()}>
               {actions.tryAgain.label}
+            </Button>
+          )}
+          {onMove && <MoveButton onMove={onMove} />}
+        </div>
+      )}
+      {accountLimit && !s.limit && s.status !== 'working' && !s.archived && (
+        <div className="ca-sessinsp-limit is-warn" role="note">
+          <Icon name="alert" size={12} />
+          <span className="ca-sessinsp-limit-words" title={accountLimitWords(accountLimit, now, !!onMove)}>
+            {accountLimitPhrase(accountLimit, now)}
+          </span>
+          {actions?.snoozeUntil && accountLimitSnoozeable(accountLimit, now) && accountLimit.resetsAt != null && (
+            <Button size="sm" title={accountLimitSnoozeTitle(accountLimit.resetsAt, now)} onClick={() => actions.snoozeUntil?.(accountLimit.resetsAt!)}>
+              Snooze until it lifts
             </Button>
           )}
           {onMove && <MoveButton onMove={onMove} />}

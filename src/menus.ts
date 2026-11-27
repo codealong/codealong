@@ -13,7 +13,7 @@
 import { useEffect, useState } from 'react';
 import { chromeProfiles, closeSession, desktopPins, expandAttachments, forkSession, getAccounts, inPreview, moveSession, moveSessionTo, onDesktopPins, openInChrome, openUrl, ownSessions, pinToDesktop, resumeSession, sessionCancel, sessionWindow, signIn, stopListening, setPrNudge, setPrPrimary, setReusable, showQuick, unpinFromDesktop, type MergeDone, type MoveOptions, NONE_CHOSEN, type HelpersChosen } from './api';
 import { moveSubmenuLabel, moveTargetsFor, type MoveFollow, type MoveTarget } from './handoff';
-import { archiveAhead, asideAhead, doneAhead, labelAhead, quietAhead, raiseAhead, seenAhead, sendAhead, sentWorthSaying, unreadAhead } from './ahead';
+import { archiveAhead, asideAhead, doneAhead, labelAhead, quietAhead, raiseAhead, seenAhead, sendAhead, sentWorthSaying, snoozeAhead, unreadAhead } from './ahead';
 import { copyText } from './clipboard';
 import { showContextMenu, type MenuAction, type MenuGroup, type MenuImage, type MenuSpec } from './contextMenu';
 import { shortOf } from './devices';
@@ -437,6 +437,8 @@ export interface SessionActions {
    *  it up (board.rs `apply_raise`). */
   raise?: MenuAction;
   snooze?: MenuGroup;
+  /** Snoozes an unsnoozed session until a specific time (e.g. when its account's limit lifts). */
+  snoozeUntil?: (until: number) => void;
   /** Quiet, checked while it is: its turns don't wait on you, only what needs you does, until
    *  it's unchecked (board.rs `apply_quiet`). */
   quiet?: MenuAction;
@@ -701,6 +703,7 @@ export function sessionActions(lane: Lane, s: Session, can: SessionCan): Session
     // On the Mac it runs on, which keeps it, so it's snoozed on every device. The time its limit
     // lifts (or until its account has room), or its last reply says the work goes on, is offered first.
     snooze: s.archived || s.orchestrator ? undefined : snoozeMenu([s.key], Date.now(), { until: s.snoozedUntil, forRoom: s.snoozedForRoom, suggested: suggestedSnooze(s, Date.now()), onDone: settle('snoozed'), chords: !!can.keys }),
+    snoozeUntil: s.archived || s.orchestrator || s.snoozedUntil ? undefined : (until: number) => settle('snoozed')(snoozeAhead([s.key], until)),
     // Kept on the Mac it runs on too. Quieted, a turn that ended leaves what waits on you, and a
     // window working through that goes on; one that needs you stays.
     quiet: s.archived

@@ -509,6 +509,7 @@ export function NotchSession({ sessionKey, rename, now, queue, notice, onBack, k
         now={now}
         zoom={zoom}
         board={live.board}
+        there={live.there}
         device={live.device}
         can={can}
         // A session it came from, or that came of it: its menu shows it in Codealong.

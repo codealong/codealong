@@ -16,6 +16,7 @@
 // kind waits. On the canvas and in Schedules it stays dimmed: there's no order there.
 
 import { useMemo, useRef, useState, type ReactNode } from 'react';
+import { accountLimitFor } from '../accountLimit';
 import { renameAhead } from '../ahead';
 import { dismissTodoHint, openUrl, peekBeside, peekHide } from '../api';
 import type { Entities } from '../canvas/model';
@@ -342,11 +343,20 @@ export function MainPanel(props: MainPanelProps) {
     const queued = row !== undefined;
     if (queued) stripShown.current = true;
     const drillFrom = row ?? (view === 'schedules' ? scheduleFrom?.key : view === 'kanban' ? selected?.key : undefined);
+    const sessionDevice = deviceOf(devices, session.key);
+    const accountLimit = accountLimitFor(
+      session,
+      lane.device ? (devices?.lanes ?? []) : (board?.lanes ?? []),
+      lane.device ? (sessionDevice?.usage ?? []) : (board?.usage ?? []),
+      now,
+      lane.device?.short ?? null,
+    );
     return (
       <NamedSessionPanel
         key={session.key}
         lane={lane}
         session={session}
+        accountLimit={accountLimit}
         terminals={board?.terminals?.[session.key] ?? NO_TERMINALS}
         apps={board?.apps ?? { terminal: 'Terminal', terminalId: '', editor: 'Editor', editorId: '' }}
         now={now}
@@ -372,7 +382,7 @@ export function MainPanel(props: MainPanelProps) {
         // Elsewhere the strip's Seen is the session's own action, which sets one aside while its
         // side conversation answers, as its menu does.
         onSeen={queued ? () => void runQueue('seen', false) : undefined}
-        device={deviceOf(devices, session.key)}
+        device={sessionDevice}
         back={back}
         onFailed={(why) => {
           // Not dealt with after all: it comes round again. Its box has gone, as the panel went on
