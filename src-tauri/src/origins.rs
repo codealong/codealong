@@ -489,12 +489,6 @@ pub fn record(key: &str, from: &str, how: OriginHow) {
     }
 }
 
-/// `record`, saying whether it was written: a move's copy is known by this note until its
-/// first message, so the move doesn't go ahead without it.
-pub fn write(key: &str, from: &str, how: OriginHow) -> Result<()> {
-    write_as(key, from, how, false, false)
-}
-
 /// Notes a handoff from `from` to `key`: when `moved` is true, `key` takes `from`'s place as a
 /// move (`moved_to`); when false (`keep: true`), `key` is kept out of `moved_to` so `from` stays
 /// open and sendable while staying linked in lineage.

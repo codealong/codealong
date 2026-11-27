@@ -495,13 +495,13 @@ impl crate::harness::Adapter for ClaudeCode {
     }
 
     fn fork(&self, ctx: &crate::harness::Ctx, s: &crate::model::Session) -> anyhow::Result<crate::harness::Typed> {
-        Ok(fork_as(ctx.account, &shell_word(&resume_from(ctx.account, s)), &crate::start::new_session_id(), "", None))
+        Ok(fork_as(ctx.account, &shell_word(&resume_from(ctx.account, s)), &crate::start::new_session_id(), "", None, None, None))
     }
 
     /// A background job under the account's service, whichever way the session runs: Claude
     /// Code copies the conversation from its transcript (`fork_command`).
     fn fork_background(&self, ctx: &crate::harness::Ctx, s: &crate::model::Session, cwd: &Path, prompt: &str) -> anyhow::Result<Option<String>> {
-        let command = fork_command(ctx.account, &shell_word(&resume_from(ctx.account, s)), prompt, None);
+        let command = fork_command(ctx.account, &shell_word(&resume_from(ctx.account, s)), prompt, None, None, None);
         let (_, id) = start_background(ctx.account, cwd, &command)?;
         Ok(id.map(|id| Session::key_for(Harness::Claude, &ctx.account.name, &id)))
     }
@@ -542,8 +542,8 @@ impl crate::harness::Adapter for ClaudeCode {
     /// conversation from one org's account, resumed under another's in a terminal and with
     /// `-p`). Its first reply there reads the whole conversation uncached, since a prompt cache
     /// is its org's own.
-    fn move_to(&self, ctx: &crate::harness::Ctx, s: &crate::model::Session, to: &AccountCfg, prompt: &str) -> anyhow::Result<crate::harness::Typed> {
-        Ok(fork_as(to, &crate::util::sh_quote(&self.newest_record(ctx, s)?.to_string_lossy()), &crate::start::new_session_id(), prompt, move_name(s)))
+    fn move_to(&self, ctx: &crate::harness::Ctx, s: &crate::model::Session, to: &AccountCfg, prompt: &str, model: Option<&str>, effort: Option<&str>) -> anyhow::Result<crate::harness::Typed> {
+        Ok(fork_as(to, &crate::util::sh_quote(&self.newest_record(ctx, s)?.to_string_lossy()), &crate::start::new_session_id(), prompt, move_name(s), model, effort))
     }
 
     fn moves_accounts(&self) -> bool {
@@ -560,10 +560,27 @@ impl crate::harness::Adapter for ClaudeCode {
     /// A background job takes the transcript's path too: `--bg --resume <path> --fork-session`
     /// under the other account starts a job there that goes on from it (checked on 2.1.287,
     /// 2026-10-02), its session ID the service's choice, as any `--bg` start's is.
-    fn move_to_background(&self, ctx: &crate::harness::Ctx, s: &crate::model::Session, to: &AccountCfg, cwd: &Path, prompt: &str) -> anyhow::Result<Option<String>> {
-        let command = fork_command(to, &crate::util::sh_quote(&self.newest_record(ctx, s)?.to_string_lossy()), prompt, move_name(s));
+    fn move_to_background(&self, ctx: &crate::harness::Ctx, s: &crate::model::Session, to: &AccountCfg, cwd: &Path, prompt: &str, model: Option<&str>, effort: Option<&str>) -> anyhow::Result<Option<String>> {
+        let command = fork_command(to, &crate::util::sh_quote(&self.newest_record(ctx, s)?.to_string_lossy()), prompt, move_name(s), model, effort);
         let (_, id) = start_background(to, cwd, &command)?;
         Ok(id.map(|id| Session::key_for(Harness::Claude, &to.name, &id)))
+    }
+
+    /// Copies the full `.jsonl` transcript into `to`'s `projects/` directory under a fresh session
+    /// ID and adopts it into `to`'s `claude-agent-acp` process so Codealong-hosted Claude → Claude
+    /// moves preserve the entire conversation losslessly (including model/effort switches).
+    fn move_to_codealong(&self, ctx: &crate::harness::Ctx, s: &crate::model::Session, to: &AccountCfg, cwd: &Path, prompt: &str, model: Option<&str>, effort: Option<&str>) -> anyhow::Result<String> {
+        let src = self.newest_record(ctx, s)?;
+        let new_id = crate::start::new_session_id();
+        let adopt_cwd = transcript_cwd(&src).map(PathBuf::from).filter(|p| p.is_dir()).unwrap_or_else(|| cwd.to_path_buf());
+        let dest = start::copy_transcript_for_account(&src, &to.home_path(), &new_id, move_name(s))?;
+        match crate::acp::adopt(to, &new_id, &adopt_cwd, prompt, model, effort) {
+            Ok(key) => Ok(key),
+            Err(e) => {
+                let _ = std::fs::remove_file(&dest);
+                Err(e)
+            }
+        }
     }
 
     /// Claude Code goes on with a session in whatever folder `--resume` runs in, as itself: its

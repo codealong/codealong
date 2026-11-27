@@ -233,24 +233,36 @@ pub fn budget_for(place: Place) -> usize {
 }
 
 /// Whether a move to `target` with `ask` uses the lossless native same-harness fast path
-/// (`Adapter::move_to`) rather than a generic handoff packet.
+/// (`Adapter::move_to`, `move_to_background`, or `move_to_codealong`) rather than a generic
+/// handoff packet. All Claude Code → Claude Code moves preserve the full transcript natively
+/// (including model/effort switches, follow-up prompts, Codealong-hosted sessions, and
+/// `--keep`), except URL-only `Place::ClaudeApp` which cannot load a local transcript file.
 pub fn uses_native_move(s: &Session, target: &AccountCfg, ask: &Ask) -> bool {
     let same_harness = of(target).is_some_and(|a| a.harness() == s.harness);
-    if !same_harness || !adapter(s.harness).moves_accounts() || ask.keep {
+    if !same_harness || !adapter(s.harness).moves_accounts() {
         return false;
     }
-    if ask.model.as_deref().is_some_and(|m| !m.trim().is_empty()) || ask.effort.as_deref().is_some_and(|e| !e.trim().is_empty()) {
-        return false;
+    !matches!(ask.place, Some(Place::ClaudeApp))
+}
+
+/// Picks the target `Place` for a lossless native same-harness move: what `asked` requests, else
+/// Codealong when the source session is hosted there and `target` supports it, Background for a
+/// background job, or Terminal otherwise.
+pub fn native_place(s: &Session, target: &AccountCfg, asked: Option<Place>, home: &Path) -> Result<Place> {
+    let offered = start::ordered_places(target, home).map_err(|e| anyhow!(e))?;
+    if let Some(p) = asked {
+        if !offered.contains(&p) {
+            bail!("{} can't start a session there.", target.name);
+        }
+        return Ok(p);
     }
-    if !ask.prompt.trim().is_empty() {
-        return false;
+    if s.hosted && offered.contains(&Place::Codealong) {
+        return Ok(Place::Codealong);
     }
-    match ask.place {
-        None => true,
-        Some(Place::Background) if s.attach_command.is_some() => true,
-        Some(Place::Terminal) if s.attach_command.is_none() => true,
-        Some(_) => false,
+    if s.attach_command.is_some() {
+        return Ok(Place::Background);
     }
+    Ok(Place::Terminal)
 }
 
 /// Resolves the target account (any enabled account other than `account`, same or different harness).
@@ -293,12 +305,19 @@ pub fn preview(board: &Board, cfg: &Config, key: &str, ask: &Ask) -> Result<Plan
     let home = crate::util::home();
 
     if uses_native_move(s, target, ask) {
-        let place = if s.attach_command.is_some() { Place::Background } else { Place::Terminal };
+        let place = native_place(s, target, ask.place, &home)?;
+        let kind = match place {
+            Place::Codealong => "native-move-codealong",
+            Place::Background => "native-move-background",
+            _ => "native-move-terminal",
+        };
         let launch = serde_json::json!({
-            "kind": if place == Place::Background { "native-move-background" } else { "native-move-terminal" },
+            "kind": kind,
             "cwd": cwd,
             "sourceAccount": account.name,
             "targetAccount": target.name,
+            "model": ask.model,
+            "effort": ask.effort,
         });
         return Ok(PlanPreview {
             source_key: s.key.clone(),
@@ -308,7 +327,7 @@ pub fn preview(board: &Board, cfg: &Config, key: &str, ask: &Ask) -> Result<Plan
             target_account: target.name.clone(),
             target_harness: target_harness.into(),
             mode: "native",
-            keep_source: false,
+            keep_source: ask.keep,
             place,
             budget_bytes: 0,
             prompt_bytes: 0,
@@ -318,7 +337,7 @@ pub fn preview(board: &Board, cfg: &Config, key: &str, ask: &Ask) -> Result<Plan
             files_count: 0,
             failures_count: 0,
             prior_handoffs: 0,
-            prompt: String::new(),
+            prompt: ask.prompt.clone(),
             launch,
         });
     }
@@ -361,13 +380,20 @@ pub fn execute(board: &Board, cfg: &Config, key: &str, ask: &Ask) -> Result<Outc
     let target = resolve_target(cfg, s, account, &ask.account)?;
 
     if uses_native_move(s, target, ask) {
-        let limited = s.limit.is_some();
+        let home = crate::util::home();
+        let place = native_place(s, target, ask.place, &home)?;
         let go_on = crate::send::by_codealong(start::GO_ON);
-        let prompt = if limited { go_on.as_str() } else { "" };
-        let started = start::move_to(board, cfg, key, &target.name, prompt)?;
+        let prompt = if !ask.prompt.trim().is_empty() {
+            ask.prompt.trim()
+        } else if s.limit.is_some() && !ask.keep {
+            go_on.as_str()
+        } else {
+            ""
+        };
+        let started = start::move_to_with(board, cfg, key, &target.name, place, prompt, ask.model.as_deref(), ask.effort.as_deref(), ask.keep)?;
         return Ok(Outcome {
             started,
-            in_terminal: s.attach_command.is_none(),
+            in_terminal: place == Place::Terminal,
             opening: None,
             lane_id: lane.id.clone(),
             target_account: target.name.clone(),
@@ -434,7 +460,7 @@ pub fn execute(board: &Board, cfg: &Config, key: &str, ask: &Ask) -> Result<Outc
 
     let mut left = String::new();
     if !ask.keep {
-        if s.live {
+        if s.live && !s.hosted {
             match crate::idle::close_one(board, cfg, key) {
                 Ok(_) if s.attach_command.is_some() => left.push_str(" The old job is stopped."),
                 Ok(_) => left.push_str(" Its old terminal is closed."),
@@ -1530,7 +1556,7 @@ mod tests {
     }
 
     #[test]
-    fn uses_native_move_only_for_lossless_same_harness_default_moves() {
+    fn uses_native_move_for_all_same_harness_claude_moves_except_claude_app() {
         let acct = |name: &str, harness: &str| AccountCfg {
             name: name.into(),
             harness: harness.into(),
@@ -1551,12 +1577,21 @@ mod tests {
         let codex2 = acct("codex2", "codex");
 
         assert!(uses_native_move(&claude_s, &claude2, &Ask { account: "claude2".into(), ..Default::default() }));
-        assert!(!uses_native_move(&claude_s, &claude2, &Ask { account: "claude2".into(), keep: true, ..Default::default() }));
-        assert!(!uses_native_move(&claude_s, &claude2, &Ask { account: "claude2".into(), prompt: "Do X".into(), ..Default::default() }));
-        assert!(!uses_native_move(&claude_s, &claude2, &Ask { account: "claude2".into(), model: Some("opus".into()), ..Default::default() }));
-        assert!(!uses_native_move(&claude_s, &claude2, &Ask { account: "claude2".into(), place: Some(Place::Codealong), ..Default::default() }));
+        assert!(uses_native_move(&claude_s, &claude2, &Ask { account: "claude2".into(), keep: true, ..Default::default() }));
+        assert!(uses_native_move(&claude_s, &claude2, &Ask { account: "claude2".into(), prompt: "Do X".into(), ..Default::default() }));
+        assert!(uses_native_move(&claude_s, &claude2, &Ask { account: "claude2".into(), model: Some("opus".into()), ..Default::default() }));
+        assert!(uses_native_move(&claude_s, &claude2, &Ask { account: "claude2".into(), place: Some(Place::Codealong), ..Default::default() }));
+        assert!(!uses_native_move(&claude_s, &claude2, &Ask { account: "claude2".into(), place: Some(Place::ClaudeApp), ..Default::default() }));
         assert!(!uses_native_move(&claude_s, &codex, &Ask { account: "codex".into(), ..Default::default() }));
         assert!(!uses_native_move(&codex_s, &codex2, &Ask { account: "codex2".into(), ..Default::default() }));
+
+        let hosted = Session { hosted: true, ..claude_s.clone() };
+        let bg = Session { attach_command: Some("claude attach abc".into()), ..claude_s.clone() };
+        let home = Path::new("/tmp");
+        assert_eq!(native_place(&hosted, &claude2, None, home).unwrap(), Place::Codealong);
+        assert_eq!(native_place(&bg, &claude2, None, home).unwrap(), Place::Background);
+        assert_eq!(native_place(&claude_s, &claude2, None, home).unwrap(), Place::Terminal);
+        assert_eq!(native_place(&claude_s, &claude2, Some(Place::Codealong), home).unwrap(), Place::Codealong);
     }
 
     #[test]
