@@ -1,6 +1,7 @@
 // The harnesses Codealong reads, by name: how the UI says each one, and the app a session
 // opens in when it isn't in the terminal.
 
+import { platform } from './platform';
 import type { Harness, Session, Usage } from './types';
 
 export const HARNESSES: Harness[] = ['claude', 'codex', 'opencode', 'antigravity', 'cursor'];
@@ -41,9 +42,11 @@ export const MOVES_ACCOUNTS: readonly Harness[] = ['claude'];
  *  card's box (harness.rs `fresh_side`): Claude Code, headless, and Codex, on an app-server. */
 export const FRESH_SIDES: readonly Harness[] = ['claude', 'codex'];
 
-/** The harnesses whose accounts draw session emblems (harness.rs `draws`): Codex and
- *  Antigravity, each with its built-in image generation tool. */
-export const DRAWS: readonly Harness[] = ['codex', 'antigravity'];
+/** Whether the harness's accounts draw session emblems here (harness.rs `draws`): Codex with its
+ *  image tool, and Antigravity with its own on macOS alone, whose `sips` makes its JPEGs PNGs. */
+export function draws(harness: Harness): boolean {
+  return harness === 'codex' || (harness === 'antigravity' && platform() === 'mac');
+}
 
 /** The harnesses whose sessions fork from before a prompt, your edit of it in its place (harness.rs
  *  `fork_from`): Claude Code and Codex through the copy Codealong runs, OpenCode in its service. */

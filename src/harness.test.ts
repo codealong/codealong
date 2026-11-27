@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { editsHeld, harnessOfKey, nameShown, removesHeld, renames, sendsHeldNow, sessionName, sessionPlace, usageNote } from './harness';
+import { draws, editsHeld, harnessOfKey, nameShown, removesHeld, renames, sendsHeldNow, sessionName, sessionPlace, usageNote } from './harness';
+import { setPlatform } from './platform';
 import type { Session, Usage } from './types';
 
 describe('what a held message’s buttons say', () => {
@@ -72,5 +73,22 @@ describe('sessionPlace', () => {
     expect(sessionPlace(s({}), 'Ghostty')).toBe('Ghostty');
     expect(sessionPlace(s({ surface: 'app' }), 'Ghostty')).toBe('Claude app');
     expect(sessionPlace(s({ hosted: true, terminal: 'Rex' }), 'Ghostty')).toBe('Codealong');
+  });
+});
+
+describe('draws', () => {
+  it('has Antigravity draw on macOS alone, where its JPEGs can be made PNGs, and Codex everywhere', () => {
+    try {
+      setPlatform('mac');
+      expect(draws('codex') && draws('antigravity')).toBe(true);
+      for (const p of ['linux', 'windows'] as const) {
+        setPlatform(p);
+        expect(draws('codex')).toBe(true);
+        expect(draws('antigravity')).toBe(false);
+      }
+      expect(draws('claude')).toBe(false);
+    } finally {
+      setPlatform(null);
+    }
   });
 });

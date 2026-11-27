@@ -502,7 +502,7 @@ export type EmblemKind = 'off' | 'emoji' | 'drawn';
 export interface EmblemsCfg {
   kind: EmblemKind;
   /** The account that draws them, for `drawn`; empty is the first that draws (harness.ts
-   *  `DRAWS`). */
+   *  `draws`). */
   account: string;
   /** How they're drawn, for `drawn`; empty is Codealong's own (SettingsDialog.tsx
    *  `DRAWN_STYLE`). */

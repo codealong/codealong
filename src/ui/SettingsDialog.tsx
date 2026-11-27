@@ -8,7 +8,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { askForCalendar, getConfig, hearingStatus, onQuickShortcut, openAtLogin, openTeamFile, pauseQuickShortcut, playSound, quickShortcut, saveConfig, saveConfigText, setOpenAtLogin, setReusable, setTerminalAwake, startOptions, takeTeamSettings, terminalAwake } from '../api';
 import { nudgeKind, nudgeMerges, withMerges } from '../prStatus';
 import { heldSaid, shortcutFromKey, shortcutLabel, takenFor } from '../quick';
-import { DRAWS, HARNESS_WORD, MOVES_ACCOUNTS } from '../harness';
+import { draws, HARNESS_WORD, MOVES_ACCOUNTS } from '../harness';
 import { worktreeName } from '../lanes';
 import { calendarsByAccount, calendarSays, calendarsOff } from '../meetings';
 import { REUSE_STATE, REUSE_WORDS } from '../reusable';
@@ -564,7 +564,7 @@ export function EmblemsFields({ cfg, drawers: canDraw, disabled, onSave }: { cfg
   const emblems = cfg.emblems ?? EMBLEMS_OFF;
   const [prompt, setPrompt] = useState(emblems.prompt);
   useEffect(() => setPrompt(emblems.prompt), [emblems.prompt]);
-  const drawers = canDraw ?? cfg.accounts.filter((a) => !a.disabled && DRAWS.includes(a.harness)).map((a) => a.name);
+  const drawers = canDraw ?? cfg.accounts.filter((a) => !a.disabled && draws(a.harness)).map((a) => a.name);
   // The one named while it can draw, else the first that can, as the engine picks (config.rs
   // `drawing_account`).
   const drawer = drawers.find((name) => name === emblems.account) ?? drawers[0];
