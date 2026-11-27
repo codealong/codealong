@@ -54,8 +54,6 @@ pub struct Config {
     #[serde(default)]
     pub emblems: EmblemsCfg,
     #[serde(default)]
-    pub backgrounds: crate::backgrounds::BackgroundsCfg,
-    #[serde(default)]
     pub search: SearchCfg,
     #[serde(default)]
     pub devices: DevicesCfg,
@@ -103,7 +101,6 @@ impl Default for Config {
             jev: None,
             router: None,
             emblems: EmblemsCfg::default(),
-            backgrounds: crate::backgrounds::BackgroundsCfg::default(),
             search: SearchCfg::default(),
             devices: DevicesCfg::default(),
             updates: UpdatesCfg::default(),
@@ -1199,10 +1196,6 @@ pub struct ExperimentalCfg {
     /// kept in the ledger and shown in the Analytics window.
     #[serde(default)]
     pub analytics: bool,
-    /// Session themes (src/sessionTheme.ts): collision-free, emblem-aware colors and generative
-    /// backgrounds on session headers, conversations, and optionally list rows.
-    #[serde(default)]
-    pub session_themes: bool,
     /// Experiments (`experiments/`): side-by-side pinned agent trials, local review and blind judge.
     #[serde(default)]
     pub experiments: bool,
@@ -1620,9 +1613,6 @@ pub struct ProjectCfg {
     /// a name from `[[decisions.models]]`, or `none`. None is `[decisions] default`'s.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub decisions: Option<String>,
-    /// Per-project style prompt override for experimental AI session backgrounds (backgrounds.rs).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub background_prompt: Option<String>,
 }
 
 /// The routing group Auto starts from in `project`: the project's `default`, else
@@ -2636,7 +2626,6 @@ pub fn with_config(text: &str, cfg: &Config) -> Result<String> {
             set_value(&mut doc["emblems"]["prompt"], Value::from(e.prompt.trim()));
         }
     }
-    crate::backgrounds::patch_toml(&mut doc, &cfg.backgrounds);
 
     // Like [jev], only a file that has the table or changes the default gets it.
     if cfg.search != SearchCfg::default() || doc.get("search").is_some() {
@@ -2876,7 +2865,7 @@ pub fn with_config(text: &str, cfg: &Config) -> Result<String> {
             place_after(&mut doc, "experimental", after);
         }
         set_value(&mut doc["experimental"]["boards"], Value::from(cfg.experimental.boards));
-        for (k, v) in [("voice", cfg.experimental.voice), ("analytics", cfg.experimental.analytics), ("session_themes", cfg.experimental.session_themes), ("experiments", cfg.experimental.experiments)] {
+        for (k, v) in [("voice", cfg.experimental.voice), ("analytics", cfg.experimental.analytics), ("experiments", cfg.experimental.experiments)] {
             if v || doc["experimental"].get(k).is_some() {
                 set_value(&mut doc["experimental"][k], Value::from(v));
             }
@@ -2943,9 +2932,6 @@ fn set_projects(doc: &mut toml_edit::DocumentMut, projects: &[ProjectCfg]) {
             if let Some(d) = p.decisions.as_deref().map(str::trim).filter(|d| !d.is_empty()) {
                 t["decisions"] = Item::Value(Value::from(d));
             }
-            if let Some(bp) = p.background_prompt.as_deref().map(str::trim).filter(|bp| !bp.is_empty()) {
-                t["background_prompt"] = Item::Value(Value::from(bp));
-            }
             t
         })
         .collect();
@@ -2979,7 +2965,7 @@ pub fn with_folder(text: &str, folder: &str, project: Option<&str>) -> Result<(S
     match cfg.projects.iter_mut().find(|p| p.name.trim() == name) {
         Some(p) => p.folders.push(folder.to_string()),
         None if project.is_some() => return Err(anyhow!("There's no project named {name} any more.")),
-        None => cfg.projects.push(ProjectCfg { name: name.clone(), repos: Vec::new(), folders: vec![folder.to_string()], chrome_profile: None, default: None, decisions: None, background_prompt: None }),
+        None => cfg.projects.push(ProjectCfg { name: name.clone(), repos: Vec::new(), folders: vec![folder.to_string()], chrome_profile: None, default: None, decisions: None }),
     }
     check_projects(&cfg.projects).map_err(anyhow::Error::msg)?;
     let mut doc: toml_edit::DocumentMut = text.parse().context("config.toml has an error; fix it before adding a folder")?;
@@ -3261,7 +3247,6 @@ pub fn suggest_projects(owners: &BTreeMap<String, usize>, display_name: impl Fn(
             chrome_profile: None,
             default: None,
             decisions: None,
-            background_prompt: None,
         })
         .collect()
 }
@@ -3513,7 +3498,7 @@ pub fn render(cfg: &Config) -> String {
         s.push_str(EXPERIMENTAL_COMMENT);
         s.push_str("[experimental]\n");
         s.push_str(&format!("boards = {}\n", cfg.experimental.boards));
-        for (k, v) in [("voice", cfg.experimental.voice), ("analytics", cfg.experimental.analytics), ("session_themes", cfg.experimental.session_themes), ("experiments", cfg.experimental.experiments)] {
+        for (k, v) in [("voice", cfg.experimental.voice), ("analytics", cfg.experimental.analytics), ("experiments", cfg.experimental.experiments)] {
             if v {
                 s.push_str(&format!("{k} = true\n"));
             }
@@ -3580,11 +3565,7 @@ pub fn render(cfg: &Config) -> String {
         if let Some(d) = &p.decisions {
             s.push_str(&format!("decisions = {}\n", q(d)));
         }
-        if let Some(bp) = p.background_prompt.as_deref().map(str::trim).filter(|bp| !bp.is_empty()) {
-            s.push_str(&format!("background_prompt = {}\n", q(bp)));
-        }
     }
-    s.push_str(&crate::backgrounds::render_toml(&cfg.backgrounds));
     if !cfg.repos.is_empty() {
         let mut repos = toml_edit::DocumentMut::new();
         set_repos(&mut repos, &cfg.repos);
@@ -3646,7 +3627,6 @@ mod tests {
                 chrome_profile: Some("Work".into()),
                 default: Some("authorized".into()),
                 decisions: Some("luna".into()),
-                background_prompt: None,
             }],
             decisions: DecisionsCfg {
                 default: "jev".into(),
@@ -3663,7 +3643,6 @@ mod tests {
             jev: None,
             router: None,
             emblems: EmblemsCfg { kind: EmblemKind::Emoji, account: String::new(), prompt: "Pixel art, 16 by 16.".into() },
-            backgrounds: Default::default(),
             search: SearchCfg { days: 7 },
             devices: DevicesCfg { enabled: true, name: "Studio".into(), tailscale: true, iroh: false, remote_control: true, in_bar: false, port: 47000, automations: Rank::Backup },
             updates: UpdatesCfg { check: false },
@@ -3691,7 +3670,7 @@ mod tests {
             repos: BTreeMap::from([("github.com/sprucehq/web".to_string(), RepoCfg { reviews: ReviewsPatch { auto: Some(true), account: Some("codex".into()), post: Some(ReviewPost::Draft), own: OwnReviewsPatch { send: Some(false), ..OwnReviewsPatch::default() }, ..ReviewsPatch::default() }, pull_requests: PullRequestsPatch { nudge_about: Some(NudgeAbout::Feedback), reviews_first: Some(false), ..PullRequestsPatch::default() } })]),
             queue: QueueCfg { order: vec!["reviews".into(), "needs".into(), "unread".into(), "due".into()], due_within: 2 },
             sounds: SoundsCfg { needs_you: "Tink".into(), your_turn: String::new(), review_requested: "Purr".into(), meeting: "Glass".into(), volume: 35 },
-            experimental: ExperimentalCfg { boards: true, voice: true, analytics: true, session_themes: true, experiments: true, glass: false },
+            experimental: ExperimentalCfg { boards: true, voice: true, analytics: true, experiments: true, glass: false },
             voice: VoiceCfg { locale: "en-GB".into(), send_on_release: true, tell_every: 45, meetings: true, meetings_folder: "~/Meetings".into(), meeting_account: String::new(), meeting_model: "haiku".into(), meeting_lead: 2, meeting_countdown: 10, meeting_calendars_off: vec!["C1".into(), "C2".into()] },
             debug: DebugCfg::default(),
             prices: BTreeMap::new(),
@@ -3705,7 +3684,7 @@ mod tests {
     fn saving_accounts_keeps_the_rest_of_the_file() {
         let text = render(&Config {
             accounts: vec![AccountCfg { name: "claude".into(), harness: "claude".into(), home: "~/.claude".into(), command: Some("claude".into()), start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false, chrome_profile: None }],
-            projects: vec![ProjectCfg { name: "Spruce".into(), repos: vec!["github.com/sprucehq/*".into()], folders: vec![], chrome_profile: None, default: None, decisions: None, background_prompt: None }],
+            projects: vec![ProjectCfg { name: "Spruce".into(), repos: vec!["github.com/sprucehq/*".into()], folders: vec![], chrome_profile: None, default: None, decisions: None }],
             ..Config::default()
         });
         let text = text.replace("[apps]\n", "[apps]\n# my editor of choice\n");
@@ -3763,7 +3742,7 @@ mod tests {
         // A file written before there was a theme: no [appearance] table.
         let text = render(&Config {
             accounts: vec![AccountCfg { name: "claude".into(), harness: "claude".into(), home: "~/.claude".into(), command: Some("claude".into()), start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false, chrome_profile: None }],
-            projects: vec![ProjectCfg { name: "Spruce".into(), repos: vec!["github.com/sprucehq/*".into()], folders: vec![], chrome_profile: None, default: None, decisions: None, background_prompt: None }],
+            projects: vec![ProjectCfg { name: "Spruce".into(), repos: vec!["github.com/sprucehq/*".into()], folders: vec![], chrome_profile: None, default: None, decisions: None }],
             ..Config::default()
         });
         let start = text.find(APPEARANCE_COMMENT).unwrap();
@@ -4019,14 +3998,13 @@ mod tests {
                 AccountCfg { name: "codex".into(), harness: "codex".into(), home: "~/.codex".into(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false, chrome_profile: None },
             ],
             projects: vec![
-                ProjectCfg { name: "Spruce".into(), repos: vec!["github.com/sprucehq/*".into()], folders: vec!["~/projects/sparkhq/vault".into()], chrome_profile: None, default: None, decisions: None, background_prompt: None },
-                ProjectCfg { name: "Spur".into(), repos: vec!["github.com/spurhq/*".into()], folders: vec![], chrome_profile: None, default: None, decisions: None, background_prompt: None },
+                ProjectCfg { name: "Spruce".into(), repos: vec!["github.com/sprucehq/*".into()], folders: vec!["~/projects/sparkhq/vault".into()], chrome_profile: None, default: None, decisions: None },
+                ProjectCfg { name: "Spur".into(), repos: vec!["github.com/spurhq/*".into()], folders: vec![], chrome_profile: None, default: None, decisions: None },
             ],
             decisions: DecisionsCfg::default(),
             jev: None,
             router: None,
             emblems: EmblemsCfg::default(),
-            backgrounds: crate::backgrounds::BackgroundsCfg::default(),
             search: SearchCfg::default(),
             devices: DevicesCfg::default(),
             updates: UpdatesCfg::default(),
@@ -4292,7 +4270,6 @@ mod tests {
     fn voice_is_off_until_the_file_turns_it_on_and_brings_its_settings_and_keys() {
         let none = toml::from_str::<Config>("").unwrap();
         assert!(!none.experimental.voice);
-        assert!(!none.experimental.session_themes);
         assert_eq!(none.voice, VoiceCfg { locale: String::new(), send_on_release: false, tell_every: 20, meetings: false, meetings_folder: String::new(), meeting_account: String::new(), meeting_model: String::new(), meeting_lead: 1, meeting_countdown: 5, meeting_calendars_off: Vec::new() });
         let old = render(&full());
         assert!(!old.contains("\n[voice]\n") && !old.contains("\ntalk = ") && !old.contains("voice = "), "{old}");
@@ -4678,7 +4655,6 @@ mod tests {
             never_submit: vec![crate::github::Verdict::Approve],
             nudge_about: Some(NudgeAbout::Feedback),
             reviews_first: Some(true),
-            background_prompt: String::new(),
             suggests: RepoCfg {
                 reviews: ReviewsPatch { auto: Some(true), post: Some(ReviewPost::Comment), own: OwnReviewsPatch { auto: Some(true), ..OwnReviewsPatch::default() }, ..ReviewsPatch::default() },
                 pull_requests: PullRequestsPatch { nudge_by_default: Some(true), nudge_about: None, ..Default::default() },
@@ -5108,7 +5084,7 @@ mod tests {
         next.accounts.pop();
         next.projects[1].folders.push("~/extra".into());
         next.projects[0].chrome_profile = Some("Work".into());
-        next.projects.push(ProjectCfg { name: "Codealong".into(), repos: vec!["github.com/codealong/*".into()], folders: vec![], chrome_profile: None, default: None, decisions: None, background_prompt: None });
+        next.projects.push(ProjectCfg { name: "Codealong".into(), repos: vec!["github.com/codealong/*".into()], folders: vec![], chrome_profile: None, default: None, decisions: None });
         let out = with_config(&text, &next).unwrap();
         assert_eq!(toml::from_str::<Config>(&out).unwrap(), next);
         for kept in ["# my editor of choice", "# roots", "# Harness accounts.", "# Projects group repos", APPS_COMMENT, &debug_comment()] {
@@ -5279,24 +5255,5 @@ mod tests {
         assert_eq!(cfg.projects[1].folders, ["~/code/kestrel"]);
         assert_eq!(project_with_folder(&cfg.projects, &expand("~/code/kestrel")).map(|p| p.name.as_str()), Some("kestrel"));
         assert!(project_with_folder(&cfg.projects, &expand("~/code")).is_none(), "only the folder itself");
-    }
-
-    #[test]
-    fn backgrounds_and_project_background_prompt_round_trip() {
-        let text = render(&full());
-        assert!(!text.contains("[backgrounds]"), "default leaves [backgrounds] out: {text}");
-        let mut on = full();
-        on.backgrounds = crate::backgrounds::BackgroundsCfg {
-            enabled: true,
-            account: "antigravity".into(),
-            prompt: "Minimalist botanical shadows on warm linen.".into(),
-        };
-        on.projects[0].background_prompt = Some("Indigo woodblock ridges.".into());
-        let out = with_config(&text, &on).unwrap();
-        assert!(out.contains("[backgrounds]"), "{out}");
-        assert!(out.contains("background_prompt = \"Indigo woodblock ridges.\""), "{out}");
-        let parsed = parse(&out).unwrap();
-        assert_eq!(parsed.backgrounds, on.backgrounds);
-        assert_eq!(parsed.projects[0].background_prompt.as_deref(), Some("Indigo woodblock ridges."));
     }
 }

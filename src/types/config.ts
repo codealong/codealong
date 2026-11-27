@@ -118,9 +118,6 @@ export interface ProjectCfg {
   /** The decision model that may read what's said here: a `[[decisions.models]]` name, or
    *  `none`; missing for `[decisions] default`'s (decisions.rs `for_project`). */
   decisions?: string;
-  /** Optional per-project style prompt override for experimental AI session backgrounds
-   *  (backgrounds.rs). */
-  background_prompt?: string;
 }
 
 /** config.toml, as the engine parses it (src-tauri/src/config.rs). Keys are the file's own. */
@@ -140,8 +137,6 @@ export interface Config {
   decisions?: DecisionsCfg;
   /** Session emblems. Older files have none: off. */
   emblems?: EmblemsCfg;
-  /** Per-session AI backgrounds (backgrounds.rs), active when `experimental.session_themes` is on. */
-  backgrounds?: BackgroundsCfg;
   accounts: AccountCfg[];
   projects: ProjectCfg[];
   /** How many days of sessions have what was said in them searched; 0 is off. */
@@ -183,13 +178,11 @@ export interface Config {
  *  it's turned on. `boards`: the Board view, as Kanban and as Canvas, and Add to board. `voice`:
  *  the keys held to talk, and sessions that listen. `analytics`: who began each session and turn,
  *  what your prompts did, and how the sessions you marked done stood (the Analytics window's Your part
- *  and Sessions). `session_themes`: experimental per-session colors and generative backgrounds.
- *  Missing from files and boards before it: off. */
+ *  and Sessions). Missing from files and boards before it: off. */
 export interface ExperimentalCfg {
   boards: boolean;
   voice?: boolean;
   analytics?: boolean;
-  session_themes?: boolean;
   experiments?: boolean;
 }
 
@@ -271,8 +264,6 @@ export interface TeamCfg {
   nudgeAbout?: NudgeAbout | null;
   /** Its PRs waiting on your review go ahead of the sessions that need you, for everyone. */
   reviewsFirst?: boolean | null;
-  /** Style prompt for experimental AI session backgrounds in this repo (`[backgrounds]`). */
-  backgroundPrompt?: string;
   /** What the team suggests each person turns on. */
   suggests: RepoCfg;
 }
@@ -515,16 +506,6 @@ export interface EmblemsCfg {
   account: string;
   /** How they're drawn, for `drawn`; empty is Codealong's own (SettingsDialog.tsx
    *  `DRAWN_STYLE`). */
-  prompt: string;
-}
-
-/** `[backgrounds]` in config.toml (backgrounds.rs `BackgroundsCfg`). */
-export interface BackgroundsCfg {
-  /** Automatically draw a bespoke AI background for each new top-level session (off by default). */
-  enabled: boolean;
-  /** Account that draws them (Codex or Antigravity); empty falls back to emblems/first drawer. */
-  account: string;
-  /** Global style prompt for AI session backgrounds; empty uses the built-in default. */
   prompt: string;
 }
 

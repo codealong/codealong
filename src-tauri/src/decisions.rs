@@ -886,7 +886,7 @@ mod tests {
     fn cfg() -> Config {
         let mut cfg = Config::default();
         cfg.decisions.models = vec![model("jev", "typesafe", Some("sol")), model("luna", "openai", Some("jev")), model("sol", "gemini", None)];
-        let project = |name: &str, decisions: Option<&str>| ProjectCfg { name: name.into(), repos: vec![], folders: vec![], chrome_profile: None, default: None, decisions: decisions.map(String::from), background_prompt: None };
+        let project = |name: &str, decisions: Option<&str>| ProjectCfg { name: name.into(), repos: vec![], folders: vec![], chrome_profile: None, default: None, decisions: decisions.map(String::from) };
         cfg.projects = vec![project("atlas", Some("luna")), project("kestrel", Some("none")), project("northwind", None), project("harbor", Some("jev"))];
         cfg.routing.groups = vec![RoutingGroupCfg { name: "work".into(), members: vec![GroupMemberCfg { account: "claude-work".into(), ..Default::default() }], boundary: true, ..Default::default() }];
         cfg

@@ -48,7 +48,6 @@
 @import '../ui/Notices.css';
 @import '../ui/AccountsSection.css';
 @import '../ui/SettingsDialog.css';
-@import '../ui/SessionThemesSettings.css';
 @import '../ui/SettingsFind.css';
 @import '../ui/JevUsage.css';
 @import '../ui/AgentsSection.css';
@@ -103,7 +102,6 @@
 @import '../ui/HelpersCard.css';
 @import '../ui/DoneHelpers.css';
 @import '../ui/SessionPanel.css';
-@import '../ui/SessionBackdrop.css';
 @import '../ui/SessionThread.css';
 @import '../ui/MessageCard.css';
 @import '../ui/SentFiles.css';

@@ -32,12 +32,10 @@ fn with_terminals(mut sessions: Vec<Session>) -> Vec<Session> {
 }
 
 impl Engine {
-    /// Sessions with their emblems, of the kind `[emblems]` has on, and experimental AI backdrops.
+    /// Sessions with their emblems, of the kind `[emblems]` has on.
     fn with_emblems(&self, mut sessions: Vec<Session>) -> Vec<Session> {
-        let bg_on = self.cfg.experimental.session_themes && self.cfg.backgrounds.enabled;
         for s in &mut sessions {
             s.emblem = self.emblems.emblem_of(s, self.cfg.emblems.kind);
-            s.backdrop = self.backgrounds.backdrop_of(s, bg_on);
         }
         sessions
     }

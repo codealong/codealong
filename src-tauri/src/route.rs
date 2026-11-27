@@ -797,7 +797,7 @@ mod tests {
         b.lanes[1].sessions[0].excerpt = Some("Wrote the pricing copy".into());
         let mut cfg = crate::config::Config::default();
         cfg.decisions.models = vec![DecisionModelCfg { name: "luna".into(), provider: "openai".into(), model: "gpt-6-luna".into(), fallback: None }];
-        cfg.projects = vec![ProjectCfg { name: "Acme".into(), repos: vec![], folders: vec![], chrome_profile: None, default: None, decisions: Some("luna".into()), background_prompt: None }];
+        cfg.projects = vec![ProjectCfg { name: "Acme".into(), repos: vec![], folders: vec![], chrome_profile: None, default: None, decisions: Some("luna".into()) }];
         let related = [crate::search::Related { key: "c:2".into(), shared: vec!["copy".into()], lines: vec![(true, "rewrite the pricing copy".into())] }];
         let card = |req: &Request, key: &str| req.body["state"]["sessions"][format!("s{}", req.sessions.iter().position(|k| k == key).unwrap() + 1)].clone();
         let lines = "lines of its conversation that share words with the message";

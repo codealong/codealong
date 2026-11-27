@@ -470,18 +470,8 @@ function withExperiments(board) {
   var out = Object.assign(board, {
     glass: !!window.__PREVIEW_GLASS__,
     showKeys: !window.__PREVIEW_KEYS_HELD__,
-    experimental: Object.assign({}, board.experimental, { boards: !window.__PREVIEW_BOARDS_OFF__, voice: voice, analytics: !!window.__PREVIEW_ANALYTICS__, session_themes: !!window.__PREVIEW_SESSION_THEMES__, experiments: !!window.__PREVIEW_EXPERIMENTS__ }),
-    backgrounds: Object.assign({ enabled: false, account: '', prompt: '' }, board.backgrounds, window.__PREVIEW_BACKGROUNDS__ || {}),
+    experimental: Object.assign({}, board.experimental, { boards: !window.__PREVIEW_BOARDS_OFF__, voice: voice, analytics: !!window.__PREVIEW_ANALYTICS__, experiments: !!window.__PREVIEW_EXPERIMENTS__ }),
   });
-  if (window.__PREVIEW_AI_BACKDROPS__ && typeof window.__PREVIEW_AI_BACKDROPS__ === 'object') {
-    var map = window.__PREVIEW_AI_BACKDROPS__;
-    (out.lanes || []).forEach(function (l) {
-      l.sessions.forEach(function (s) {
-        if (map[s.key]) s.backdrop = map[s.key];
-        else if (map['*'] && !s.archived && !s.visitor && !s.helper) s.backdrop = map['*'];
-      });
-    });
-  }
   if (voice && window.__LISTENS__) {
     out.listenings = Object.assign({}, out.listenings, listeningSample(window.__LISTENS__));
     // Said on the session too, as the engine says it (board.rs `apply_listening`).
@@ -780,7 +770,6 @@ window.__TAURI_INTERNALS__ = {
         return all[0];
       });
     }
-    if (cmd === 'redraw_session_background') return Promise.resolve(null);
     if (cmd === 'save_config' && window.__keepConfig) {
       window.__keptConfig = (args || {}).config;
       return Promise.resolve(null);

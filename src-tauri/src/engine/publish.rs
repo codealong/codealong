@@ -237,7 +237,6 @@ impl Engine {
         board.improve = crate::improve::Improve { installed: crate::updates::enabled(), ..crate::improve::target(&board.lanes, &self.codealong_sources) };
         board.decisions = self.cfg.decisions.clone();
         board.experimental = self.cfg.experimental.clone();
-        board.backgrounds = self.cfg.backgrounds.clone();
         board.queue = self.cfg.queue.settled();
         // While `[queue]` leaves reviews or merges out, PRs of that kind are no cause for the
         // mark's color, as they're none for the bar's pills or the notch's count.
@@ -329,7 +328,6 @@ impl Engine {
         if self.look_emblems(&board) {
             board = self.compose();
         }
-        self.look_backgrounds(&board);
         let composed = t.elapsed();
         self.dirty = false;
         self.dirty_git = false;

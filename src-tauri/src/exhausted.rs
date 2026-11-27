@@ -340,7 +340,7 @@ mod tests {
             boundary: true,
             decisions: None,
         }];
-        cfg.projects = vec![ProjectCfg { name: "Acme".into(), repos: vec![], folders: vec![], default: Some("authorized".into()), chrome_profile: None, decisions: None, background_prompt: None }];
+        cfg.projects = vec![ProjectCfg { name: "Acme".into(), repos: vec![], folders: vec![], default: Some("authorized".into()), chrome_profile: None, decisions: None }];
 
         // 1-member boundary group on 5h limit: must NOT suggest personal accounts `claude` or `claude2`.
         let mut lane = crate::fixtures::lane("/work", vec![limited("claude:claude-work:s1", Some("session"), NOW - 5 * MIN, Some(NOW + HOUR), Some("opus"))]);

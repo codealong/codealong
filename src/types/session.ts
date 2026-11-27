@@ -344,9 +344,6 @@ export interface Session {
   /** Other non-helper sessions this session has been actively messaging back and forth with
    *  recently (chatter.rs). Missing when there is no recent peer chatter, and from older Macs. */
   peers?: PeerTalk[];
-  /** Experimental AI-generated fine-art background (backgrounds.rs, when
-   *  `[experimental] session_themes` and `[backgrounds] enabled` are on). */
-  backdrop?: SessionBackdrop;
   resumeCommand: string | null;
   /** The Claude app is signed into this session's account. */
   appAccount: boolean;
@@ -384,19 +381,6 @@ export interface Emblem {
   picture?: string;
   /** What it shows, in a word or two, for its tooltip. */
   name: string;
-}
-
-/** An AI-generated background drawn for a session (peer model.rs `SessionBackdrop`), with its
- *  extracted dominant accent hex and center reading luminance. */
-export interface SessionBackdrop {
-  /** Kept image name (`<hash>.jpg` or `<hash>.png`), loaded via `imageUrl`. */
-  picture: string;
-  /** Short 2–4 word scene label ("Indigo woodblock ridges"). */
-  name: string;
-  /** Dominant chromatic accent hex (`#rrggbb`) sampled from the artwork. */
-  accent?: string;
-  /** Average perceived luminance (`0..255`) of the center reading region. */
-  luminance: number;
 }
 
 /** A page on the web a session made or showed you: an artifact Claude Code published, made from a

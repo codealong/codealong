@@ -50,7 +50,6 @@ import { dialogUp } from './focusTrap';
 import type { CameFrom } from './PrCard';
 import { showPrTab } from './PrInspector';
 import { SessionCard, type WindowCan } from './SessionCard';
-import { SessionThemeProvider } from './SessionThemeProvider';
 import type { Notice, Queue } from './SessionPanel';
 import { chordMod, held } from '../platform';
 
@@ -503,7 +502,6 @@ export function NotchSession({ sessionKey, rename, now, queue, notice, onBack, k
         if (!keys) onKeys();
       }}
     >
-      <SessionThemeProvider board={live.board}>
       <SessionCard
         lane={lane}
         session={session}
@@ -542,7 +540,6 @@ export function NotchSession({ sessionKey, rename, now, queue, notice, onBack, k
           if (!onUnsent(session.key, `Didn’t send to ${session.title}: ${why}`)) report.error(why);
         }}
       />
-      </SessionThemeProvider>
     </div>
   );
 }

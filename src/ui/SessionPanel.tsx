@@ -51,9 +51,6 @@ import { MoveDialog } from './MoveAccount';
 import { Button, cx, DialogHostContext, Icon, OneLine, PanelBack, Rich, useDialogPlace, type PanelBackTo } from './primitives';
 import { runFolder } from './RunButton';
 import { SessionHeader, type SessionHeaderProps } from './SessionHeader';
-import { SessionBackdrop } from './SessionBackdrop';
-import { useSessionTheme } from './SessionThemeProvider';
-import { artScheme, schemeClass, themeCssVars } from '../sessionTheme';
 import { Reply } from './SessionReply';
 import { SessionThread } from './SessionThread';
 import { SnoozeSuggestion } from './SnoozeSuggestion';
@@ -506,16 +503,8 @@ export function SessionPanel({ variant = 'panel', zoom, queue, notice, hotkeys, 
   // moment. The terminal it runs in stays here, where alone it's shown.
   const away = useKeptSessions(variant === 'panel').has(key);
   const popOut = variant === 'panel' && !away ? header.actions?.window?.run : undefined;
-  const theme = useSessionTheme(s);
-  const hasBackdrop = !!theme && (!theme.aiEnabled || !!theme.assigned.backdropImage);
-  const fullTheme = hasBackdrop && theme.prefs.surface === 'full';
-  // An AI background shows as drawn, in full color, and sets the panel's look by itself: a dark
-  // picture gives the panel dark words and glass whatever the app's theme (SessionBackdrop.css).
-  const art = fullTheme ? artScheme(theme.assigned) : null;
-  const themeStyle = theme ? themeCssVars(theme.assigned.color, theme.prefs.intensity, theme.assigned.accentOverride) : undefined;
   const body = (
     <>
-          {fullTheme && <SessionBackdrop theme={theme.assigned} vibe={theme.prefs.vibe} intensity={theme.prefs.intensity} place="panel" working={s.status === 'working'} aiOnly={theme.aiEnabled} />}
           {/* The way back goes on the strip where there's one, else over the header. */}
           <QueueStrip queue={queue} notice={notice} hotkeys={hotkeys} session={s} actions={header.actions} onSeen={header.onSeen} back={hotkeys ? header.back : undefined} />
           <SessionHeader {...header} back={hotkeys ? undefined : header.back} seenAbove={!!hotkeys} compact={variant === 'card'} accountBelow={replies} inMain={variant === 'panel'} onMove={moves && (() => ask(null))} onPopOut={popOut} />
@@ -591,10 +580,10 @@ export function SessionPanel({ variant = 'panel', zoom, queue, notice, hotkeys, 
     return (
       <div
         ref={placeDialogs}
-        className={cx('ca-reply', hasBackdrop && 'ca-st-panel', fullTheme && 'is-full', hasBackdrop && !theme.aiEnabled && `is-${theme.prefs.vibe}`, art && 'is-art', schemeClass(art))}
+        className="ca-reply"
         data-find="conversation"
         data-shows-session={key}
-        style={themeStyle ? { ...themeStyle, ...cardZoom(zoom) } : cardZoom(zoom)}
+        style={cardZoom(zoom)}
         onContextMenu={(e) => {
           // The box keeps its own menu, for copy and paste, as does anything inside with one.
           if (!onMenu || e.defaultPrevented || (e.target instanceof Element && e.target.closest('input, textarea, [contenteditable="true"]'))) return;
@@ -607,7 +596,7 @@ export function SessionPanel({ variant = 'panel', zoom, queue, notice, hotkeys, 
     );
   }
   return (
-    <aside className={cx('ca-insp', 'ca-sessinsp', hasBackdrop && 'ca-st-panel', fullTheme && 'is-full', hasBackdrop && !theme.aiEnabled && `is-${theme.prefs.vibe}`, art && 'is-art', schemeClass(art))} style={themeStyle} aria-label={`${s.title} details`} data-find="conversation" data-shows-session={key}>
+    <aside className="ca-insp ca-sessinsp" aria-label={`${s.title} details`} data-find="conversation" data-shows-session={key}>
       {body}
     </aside>
   );

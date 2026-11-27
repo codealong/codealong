@@ -320,11 +320,6 @@ impl Handle {
         let _ = self.tx.send(Msg::RefreshUsage);
     }
 
-    /// Drops `key`'s kept AI background so a fresh one is drawn immediately.
-    pub fn redraw_background(&self, key: String) {
-        let _ = self.tx.send(Msg::RedrawBackground(key));
-    }
-
     /// How something Codealong does by itself in the background went (`Trouble` lists them, with
     /// what does each): a failure is a notice until a later one works.
     pub fn went(&self, what: Trouble, result: std::result::Result<(), String>) {

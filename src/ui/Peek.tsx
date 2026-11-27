@@ -47,7 +47,6 @@ import { useMoveFollow } from '../useMoveFollow';
 import { useCardHost, useLiveSession } from './cardHost';
 import { ProjectIcons, projectIconMap, ProjectShown } from './ProjectSaid';
 import { SessionCard, type WindowCan } from './SessionCard';
-import { SessionThemeProvider } from './SessionThemeProvider';
 import { SideReply } from './SessionReply';
 import { useTheme } from './ThemeSwitch';
 import { useNow } from './useNow';
@@ -532,9 +531,7 @@ export function Peek({ kept = false, side = false }: { kept?: boolean; side?: bo
   const shownProject = kept ? ALL_PROJECTS : readStored(BAR_PROJECT_KEY, asText, ALL_PROJECTS);
   return (
     <ProjectShown.Provider value={shownProject}>
-      <ProjectIcons.Provider value={projectIcons}>
-        <SessionThemeProvider board={live.board}>{page}</SessionThemeProvider>
-      </ProjectIcons.Provider>
+      <ProjectIcons.Provider value={projectIcons}>{page}</ProjectIcons.Provider>
     </ProjectShown.Provider>
   );
 }

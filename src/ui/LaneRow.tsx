@@ -34,8 +34,6 @@ import { useListening } from '../listening';
 import { ListeningChip } from './Listening';
 import { scopeWords } from '../orchestrators';
 import { deviceLabel } from '../devices';
-import { themeCssVars } from '../sessionTheme';
-import { useSessionTheme } from './SessionThemeProvider';
 
 /** `web · billing`: the repo, and the branch when the worktree's name doesn't already say it. */
 function laneSub(lane: Lane): { sub: string; branch: string | null } {
@@ -698,14 +696,11 @@ function AgentRowView({ lane, session: s, domId, now, age, slim = false, selecte
   const where = nested ? !!elsewhere : !inWorktree && (!inRepo || (!!lane.reuse && lane.origin !== 'main') || !!lane.device || !!s.orchestrator);
   const runSince = !started && listedStatus(s) === 'working' ? workingSince(s) : null;
   const pr = !nested && !inWorktree && lane.pr && <PrChip pr={lane.pr} compact onMenu={onPrMenu} onShow={onPrShow} onOpen={onPrOpen} inRow />;
-  const theme = useSessionTheme(s);
-  const rowTheme = theme && theme.prefs.listRows && !nested && (!theme.aiEnabled || !!theme.assigned.accentOverride) ? theme : null;
   return (
     <Row
       id={domId}
       selected={selected}
-      className={cx('ca-lane', 'is-item', 'is-agent', oneLine && 'is-slim', `is-${s.status === 'error' ? 'needs' : s.status}`, s.snoozedUntil != null && 'is-snoozed', pinned && 'is-pinned', away(lane) && 'is-away', nested && 'is-nested', rowTheme && 'ca-st-row')}
-      style={rowTheme ? themeCssVars(rowTheme.assigned.color, rowTheme.prefs.intensity, rowTheme.assigned.accentOverride) : undefined}
+      className={cx('ca-lane', 'is-item', 'is-agent', oneLine && 'is-slim', `is-${s.status === 'error' ? 'needs' : s.status}`, s.snoozedUntil != null && 'is-snoozed', pinned && 'is-pinned', away(lane) && 'is-away', nested && 'is-nested')}
       drag={drag}
       // ⌘ adds it to the ones picked or leaves it out, ⇧ picks the rows up to it.
       onSelect={(e) => onSelect(selectHow(e))}

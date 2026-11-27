@@ -675,7 +675,6 @@ pub fn compose(inp: Inputs) -> Board {
         tools: crate::config::ToolDisplay::default(),
         perf_log: false,
         todos: Vec::new(),
-        backgrounds: Default::default(),
         todos_unreadable: false,
         today: String::new(),
         todo_queue: Default::default(),

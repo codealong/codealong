@@ -667,7 +667,7 @@ mod tests {
             boundary: false,
             decisions: None,
         });
-        cfg.projects.push(crate::config::ProjectCfg { name: "Acme".into(), repos: vec![], folders: vec![], default: Some("authorized".into()), chrome_profile: None, decisions: None, background_prompt: None });
+        cfg.projects.push(crate::config::ProjectCfg { name: "Acme".into(), repos: vec![], folders: vec![], default: Some("authorized".into()), chrome_profile: None, decisions: None });
         let now = 1_800_000_000_000;
         let lim = crate::model::SessionLimit { meter: Some("session".into()), at: now - 60_000, resets_at: Some(now + 90 * 60_000), ..Default::default() };
         let s = crate::model::Session { account: "claude-work".into(), status: crate::model::Status::Error, last_activity: now - 60_000, limit: Some(lim), ..crate::fixtures::session("claude:claude-work:s1") };
