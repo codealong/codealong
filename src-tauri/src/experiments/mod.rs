@@ -112,6 +112,50 @@ impl Default for Gate {
 #[serde(default, rename_all = "camelCase")]
 pub struct JudgeCfg {
     pub seat: Seat,
+    /// Optional extra evaluation criteria appended to the blind judge's prompt.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rubric: Option<String>,
+}
+
+/// One `[experiments.<name>]` preset in `config.toml`: a reusable set of arms and an optional
+/// blind judge (and rubric) so `codealong exp run --preset <name>` only needs a task prompt.
+/// No mechanical `eval` gate is required; omit it when relying on agents + judge for quality.
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq, Eq)]
+#[serde(default)]
+pub struct PresetCfg {
+    /// Arm specs (`<worker>[+<reviewer>]`), at least two.
+    pub arms: Vec<String>,
+    /// Optional blind pairwise judge seat (`<account>[:<model>][:<effort>][@<mode>]`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub judge: Option<String>,
+    /// Optional extra evaluation criteria for the blind judge.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rubric: Option<String>,
+    /// Optional mechanical gate command; omit when not needed.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub eval: Option<String>,
+    /// Optional gate timeout in seconds (defaults to 600 when `eval` is set).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub eval_timeout: Option<u64>,
+    /// Skip running `eval` on a clean base worktree before launching arms.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub skip_base_check: bool,
+    /// Optional max concurrent trials (defaults to 2).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_parallel: Option<usize>,
+}
+
+/// Removes extracted `judge/*/repo` base-commit snapshots under a run's artifact folder so they
+/// don't linger on disk after judging finishes, is cancelled, or is discarded.
+pub fn cleanup_judge_repos(run_id: &str) {
+    let judge_dir = folder(run_id).join("judge");
+    let Ok(entries) = std::fs::read_dir(&judge_dir) else { return };
+    for entry in entries.flatten() {
+        let repo_dir = entry.path().join("repo");
+        if repo_dir.exists() {
+            let _ = std::fs::remove_dir_all(&repo_dir);
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -460,6 +504,37 @@ pub fn check_boundary(cfg: &Config, accounts: &[&str]) -> Result<()> {
     Ok(())
 }
 
+/// Checks `[experiments.<name>]` presets in `config.toml` without requiring any harness binary
+/// on disk (ACP availability is checked at `exp run` time).
+pub fn check_presets(cfg: &Config) -> std::result::Result<(), String> {
+    for (name, preset) in &cfg.experiments {
+        if name.trim().is_empty() {
+            return Err("[experiments] has a preset with an empty name.".into());
+        }
+        if preset.arms.len() < 2 {
+            return Err(format!("[experiments.{name}] needs at least two entries in `arms`."));
+        }
+        if let Some(0) = preset.max_parallel {
+            return Err(format!("[experiments.{name}] max_parallel must be at least 1."));
+        }
+        let mut accounts: Vec<String> = Vec::new();
+        for raw in &preset.arms {
+            let arm = parse_arm(cfg, raw).map_err(|e| format!("[experiments.{name}] {e}"))?;
+            accounts.push(arm.worker.account);
+            if let Some(rev) = arm.reviewer {
+                accounts.push(rev.account);
+            }
+        }
+        if let Some(raw_judge) = preset.judge.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+            let seat = parse_seat(cfg, raw_judge).map_err(|e| format!("[experiments.{name}] judge: {e}"))?;
+            accounts.push(seat.account);
+        }
+        let refs: Vec<&str> = accounts.iter().map(String::as_str).collect();
+        check_boundary(cfg, &refs).map_err(|e| format!("[experiments.{name}] {e}"))?;
+    }
+    Ok(())
+}
+
 /// Validates every seat in a run (ACP hosted support, boundary consistency, repo hooks) and returns
 /// non-fatal warnings (such as the judge sharing a harness with an arm).
 pub fn validate_run(cfg: &Config, main_worktree: &Path, arms: &[Arm], judge: Option<&JudgeCfg>) -> Result<Vec<String>> {
@@ -699,5 +774,41 @@ mod tests {
         let (rec, note) = compute_recommendation(&trials, &[biased]);
         assert_eq!(rec, None);
         assert!(note.contains("Too close"), "{note}");
+    }
+
+    #[test]
+    fn check_presets_validates_arms_judge_boundaries_and_allows_no_eval() {
+        let mut cfg = test_cfg();
+        cfg.experiments.insert(
+            "quality".into(),
+            PresetCfg {
+                arms: vec!["claude:opus:high".into(), "claude:sonnet+codex:medium".into()],
+                judge: Some("codex:high".into()),
+                rubric: Some("Prefer idiomatic reuse of existing helpers.".into()),
+                eval: None,
+                ..Default::default()
+            },
+        );
+        assert!(check_presets(&cfg).is_ok());
+
+        // Too few arms is rejected.
+        cfg.experiments.insert("one".into(), PresetCfg { arms: vec!["claude".into()], ..Default::default() });
+        assert!(check_presets(&cfg).unwrap_err().contains("at least two"));
+        cfg.experiments.remove("one");
+
+        // Cross-boundary preset is rejected.
+        cfg.experiments.insert(
+            "leak".into(),
+            PresetCfg { arms: vec!["claude-work".into(), "codex".into()], ..Default::default() },
+        );
+        assert!(check_presets(&cfg).unwrap_err().contains("same boundary"));
+        cfg.experiments.remove("leak");
+
+        // max_parallel = 0 is rejected.
+        cfg.experiments.insert(
+            "zero".into(),
+            PresetCfg { arms: vec!["claude".into(), "codex".into()], max_parallel: Some(0), ..Default::default() },
+        );
+        assert!(check_presets(&cfg).unwrap_err().contains("max_parallel"));
     }
 }

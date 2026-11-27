@@ -86,6 +86,9 @@ pub struct Config {
     /// dollars per million tokens (prices.rs).
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub prices: BTreeMap<String, crate::prices::Price>,
+    /// Named experiment presets, `[experiments."<name>"]` (experiments/mod.rs `PresetCfg`).
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub experiments: BTreeMap<String, crate::experiments::PresetCfg>,
 }
 
 impl Default for Config {
@@ -116,6 +119,7 @@ impl Default for Config {
             voice: VoiceCfg::default(),
             debug: DebugCfg::default(),
             prices: BTreeMap::new(),
+            experiments: BTreeMap::new(),
         }
     }
 }
@@ -2430,7 +2434,8 @@ pub fn check(cfg: &Config) -> std::result::Result<(), String> {
         return Err(format!("[voice] meeting_account is {on}, which is no account or routing group here."));
     }
     check_sounds(&cfg.sounds)?;
-    check_queue(&cfg.queue)
+    check_queue(&cfg.queue)?;
+    crate::experiments::check_presets(cfg)
 }
 
 /// Why `[queue]` can't be gone by as it says: a name in `order` that isn't a kind, one named
@@ -3674,6 +3679,7 @@ mod tests {
             voice: VoiceCfg { locale: "en-GB".into(), send_on_release: true, tell_every: 45, meetings: true, meetings_folder: "~/Meetings".into(), meeting_account: String::new(), meeting_model: "haiku".into(), meeting_lead: 2, meeting_countdown: 10, meeting_calendars_off: vec!["C1".into(), "C2".into()] },
             debug: DebugCfg::default(),
             prices: BTreeMap::new(),
+            experiments: BTreeMap::new(),
         };
         let parsed: Config = toml::from_str(&render(&cfg)).unwrap();
 
@@ -4020,6 +4026,7 @@ mod tests {
             voice: VoiceCfg::default(),
             debug: DebugCfg { perf_log: true },
             prices: BTreeMap::new(),
+            experiments: BTreeMap::new(),
         }
     }
 
@@ -5255,5 +5262,39 @@ mod tests {
         assert_eq!(cfg.projects[1].folders, ["~/code/kestrel"]);
         assert_eq!(project_with_folder(&cfg.projects, &expand("~/code/kestrel")).map(|p| p.name.as_str()), Some("kestrel"));
         assert!(project_with_folder(&cfg.projects, &expand("~/code")).is_none(), "only the folder itself");
+    }
+
+    #[test]
+    fn experiment_presets_parse_without_eval_and_survive_saving_other_settings() {
+        let text = "\
+[[accounts]]
+name = \"claude\"
+harness = \"claude\"
+home = \"~/.claude\"
+
+[[accounts]]
+name = \"codex\"
+harness = \"codex\"
+home = \"~/.codex\"
+
+[experiments.review-bakeoff]
+arms = [\"claude:sonnet\", \"claude:sonnet+codex:medium\"]
+judge = \"codex:high\"
+rubric = \"Prefer small diffs that reuse existing helpers.\"
+";
+        let cfg = parse(text).unwrap();
+        assert!(check(&cfg).is_ok());
+        let preset = cfg.experiments.get("review-bakeoff").expect("preset parsed");
+        assert_eq!(preset.arms, vec!["claude:sonnet", "claude:sonnet+codex:medium"]);
+        assert_eq!(preset.judge.as_deref(), Some("codex:high"));
+        assert_eq!(preset.rubric.as_deref(), Some("Prefer small diffs that reuse existing helpers."));
+        assert_eq!(preset.eval, None);
+
+        // Saving another setting leaves `[experiments.*]` untouched in config.toml.
+        let mut edited = cfg.clone();
+        edited.appearance.theme = Theme::Dark;
+        let saved = with_config(text, &edited).unwrap();
+        assert!(saved.contains("[experiments.review-bakeoff]"), "{saved}");
+        assert_eq!(parse(&saved).unwrap().experiments.get("review-bakeoff"), Some(preset));
     }
 }

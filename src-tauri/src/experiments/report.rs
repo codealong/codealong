@@ -470,6 +470,9 @@ pub fn apply_op(engine: Option<&Handle>, op: Op) -> Result<Value> {
                 }
                 removed.push(t.id.clone());
             }
+            if trial_id.is_none() {
+                super::cleanup_judge_repos(&run.id);
+            }
             super::change(|f| {
                 let Some(r) = f.runs.iter_mut().find(|r| r.id == run_id) else { return false };
                 for id in &removed {
@@ -494,6 +497,7 @@ pub fn apply_op(engine: Option<&Handle>, op: Op) -> Result<Value> {
                     let _ = crate::acp::cancel(key);
                 }
             }
+            super::cleanup_judge_repos(&run.id);
             let now = now_ms();
             super::change(|f| {
                 if let Some(r) = f.runs.iter_mut().find(|r| r.id == run_id) {
