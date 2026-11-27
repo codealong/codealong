@@ -1599,93 +1599,111 @@ pub fn fork_from(board: &Board, cfg: &Config, key: &str, cursor: u64, prompt: &s
     Ok(Started { key: copy, message: Some(format!("Forked from before that message: a copy of “{}” goes on from there with what you wrote in its place.", s.title)) })
 }
 
-/// Moves a session to `to`, another account of its harness (`Adapter::move_to`): a copy goes on
-/// from what it had written, in a new terminal in its folder under `to` (a background job's copy
-/// as a job there, `Adapter::move_to_background`), on `prompt` when there's one, and the
-/// session itself is closed where Codealong can close it. Not mid-turn: the copy would see the
-/// turn cut off, so the caller stops a turn first (actions.rs), and archives the session once
-/// this returns.
-pub fn move_to(board: &Board, cfg: &Config, key: &str, to: &str, prompt: &str) -> Result<Started> {
+/// Native same-harness move or keep-open handoff (`Adapter::move_to`, `move_to_background`, or
+/// `move_to_codealong`) preserving the full transcript on disk, with optional `model`, `effort`,
+/// `prompt`, target `place`, and `keep` (leaves the source session open and unarchived).
+#[allow(clippy::too_many_arguments)]
+pub fn move_to_with(board: &Board, cfg: &Config, key: &str, to: &str, place: Place, prompt: &str, model: Option<&str>, effort: Option<&str>, keep: bool) -> Result<Started> {
     let (s, account, lane, cwd) = to_fork(board, cfg, key)?;
     let target = move_target(cfg, s, account, to)?;
-    if crate::harness::turn_running(s) {
+    if !keep && crate::harness::turn_running(s) {
         bail!("“{}” is in the middle of a turn. Stop it or let it finish, then move it.", s.title);
     }
     let adapter = crate::harness::adapter(s.harness);
     let ctx = crate::harness::Ctx { account };
-    let in_background = s.attach_command.is_some();
     // The move is noted as a fork from another account, which is how the windows tell a move
     // (lineage.ts), so the shared model needs no word for it that older devices wouldn't read.
     // Until the copy's first message the note is all there is of it, and it keeps the copy on the
     // board to go on with however its terminal ends (`claude::Reader::closed_copies`), so the
     // session is closed only once it's written.
-    let note = |copy: &str| crate::origins::write(copy, key, crate::model::OriginHow::Fork);
+    let note = |copy: &str| crate::origins::write_handoff(copy, key, !keep);
     // Keep automatic wakes (PR nudges, agent messages) from resuming the old session before the
     // caller archives it, or the copy while `closed_copies` shows it stopped before its process
     // registers.
-    let source_claim = crate::send::note_waking(key);
+    let source_claim = (!keep).then(|| crate::send::note_waking(key)).flatten();
     // Where a copy in a terminal runs, when that isn't a tab of it now.
     let mut runs = None;
-    let copy = if in_background {
-        adapter.before_start(target, &cwd);
-        let copy = adapter.move_to_background(&ctx, s, target, &cwd, prompt)?;
-        if let Some(c) = copy.as_deref().and_then(crate::send::note_waking) {
-            c.keep();
-        }
-        // The service picks a job's ID, so it's noted once the job has one.
-        if let Some(copy) = &copy {
-            note(copy).map_err(|e| anyhow!("Its copy started as a job under {to} ({copy}), but the move couldn't be noted, so “{}” stays where it is: {e:#}", s.title))?;
-        }
-        copy
-    } else {
-        let copy = adapter.move_to(&ctx, s, target, prompt)?;
-        // Claim before writing origins so `claude::Reader::closed_copies` can't expose the copy
-        // stopped to an automatic wake before its terminal boots.
-        let copy_claim = copy.key.as_deref().and_then(crate::send::note_waking);
-        if let Some(copy) = &copy.key {
-            note(copy).map_err(|e| anyhow!("Couldn't note the move, so “{}” stays where it is: {e:#}", s.title))?;
-        }
-        adapter.before_start(target, &cwd);
-        let label = crate::board::tab_label(&board.lanes, &cwd, &s.title);
-        match in_terminal(board, cfg, &cwd, label.as_deref(), false, &copy.input, &copy.env) {
-            Ok(ran) => runs = with_note(None, &ran, cfg),
-            Err(e) => {
-                // No copy started, so there's none to keep.
-                if let Some(Err(forgot)) = copy.key.as_deref().map(crate::origins::forget) {
-                    eprintln!("The move's terminal didn't open, and its note couldn't be taken back, so its copy shows stopped: {forgot:#}");
-                }
-                return Err(e);
+    let copy = match place {
+        Place::Codealong => {
+            adapter.before_start(target, &cwd);
+            let copy = adapter.move_to_codealong(&ctx, s, target, &cwd, prompt, model, effort)?;
+            let copy_claim = crate::send::note_waking(&copy);
+            note(&copy).map_err(|e| anyhow!("Its copy started in Codealong under {to} ({copy}), but the move couldn't be noted, so “{}” stays where it is: {e:#}", s.title))?;
+            if let Some(c) = copy_claim {
+                c.keep();
             }
+            Some(copy)
         }
-        if let Some(c) = copy_claim {
-            c.keep();
+        Place::Background => {
+            adapter.before_start(target, &cwd);
+            let copy = adapter.move_to_background(&ctx, s, target, &cwd, prompt, model, effort)?;
+            if let Some(c) = copy.as_deref().and_then(crate::send::note_waking) {
+                c.keep();
+            }
+            // The service picks a job's ID, so it's noted once the job has one.
+            if let Some(copy) = &copy {
+                note(copy).map_err(|e| anyhow!("Its copy started as a job under {to} ({copy}), but the move couldn't be noted, so “{}” stays where it is: {e:#}", s.title))?;
+            }
+            copy
         }
-        copy.key
+        Place::Terminal => {
+            let copy = adapter.move_to(&ctx, s, target, prompt, model, effort)?;
+            // Claim before writing origins so `claude::Reader::closed_copies` can't expose the copy
+            // stopped to an automatic wake before its terminal boots.
+            let copy_claim = copy.key.as_deref().and_then(crate::send::note_waking);
+            if let Some(copy) = &copy.key {
+                note(copy).map_err(|e| anyhow!("Couldn't note the move, so “{}” stays where it is: {e:#}", s.title))?;
+            }
+            adapter.before_start(target, &cwd);
+            let label = crate::board::tab_label(&board.lanes, &cwd, &s.title);
+            match in_terminal(board, cfg, &cwd, label.as_deref(), false, &copy.input, &copy.env) {
+                Ok(ran) => runs = with_note(None, &ran, cfg),
+                Err(e) => {
+                    // No copy started, so there's none to keep.
+                    if let Some(Err(forgot)) = copy.key.as_deref().map(crate::origins::forget) {
+                        eprintln!("The move's terminal didn't open, and its note couldn't be taken back, so its copy shows stopped: {forgot:#}");
+                    }
+                    return Err(e);
+                }
+            }
+            if let Some(c) = copy_claim {
+                c.keep();
+            }
+            copy.key
+        }
+        _ => bail!("{} can't move a session natively into {}.", adapter.harness().word(), place_words(place, cfg)),
     };
     if let Some(c) = source_claim {
         c.keep();
     }
-    let mut left = if !s.live {
+    let mut left = if keep || !s.live || s.hosted {
         String::new()
     } else {
         match crate::idle::close_one(board, cfg, key) {
-            Ok(_) if in_background => " The old job is stopped.".to_string(),
+            Ok(_) if s.attach_command.is_some() => " The old job is stopped.".to_string(),
             Ok(_) => " Its old terminal is closed.".to_string(),
             Err(e) => format!(" The old one is still running: {e:#}"),
         }
     };
-    // A command its last turn left running belonged to the old process, and the copy has none.
-    if s.background.is_some() {
-        left.push_str(" It had a command running in the background: ask the copy to start it again if it's still needed.");
+    if !keep {
+        // A command its last turn left running belonged to the old process, and the copy has none.
+        if s.background.is_some() {
+            left.push_str(" It had a command running in the background: ask the copy to start it again if it's still needed.");
+        }
+        // So did the agents it left running, which ran in its process.
+        if !s.agents.is_empty() {
+            left.push_str(" It had agents running in the background: ask the copy to start them again if they're still needed.");
+        }
     }
-    // So did the agents it left running, which ran in its process.
-    if !s.agents.is_empty() {
-        left.push_str(" It had agents running in the background: ask the copy to start them again if they're still needed.");
-    }
-    let place = if in_background { "as a background job".to_string() } else { format!("in a new terminal in {}", lane.callsign) };
-    let goes = if prompt.trim().is_empty() { format!("it goes on {place}") } else { format!("it carries on {place}") };
+    let where_str = match place {
+        Place::Codealong => "in Codealong".to_string(),
+        Place::Background => "as a background job".to_string(),
+        _ => format!("in a new terminal in {}", lane.callsign),
+    };
+    let verb = if keep { "Handed off" } else { "Moved" };
+    let goes = if prompt.trim().is_empty() { format!("it goes on {where_str}") } else { format!("it carries on {where_str}") };
     let runs = runs.map(|r| format!(" {r}")).unwrap_or_default();
-    let message = format!("Moved “{}” to {to}: {goes}.{runs}{left}", s.title);
+    let message = format!("{verb} “{}” to {to}: {goes}.{runs}{left}", s.title);
     Ok(Started { key: copy, message: Some(message) })
 }
 

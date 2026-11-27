@@ -6,7 +6,7 @@
 
 import { useState } from 'react';
 import type { MoveOptions } from '../api';
-import { isNativeMove, moveDialogTitle, moveDialogWords } from '../handoff';
+import { moveDialogTitle, moveDialogWords } from '../handoff';
 import { HARNESS_WORD } from '../harness';
 import type { AccountMoves } from '../menus';
 import type { Session } from '../types';
@@ -35,11 +35,7 @@ export function MoveDialog({ session: s, moves, to: asked, model: askedModel = n
   // Model applies only to the account it was picked under.
   const model = to === asked ? askedModel : null;
   const modelLabel = to === asked ? askedModelLabel : null;
-  const rawOpts: MoveOptions = {
-    keep: keep || undefined,
-    model: model || undefined,
-  };
-  const opts = target && isNativeMove(target, rawOpts) ? undefined : rawOpts;
+  const opts: MoveOptions | undefined = keep || model ? { keep: keep || undefined, model: model || undefined } : undefined;
 
   const move = () => {
     moves.run(to, opts);

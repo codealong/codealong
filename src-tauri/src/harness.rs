@@ -521,17 +521,25 @@ pub trait Adapter: Sync {
 
     /// A copy of the session's conversation as far as it's written that goes on under `to`,
     /// another account of the same harness, in a new terminal: what to type there. It starts on
-    /// `prompt` when that isn't empty, and otherwise waits for one. The session itself is left
-    /// as it is; moving it (start.rs) closes it after. A harness whose accounts can't read each
-    /// other's conversations, or would refuse what another account's model wrote, can't.
-    fn move_to(&self, _ctx: &Ctx, _session: &Session, _to: &AccountCfg, _prompt: &str) -> Result<Typed> {
+    /// `prompt` when that isn't empty (on `model` and `effort` when asked), and otherwise waits
+    /// for one. The session itself is left as it is; moving it (start.rs) closes it after unless
+    /// `keep` is set. A harness whose accounts can't read each other's conversations, or would
+    /// refuse what another account's model wrote, can't.
+    fn move_to(&self, _ctx: &Ctx, _session: &Session, _to: &AccountCfg, _prompt: &str, _model: Option<&str>, _effort: Option<&str>) -> Result<Typed> {
         bail!("{} can't move a session to another account.", self.harness().word())
     }
 
     /// The same, for a session that runs with no window: the copy goes on under `to` the same
     /// way, in `cwd`. Returns the copy's key, when the harness has said it.
-    fn move_to_background(&self, _ctx: &Ctx, _session: &Session, _to: &AccountCfg, _cwd: &Path, _prompt: &str) -> Result<Option<String>> {
+    fn move_to_background(&self, _ctx: &Ctx, _session: &Session, _to: &AccountCfg, _cwd: &Path, _prompt: &str, _model: Option<&str>, _effort: Option<&str>) -> Result<Option<String>> {
         bail!("{} can't move a session to another account in the background.", self.harness().word())
+    }
+
+    /// The same, for a session hosted in Codealong (ACP): copies the full native transcript under
+    /// `to` and adopts it into `to`'s ACP adapter on `model`, `effort`, and `prompt`. Returns the
+    /// copy's key.
+    fn move_to_codealong(&self, _ctx: &Ctx, _session: &Session, _to: &AccountCfg, _cwd: &Path, _prompt: &str, _model: Option<&str>, _effort: Option<&str>) -> Result<String> {
+        bail!("{} can't move a session to another account in Codealong.", self.harness().word())
     }
 
     /// What a new terminal in another folder types to go on with the session there as itself,

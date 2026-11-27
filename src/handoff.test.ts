@@ -17,13 +17,14 @@ const acct = (name: string, harness: AccountInfo['harness'], over: Partial<Accou
   ...over,
 });
 
-const sess = (over: Partial<Session> = {}): Pick<Session, 'account' | 'harness' | 'resumeCommand' | 'title' | 'status' | 'attachCommand'> => ({
+const sess = (over: Partial<Session> = {}): Pick<Session, 'account' | 'harness' | 'resumeCommand' | 'title' | 'status' | 'attachCommand' | 'hosted'> => ({
   account: 'claude',
   harness: 'claude',
   resumeCommand: 'claude --resume abc',
   title: 'Fix login',
   status: 'idle',
   attachCommand: null,
+  hosted: false,
   ...over,
 });
 
@@ -57,14 +58,15 @@ describe('isNativeMove', () => {
   const nativeClaude = { account: 'claude2', harness: 'claude' as const, native: true };
   const codex = { account: 'codex', harness: 'codex' as const, native: false };
 
-  it('uses native move only for default same-harness Claude moves', () => {
+  it('uses native move for all same-harness Claude moves except URL-only claude-app', () => {
     expect(isNativeMove(nativeClaude)).toBe(true);
     expect(isNativeMove(nativeClaude, {})).toBe(true);
-    expect(isNativeMove(nativeClaude, { keep: true })).toBe(false);
-    expect(isNativeMove(nativeClaude, { model: 'sonnet' })).toBe(false);
-    expect(isNativeMove(nativeClaude, { effort: 'high' })).toBe(false);
-    expect(isNativeMove(nativeClaude, { place: 'codealong' })).toBe(false);
-    expect(isNativeMove(nativeClaude, { prompt: 'Focus on tests' })).toBe(false);
+    expect(isNativeMove(nativeClaude, { keep: true })).toBe(true);
+    expect(isNativeMove(nativeClaude, { model: 'sonnet' })).toBe(true);
+    expect(isNativeMove(nativeClaude, { effort: 'high' })).toBe(true);
+    expect(isNativeMove(nativeClaude, { place: 'codealong' })).toBe(true);
+    expect(isNativeMove(nativeClaude, { prompt: 'Focus on tests' })).toBe(true);
+    expect(isNativeMove(nativeClaude, { place: 'claude-app' })).toBe(false);
     expect(isNativeMove(codex)).toBe(false);
   });
 });
@@ -91,6 +93,12 @@ describe('handoff copy', () => {
       'A copy of “Fix login” goes on under claude2 as a background job, told to carry on where it stopped with its full conversation carried over, and this one is closed and archived.',
     );
     expect(moveDialogWords(sess({ status: 'working' }), nativeClaude, 'Ghostty', false)).toMatch(/ Its turn is stopped first\.$/);
+    expect(moveDialogWords(sess({ hosted: true }), nativeClaude, 'Ghostty', false, { model: 'opus[1m]' }, 'Opus 1M')).toBe(
+      'A copy of “Fix login” goes on under claude2 on Opus 1M in Codealong with its full conversation carried over, and this one is closed and archived.',
+    );
+    expect(moveDialogWords(sess({ hosted: true }), nativeClaude, 'Ghostty', false, { keep: true, model: 'opus[1m]' }, 'Opus 1M')).toBe(
+      'A copy of “Fix login” goes on under claude2 on Opus 1M in Codealong with its full conversation carried over; this session stays open.',
+    );
     expect(moveDialogWords(sess(), codex, 'Ghostty', false, { model: 'gpt-5.5' }, 'GPT-5.5')).toBe(
       'Starts a new Codex session under codex on GPT-5.5 with a handoff brief and a link to the full transcript on disk, and this one is closed and archived.',
     );

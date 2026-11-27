@@ -76,12 +76,11 @@ export function moveTargetsFor(s: Pick<Session, 'account' | 'harness' | 'resumeC
 }
 
 /** Whether a move to `target` with `opts` takes the lossless native fast path (handoff.rs
- *  `uses_native_move`) rather than building a generic handoff packet. */
+ *  `uses_native_move`) rather than building a generic handoff packet. All Claude Code → Claude
+ *  Code moves preserve the full transcript natively except URL-only `claude-app`. */
 export function isNativeMove(target: MoveTarget, opts?: MoveOptions): boolean {
-  if (!target.native || opts?.keep) return false;
-  if (opts?.model || opts?.effort || opts?.place) return false;
-  if (opts?.prompt?.trim()) return false;
-  return true;
+  if (!target.native) return false;
+  return opts?.place !== 'claude-app';
 }
 
 /** Label for one item in the `Move to` submenu: includes the provider name when cross-provider,
@@ -118,7 +117,7 @@ export function moveDialogTitle(target: MoveTarget | undefined, sourceHarness: H
 
 /** Concise explanation of how moving across accounts works, for the confirmation dialog's lede. */
 export function moveDialogWords(
-  s: Pick<Session, 'title' | 'status' | 'attachCommand' | 'harness'>,
+  s: Pick<Session, 'title' | 'status' | 'attachCommand' | 'harness' | 'hosted'>,
   target: MoveTarget,
   terminal: string,
   goesOn: boolean,
@@ -127,13 +126,19 @@ export function moveDialogWords(
 ): string {
   const keep = !!opts?.keep;
   const first = !keep && s.status === 'working' ? ' Its turn is stopped first.' : '';
-  const then = goesOn ? ', told to carry on where it stopped' : '';
-  if (isNativeMove(target, opts)) {
-    const where = s.attachCommand != null ? 'as a background job' : `in a new ${terminal} tab`;
-    return `A copy of “${s.title}” goes on under ${target.account} ${where}${then} with its full conversation carried over, and this one is closed and archived.${first}`;
-  }
-  const provider = HARNESS_WORD[target.harness];
+  const then = goesOn && !keep ? ', told to carry on where it stopped' : '';
   const onModel = modelLabel ? ` on ${modelLabel}` : '';
   const fate = keep ? '; this session stays open.' : ', and this one is closed and archived.';
+  if (isNativeMove(target, opts)) {
+    const where = opts?.place
+      ? handoffPlaceWords(opts.place, terminal)
+      : s.hosted
+        ? 'in Codealong'
+        : s.attachCommand != null
+          ? 'as a background job'
+          : `in a new ${terminal} tab`;
+    return `A copy of “${s.title}” goes on under ${target.account}${onModel} ${where}${then} with its full conversation carried over${fate}${first}`;
+  }
+  const provider = HARNESS_WORD[target.harness];
   return `Starts a new ${provider} session under ${target.account}${onModel} with a handoff brief and a link to the full transcript on disk${then}${fate}${first}`;
 }
