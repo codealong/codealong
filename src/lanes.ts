@@ -540,7 +540,7 @@ export function sessionHeadline(s: Session): [string, string | null] {
 }
 
 /** The words of a meter's key: `session` is the 5-hour limit, `model:Opus` Opus's own week. */
-function limitName(meter: string | null): string {
+export function limitName(meter: string | null): string {
   if (meter === 'session') return '5-hour limit';
   if (meter === 'week') return 'weekly limit';
   if (meter?.startsWith('model:')) return `weekly ${meter.slice('model:'.length)} limit`;

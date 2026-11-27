@@ -19,6 +19,7 @@
 // (MergeDone.tsx) for every one of them, for its menus and its header.
 
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { accountLimitFor } from '../accountLimit';
 import { openUrl, setPinned, showMain } from '../api';
 import { showContextMenu, type MenuAction, type MenuSpec } from '../contextMenu';
 import { useEditorIcons } from '../editors';
@@ -39,7 +40,7 @@ import { SessionPanel, type SessionPanelProps } from './SessionPanel';
 import { StartingPanel, startingMenu } from './StartingPanel';
 
 /** What the card reads from the board: what's around the session, and what's pinned in Sessions. */
-export type CardBoard = Pick<Board, 'prs' | 'lanes' | 'todos' | 'sides' | 'starting' | 'nudgeAbout' | 'reviews' | 'repos' | 'teamFiles' | 'terminals'> & { pinned?: string[]; labels?: Board['labels'] };
+export type CardBoard = Pick<Board, 'prs' | 'lanes' | 'todos' | 'sides' | 'starting' | 'nudgeAbout' | 'reviews' | 'repos' | 'teamFiles' | 'terminals'> & { pinned?: string[]; labels?: Board['labels']; usage?: Board['usage'] };
 
 const NO_TERMINALS: TerminalGlance[] = [];
 
@@ -57,6 +58,8 @@ interface SessionCardProps extends Pick<SessionPanelProps, 'zoom' | 'queue' | 'n
   /** The board as the window has it; without one yet, the header says only what the session's
    *  own worktree does. */
   board: CardBoard | null | undefined;
+  /** Other devices' worktrees when the card shows a remote session without them in `board.lanes`. */
+  there?: readonly Lane[];
   /** What this window does for the session shown. */
   can: WindowCan;
   /** And for another session the header names: one it came from, or that came of it. */
@@ -92,7 +95,7 @@ function pinItem(board: CardBoard | null | undefined, s: Session, report: Report
   return { label: on ? 'Unpin session' : 'Pin session', run: () => void save() };
 }
 
-export function SessionCard({ lane, session, apps, now, board, can, canFor, outgoing = false, onShowSession, onShowLane, onShowTodo, onShowPr, onFollowPr, prCan, renaming, ...panel }: SessionCardProps) {
+export function SessionCard({ lane, session, apps, now, board, there, can, canFor, outgoing = false, onShowSession, onShowLane, onShowTodo, onShowPr, onFollowPr, prCan, renaming, ...panel }: SessionCardProps) {
   const { report } = can;
   const icons = useEditorIcons(apps);
   const onDesktop = menus.useDesktopPins();
@@ -129,6 +132,17 @@ export function SessionCard({ lane, session, apps, now, board, can, canFor, outg
   useStartAccounts(!session.live);
   const actions = menus.sessionActions(lane, session, mine);
   const context = useMemo(() => sessionContext(board, lane, session), [board, lane, session]);
+  const accountLimit = useMemo(
+    () =>
+      accountLimitFor(
+        session,
+        lane.device ? (there ?? board?.lanes ?? []) : (board?.lanes ?? []),
+        lane.device ? (panel.device?.usage ?? []) : (board?.usage ?? []),
+        now,
+        lane.device?.short ?? null,
+      ),
+    [session, lane.device, there, board?.lanes, board?.usage, panel.device?.usage, now],
+  );
   const [shownStartingAt, setShownStartingAt] = useState<number | null>(null);
   const shownStarting = shownStartingAt != null ? (context.lineage.starting.find((s) => s.at === shownStartingAt) ?? null) : null;
   const show = (spec: MenuSpec, at?: { x: number; y: number }) => void showContextMenu(spec, at).catch((e: unknown) => report.error(errorText(e)));
@@ -207,6 +221,7 @@ export function SessionCard({ lane, session, apps, now, board, can, canFor, outg
       renaming={renaming}
       onOpen={(target) => can.open(lane, target)}
       actions={actions}
+      accountLimit={accountLimit}
       onMenu={(at) => show(menus.sessionMenu(lane, session, mine), at)}
       onThreadMenu={(items) => show([...items, 'separator', ...menus.sessionMenu(lane, session, mine)])}
       onShowLane={onShowLane}

@@ -101,6 +101,11 @@
   color: var(--alert);
   font: var(--type-meta);
 }
+/* Heads-up when the session's account is at a usage limit before a new turn has started. */
+.ca-sessinsp-limit.is-warn {
+  background: var(--attn-tint);
+  color: var(--attn);
+}
 .ca-sessinsp-limit > .ca-icon {
   flex: none;
 }

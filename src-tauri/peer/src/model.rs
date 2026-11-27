@@ -1655,8 +1655,8 @@ pub struct Usage {
     pub rate_limited: bool,
     /// Its extra usage, as the usage read says, can carry a turn past the plan's limits: it's on,
     /// and nothing turns it off (no `disabled_reason`, such as `out_of_credits`). None where the
-    /// read doesn't say. Only the engine of its Mac reads it (`board::room_back`).
-    #[serde(skip)]
+    /// read doesn't say. Absent from machines of older builds.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub extra_usable: Option<bool>,
 }
 

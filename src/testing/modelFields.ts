@@ -448,6 +448,7 @@ export type Usage = Holds<Same<
   | "account"
   | "asOf"
   | "error"
+  | "extraUsable"
   | "harness"
   | "loading"
   | "meters"
