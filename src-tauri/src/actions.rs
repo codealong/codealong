@@ -870,8 +870,6 @@ const ANSWERED_WAIT: Duration = Duration::from_secs(10);
 /// (`Adapter::deny_saying`), else sent as a prompt once it no longer waits.
 fn answer_call(engine: &Handle, c: &Call) -> Result<Value, String> {
     let said = answer_here(engine, c)?;
-    // Answers to its questions, or words sent in place of the call, answer what was suggested
-    // for it, as a message does (`send_prompt`).
     let p: params::Answer = c.read()?;
     // A call you allowed or denied here is counted with your part in the work (turns.rs); an
     // answer to its question is in its record.
@@ -883,10 +881,9 @@ fn answer_call(engine: &Handle, c: &Call) -> Result<Value, String> {
         };
         crate::turns::note_answer(c.session()?, word, "");
     }
-    let words_sent = p.message.as_deref().is_some_and(|m| !m.trim().is_empty());
-    if (words_sent || p.answers.as_ref().is_some_and(|a| !a.is_null())) && !matches!(c.from, From::Command(_)) {
-        forget_suggested(engine, c.session()?);
-    }
+    // Answering what it waited on (a question, a permission, or words in place of the call)
+    // answers what was suggested and tagged on it, as a message does (`send_prompt`).
+    forget_suggested(engine, c.from, c.session()?);
     Ok(said)
 }
 
@@ -1107,11 +1104,11 @@ fn send_prompt(engine: &Handle, c: &Call) -> Result<Value, String> {
     if matches!(c.from, From::Device | From::Phone) && sent.opened {
         return Err(format!("It needs someone at this device: {}", sent.message));
     }
-    // What its user sent answers what was suggested, in every window at once, rather than once
-    // its record shows the prompt. Not what an agent sent, nor what's only on the clipboard for
-    // its app to take.
-    if !matches!(c.from, From::Command(_)) && !sent.opened {
-        forget_suggested(engine, key);
+    // What its user sent answers what was suggested and tagged, in every window at once, rather
+    // than once its record shows the prompt. Not what an agent sent, nor what's only on the
+    // clipboard for its app to take.
+    if !sent.opened {
+        forget_suggested(engine, c.from, key);
         if suggested {
             crate::turns::note_answer(key, "suggested", &p.text);
         }
@@ -1141,17 +1138,31 @@ fn unarchives(from: &From, archived: bool) -> bool {
     archived && !matches!(from, From::Command(_))
 }
 
-/// Takes away the replies suggested for a session, when it has any, as its user sent it a prompt
-/// or an answer.
-fn forget_suggested(engine: &Handle, key: &str) {
-    let at = crate::suggestions::current().sessions.get(key).map(|g| g.at);
-    let Some(at) = at else { return };
-    match crate::suggestions::forget(&[(key.to_string(), at, crate::board::MovedOn::Prompt { at: crate::util::now_ms() })]) {
-        Ok(true) => {
-            engine.suggested(false);
+/// Takes away the replies suggested for a session and any tag on it, when it has either, as its
+/// user sent it a prompt or answered a question or permission. Not for the command, where an
+/// agent may have asked.
+fn forget_suggested(engine: &Handle, from: &From, key: &str) {
+    if matches!(from, From::Command(_)) {
+        return;
+    }
+    let moved = crate::board::MovedOn::Prompt { at: crate::util::now_ms() };
+    let mut changed = false;
+    if let Some(at) = crate::suggestions::current().sessions.get(key).map(|g| g.at) {
+        match crate::suggestions::forget(&[(key.to_string(), at, moved)]) {
+            Ok(true) => changed = true,
+            Ok(false) => {}
+            Err(e) => eprintln!("Couldn't forget the replies suggested for {key}: {e:#}"),
         }
-        Ok(false) => {}
-        Err(e) => eprintln!("Couldn't forget the replies suggested for {key}: {e:#}"),
+    }
+    if let Some(at) = crate::tags::current().sessions.get(key).map(|t| t.at) {
+        match crate::tags::forget(&[(key.to_string(), at, moved)]) {
+            Ok(true) => changed = true,
+            Ok(false) => {}
+            Err(e) => eprintln!("Couldn't forget the tag on {key}: {e:#}"),
+        }
+    }
+    if changed {
+        engine.suggested(false);
     }
 }
 
@@ -3046,5 +3057,80 @@ mod tests {
         // Dry-run is allowed from an agent without --keep, still blocked on flagged sessions.
         let err = local(&engine, &agent, HANDOFF, flagged, json!({ "account": "codex", "dryRun": true })).unwrap_err();
         assert!(err.contains("automatic forks are blocked"), "{err}");
+    }
+
+    /// Answering or sending from a user forgets both the session's suggestions and its tag (and
+    /// records `MovedOn::Prompt` for `codealong changes`), while `From::Command` leaves both.
+    #[test]
+    fn forgetting_a_sessions_word_clears_both_suggestions_and_tag_for_users_not_commands() {
+        let Some(own) = std::env::var_os("CODEALONG_TEST_HOME") else {
+            let home = std::env::temp_dir().join(format!("codealong-forget-word-{}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&home);
+            std::fs::create_dir_all(&home).unwrap();
+            let run = std::process::Command::new(std::env::current_exe().unwrap())
+                .args(["actions::tests::forgetting_a_sessions_word_clears_both_suggestions_and_tag_for_users_not_commands", "--exact", "--nocapture"])
+                .env("HOME", &home)
+                .env("USERPROFILE", &home)
+                .env("CODEALONG_TEST_HOME", &home)
+                .output()
+                .unwrap();
+            let ran = home.join("ran").exists();
+            std::fs::remove_dir_all(&home).unwrap();
+            assert!(run.status.success() && ran, "{}{}", String::from_utf8_lossy(&run.stdout), String::from_utf8_lossy(&run.stderr));
+            return;
+        };
+        assert_eq!(crate::util::home(), std::path::PathBuf::from(own), "never the real home folder");
+
+        let engine = Handle::for_tests();
+        let now = crate::util::now_ms();
+        let atlas = "antigravity:northwind:atlas";
+        let kestrel = "claude:northwind:kestrel";
+        let tag = crate::tags::Tag {
+            insight: crate::model::SessionInsight { asks_you: Some(1.0), ending: Some("question".into()), ..Default::default() },
+            at: now - 10_000,
+            prompt_at: now - 20_000,
+        };
+        let suggested = crate::model::Suggestions {
+            replies: vec![],
+            picks: BTreeMap::from([("Ship it?".to_string(), vec!["Yes".to_string()])]),
+            why: BTreeMap::new(),
+            note: None,
+            by: Some("claude:northwind:orch".into()),
+            by_title: Some("Orchestrator".into()),
+            at: now - 10_000,
+            prompt_at: Some(now - 20_000),
+        };
+        crate::tags::set(atlas, Some(tag.clone())).unwrap();
+        crate::suggestions::set(atlas, Some(suggested.clone())).unwrap();
+        crate::tags::set(kestrel, Some(tag)).unwrap();
+
+        // A command leaves both tag and suggestions intact.
+        for from in [From::Command(Some("claude:northwind:orch".into())), From::Command(None)] {
+            forget_suggested(&engine, &from, atlas);
+            assert!(crate::tags::current().sessions.contains_key(atlas), "{from:?}");
+            assert!(crate::suggestions::current().sessions.contains_key(atlas), "{from:?}");
+        }
+
+        // A user's send or answer clears both and records `MovedOn::Prompt`.
+        forget_suggested(&engine, &From::Here, atlas);
+        let tags = crate::tags::current();
+        let suggs = crate::suggestions::current();
+        assert!(!tags.sessions.contains_key(atlas));
+        assert!(!suggs.sessions.contains_key(atlas));
+        assert!(matches!(tags.gone.get(atlas), Some(crate::board::MovedOn::Prompt { .. })));
+        assert!(matches!(suggs.gone.get(atlas), Some(crate::board::MovedOn::Prompt { .. })));
+
+        // A session with only a tag (no suggestions) still has its tag cleared.
+        forget_suggested(&engine, &From::Phone, kestrel);
+        let tags = crate::tags::current();
+        assert!(!tags.sessions.contains_key(kestrel));
+        assert!(matches!(tags.gone.get(kestrel), Some(crate::board::MovedOn::Prompt { .. })));
+
+        // A session with only suggestions (no tag) still has its suggestions cleared.
+        crate::suggestions::set(kestrel, Some(suggested)).unwrap();
+        forget_suggested(&engine, &From::Device, kestrel);
+        assert!(!crate::suggestions::current().sessions.contains_key(kestrel));
+
+        std::fs::write(crate::util::home().join("ran"), "").unwrap();
     }
 }
