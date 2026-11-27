@@ -150,14 +150,15 @@ pub fn apply_agent_seen(s: &mut Session, mark: Option<&AgentSeen>) {
     s.agent_seen = Some(m.clone());
 }
 
-/// Whether a session has moved on from the turn its agent marked seen at `at` (`moved_on`):
+/// Whether a session has moved on from the turn its agent marked seen at `at` (`started_after`):
 /// something came into it since, a prompt or, where its harness says (`Session::input_at`),
 /// another session's message, a background task's report or a scheduled wakeup, which the record
 /// keeps after the turn they brought has ended, though Codealong wasn't running to see it; or a
-/// turn of its started since, seen as it runs, where its harness says no more. Spent, the mark
-/// is void, and the engine forgets it (`Engine::forget_spent_agent_seen`).
+/// turn of its started since, seen as it runs, where its harness says no more. The end of the
+/// turn it was marked in (`Session::turn_ended`) doesn't spend it. Spent, the mark is void, and
+/// the engine forgets it (`Engine::forget_spent_agent_seen`).
 pub fn agent_seen_spent(s: &Session, at: i64) -> bool {
-    moved_on(s, at, at).is_some()
+    started_after(s, at, at).is_some()
 }
 
 /// Once the rest is applied: a turn its agent marked seen that something after brought back (a
@@ -307,23 +308,38 @@ impl MovedOn {
     }
 }
 
-/// What moved the session on from an agent's word on it given at `at`, about the reply to the
-/// prompt it sent at `prompt_at`: a prompt sent since, or a turn started since the word was
-/// given. A turn that started after it has moved on from what it answered, even once it ends, so
-/// the engine takes the word away once it sees one (`Engine::forget_stale_tags`,
-/// `Engine::forget_stale_suggestions`). Busy with nothing said since a turn that ended before
-/// the word isn't one (`Session::turn_ended`): Claude Code compacting a conversation left idle
-/// took away the tags and replies of sessions still waiting on what they were for. Something
-/// that came into it since (`Session::input_at`, where its harness says: a scheduled wakeup,
-/// another session's message, a background task's report) started a turn too, one that may have
-/// come and gone while Codealong wasn't running to see it. None while the word holds; a turn the
-/// agent read it in started before it.
-pub fn moved_on(s: &Session, prompt_at: i64, at: i64) -> Option<MovedOn> {
+/// What moved `s` on from a mark given at `at` about the prompt at `prompt_at`, without counting
+/// the end of a turn itself: a prompt sent since, another input (`Session::input_at`), or a turn
+/// seen running since (excluding compaction with nothing said since an earlier turn's end, and a
+/// session waiting on what its turn left running in the background).
+fn started_after(s: &Session, prompt_at: i64, at: i64) -> Option<MovedOn> {
     if s.last_prompt_at > prompt_at {
         return Some(MovedOn::Prompt { at: s.last_prompt_at });
     }
     let said_nothing = s.turn_ended.is_some_and(|ended| ended <= at);
-    s.status_since.filter(|since| s.status == Status::Working && *since > at && !said_nothing).or(s.input_at.filter(|came| *came > at)).map(|since| MovedOn::Turn { at: since })
+    s.status_since
+        .filter(|since| s.status == Status::Working && !s.waits_in_background() && *since > at && !said_nothing)
+        .or(s.input_at.filter(|came| *came > at))
+        .map(|since| MovedOn::Turn { at: since })
+}
+
+/// What moved the session on from an agent's word on it given at `at`, about the reply to the
+/// prompt it sent at `prompt_at`: a prompt sent since, a turn started since the word was given,
+/// or a turn that ended after it (`Session::turn_ended`). Tags and suggestions are turned down
+/// while a session takes a turn (`read_refused`), so a turn ending after one was given must have
+/// started or resumed after it, even when `last_prompt_at` didn't move (an answered question or
+/// permission) and Codealong didn't see it working. Busy with nothing said since a turn that
+/// ended before the word isn't one (Claude Code compacting a conversation left idle), nor is a
+/// session still waiting on what its turn left running in the background
+/// (`Session::waits_in_background`), which can be tagged while Working. Something that came into
+/// it since (`Session::input_at`, where its harness says: a scheduled wakeup, another session's
+/// message, a background task's report) started a turn too, one that may have come and gone while
+/// Codealong wasn't running to see it. A turn that started after it has moved on from what it
+/// answered, even once it ends, so the engine takes the word away once it sees one
+/// (`Engine::forget_stale_tags`, `Engine::forget_stale_suggestions`). None while the word holds;
+/// a turn the agent read it in started before it.
+pub fn moved_on(s: &Session, prompt_at: i64, at: i64) -> Option<MovedOn> {
+    started_after(s, prompt_at, at).or_else(|| s.turn_ended.filter(|ended| *ended > at).map(|ended| MovedOn::Turn { at: ended }))
 }
 
 /// Whether replies suggested for a session still answer where it stands (`moved_on`): it's been
@@ -1066,6 +1082,52 @@ mod tests {
     }
 
     #[test]
+    fn a_turn_that_ended_after_a_word_moves_it_on_while_background_waits_hold() {
+        const MIN: i64 = 60_000;
+        let (read, at) = (NOW - 30 * MIN, NOW - 10 * MIN);
+        let tag = crate::tags::Tag { insight: SessionInsight { asks_you: Some(1.0), ending: Some("question".into()), ..Default::default() }, at, prompt_at: read };
+        let suggested = Suggestions { replies: vec!["Go ahead".into()], picks: Default::default(), why: Default::default(), note: None, by: None, by_title: None, at, prompt_at: Some(read) };
+        let base = Session { status: Status::Unread, last_prompt_at: read, status_since: Some(NOW - 20 * MIN), ..Session::new(Harness::Claude, "northwind", "atlas") };
+
+        // A turn that ended at or before the word holds.
+        let before = Session { turn_ended: Some(NOW - 20 * MIN), ..base.clone() };
+        assert_eq!(moved_on(&before, read, at), None);
+        assert_eq!(moved_on(&Session { turn_ended: Some(at), ..base.clone() }, read, at), None);
+
+        // An answered question or permission finishes the turn without moving `last_prompt_at` or
+        // setting `input_at`: `turn_ended > at` moves the session past both tag and suggestions.
+        let answered = Session { status: Status::Unread, status_since: Some(NOW - 2 * MIN), turn_ended: Some(NOW - 2 * MIN), ..base.clone() };
+        assert_eq!(moved_on(&answered, read, at), Some(MovedOn::Turn { at: NOW - 2 * MIN }));
+        assert!(!crate::tags::holds(&answered, &tag));
+        assert!(!suggestions_hold(&answered, &suggested));
+
+        // Waiting on a background shell or subagents can be tagged while Working (`read_refused`),
+        // and keeps holding until a new turn actually starts or ends.
+        let waiting_shell = Session { status: Status::Working, background: Some("cargo test -p northwind".into()), turn_ended: Some(NOW - 20 * MIN), status_since: Some(NOW - 20 * MIN), ..base.clone() };
+        assert!(waiting_shell.waits_in_background());
+        assert_eq!(read_refused(&waiting_shell, read, "tag"), None);
+        assert_eq!(moved_on(&waiting_shell, read, at), None);
+        assert!(crate::tags::holds(&waiting_shell, &tag) && suggestions_hold(&waiting_shell, &suggested));
+
+        // Even without `turn_ended` (a harness that doesn't record it), advancing `status_since`
+        // while still waiting in the background does not drop the tag.
+        let waiting_no_end = Session { turn_ended: None, status_since: Some(NOW - 5 * MIN), ..waiting_shell.clone() };
+        assert!(waiting_no_end.waits_in_background());
+        assert_eq!(moved_on(&waiting_no_end, read, at), None);
+
+        let waiting_agents = Session { status: Status::Working, agents: vec!["kestrel review".into()], turn_ended: Some(NOW - 20 * MIN), status_since: Some(NOW - 20 * MIN), ..base.clone() };
+        assert!(waiting_agents.waits_in_background());
+        assert_eq!(moved_on(&waiting_agents, read, at), None);
+
+        // Once the background work wakes it and a new turn ends after `at`, the old tag is gone,
+        // even if that new turn also left something running in the background.
+        let next_waiting = Session { turn_ended: Some(NOW - 2 * MIN), status_since: Some(NOW - 2 * MIN), ..waiting_shell };
+        assert!(next_waiting.waits_in_background());
+        assert_eq!(moved_on(&next_waiting, read, at), Some(MovedOn::Turn { at: NOW - 2 * MIN }));
+        assert!(!crate::tags::holds(&next_waiting, &tag));
+    }
+
+    #[test]
     fn a_compaction_is_no_turn_for_tags_and_suggested_replies() {
         const MIN: i64 = 60_000;
         let a = acct("claude");
@@ -1128,7 +1190,8 @@ mod tests {
             s
         };
         // The turn it was marked in ended: idle, not its lane's bay, saying its agent saw it.
-        let m = marked(&ended);
+        // Its own `turn_ended` is after the mid-turn mark and must not spend it.
+        let m = marked(&Session { turn_ended: Some(NOW - 20 * MIN), ..ended.clone() });
         assert_eq!((m.status, m.agent_seen.as_ref(), m.status_since), (Status::Idle, Some(&mark), ended.status_since));
         assert_eq!(bay_of(std::slice::from_ref(&m), None).0, Bay::Idle);
         // A prompt sent after the mark: the turn answering it is Your turn.
