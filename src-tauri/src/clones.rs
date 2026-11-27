@@ -199,7 +199,7 @@ mod tests {
     fn cfg(auto: bool) -> Config {
         let mut cfg = Config { scan: vec!["/code".into(), "/more".into()], ..Config::default() };
         cfg.reviews.auto = auto;
-        cfg.projects = vec![ProjectCfg { name: "Acme".into(), repos: vec!["github.com/acme/*".into()], folders: Vec::new(), chrome_profile: None, default: None, decisions: None, background_prompt: None }];
+        cfg.projects = vec![ProjectCfg { name: "Acme".into(), repos: vec!["github.com/acme/*".into()], folders: Vec::new(), chrome_profile: None, default: None, decisions: None }];
         cfg
     }
 

@@ -668,7 +668,7 @@ mod tests {
 
     #[test]
     fn an_orchestrator_is_checked_for_its_project_and_its_shape() {
-        let cfg = Config { projects: vec![crate::config::ProjectCfg { name: "Web".into(), repos: Vec::new(), folders: Vec::new(), chrome_profile: None, default: None, decisions: None, background_prompt: None }], ..Config::default() };
+        let cfg = Config { projects: vec![crate::config::ProjectCfg { name: "Web".into(), repos: Vec::new(), folders: Vec::new(), chrome_profile: None, default: None, decisions: None }], ..Config::default() };
         assert!(check(&orch("web", Some("web")), &cfg).is_ok());
         assert!(check(&orch("docs", Some("Docs")), &cfg).is_err());
         let mut new_each = orch("all", None);

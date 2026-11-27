@@ -30,7 +30,6 @@ import { UpdatesFields } from './Updates';
 import { Button, CheckBox, cx, Dialog, Icon, NavItem, ReorderHint, Seg, WaitsGlyph } from './primitives';
 import { ALWAYS_WAITS, queueKinds, WAITS, withKind, type Waits } from '../queue';
 import { SettingsFindField, useSettingsFind } from './SettingsFind';
-import { SessionThemesSection } from './SessionThemesSettings';
 import { THEMES } from './ThemeSwitch';
 import { useSort } from './useSort';
 import { reorderKey } from '../mainKeys';
@@ -2099,11 +2098,9 @@ interface ProjectDraft {
   group: string;
   /** The decision model that may read it; '' for the default. */
   decisions: string;
-  /** Optional per-project AI background style prompt override. */
-  backgroundPrompt: string;
 }
 
-const NO_DRAFT: ProjectDraft = { original: null, name: '', repos: [], folders: [], chromeProfile: '', group: '', decisions: '', backgroundPrompt: '' };
+const NO_DRAFT: ProjectDraft = { original: null, name: '', repos: [], folders: [], chromeProfile: '', group: '', decisions: '' };
 
 /** The groups a project's Auto can start from, after Routing's own (''), which says what that is. */
 function projectGroupProfiles(groups: RoutingGroupCfg[], auto: string): Profile[] {
@@ -2132,7 +2129,6 @@ function ProjectsPane({ cfg, chromeProfiles, disabled, onSave, lanes, adding }: 
       ...(draft.chromeProfile.trim() ? { chrome_profile: draft.chromeProfile.trim() } : {}),
       ...(draft.group ? { default: draft.group } : {}),
       ...(draft.decisions ? { decisions: draft.decisions } : {}),
-      ...(draft.backgroundPrompt.trim() ? { background_prompt: draft.backgroundPrompt.trim() } : {}),
     };
     const next = draft.original ? cfg.projects.map((p) => (p.name === draft.original ? entry : p)) : [...cfg.projects, entry];
     if (await commit(next)) setDraft(null);
@@ -2189,13 +2185,6 @@ function ProjectsPane({ cfg, chromeProfiles, disabled, onSave, lanes, adding }: 
         <ProfileSelect value={draft.decisions} profiles={choices(decisionsOf(cfg), true)} onChange={(decisions) => setDraft({ ...draft, decisions })} />
         <small>The one model what’s said here may go to, for the quick panel, session status, todos and pull requests (Settings › Decisions): its sessions’ words go nowhere else, and to none with None. A session in a boundary group goes by its group’s, and to none when the two differ.</small>
       </label>
-      {(cfg.experimental?.session_themes || cfg.backgrounds?.enabled || draft.backgroundPrompt) && (
-        <label className="ca-field">
-          <span>Background prompt</span>
-          <textarea rows={2} value={draft.backgroundPrompt} placeholder="Use repo .codealong/config.toml or global prompt" onChange={(e) => setDraft({ ...draft, backgroundPrompt: e.target.value })} />
-          <small>Style override for AI session backgrounds in this project; blank falls back to the repo’s <code className="ca-ic">.codealong/config.toml</code> and then Settings › Experimental.</small>
-        </label>
-      )}
       <div className="ca-acct-actions">
         <Button variant="primary" size="sm" type="submit" disabled={busy || !draft.name.trim()}>
           {draft.original ? 'Save' : 'Add project'}
@@ -2244,12 +2233,6 @@ function ProjectsPane({ cfg, chromeProfiles, disabled, onSave, lanes, adding }: 
                     <dd>{forProject(decisionsOf(cfg), p) ?? 'None'}</dd>
                   </>
                 )}
-                {p.background_prompt && (
-                  <>
-                    <dt>Background</dt>
-                    <dd>{p.background_prompt}</dd>
-                  </>
-                )}
               </dl>
               {removing === p.name ? (
                 <div className="ca-acct-confirm" role="alert">
@@ -2270,7 +2253,7 @@ function ProjectsPane({ cfg, chromeProfiles, disabled, onSave, lanes, adding }: 
                     size="sm"
                     onClick={() => {
                       setRemoving(null);
-                      setDraft({ original: p.name, name: p.name, repos: p.repos, folders: p.folders, chromeProfile: p.chrome_profile ?? '', group: p.default?.trim() ?? '', decisions: p.decisions?.trim() ?? '', backgroundPrompt: p.background_prompt?.trim() ?? '' });
+                      setDraft({ original: p.name, name: p.name, repos: p.repos, folders: p.folders, chromeProfile: p.chrome_profile ?? '', group: p.default?.trim() ?? '', decisions: p.decisions?.trim() ?? '' });
                     }}
                   >
                     Edit
@@ -2430,7 +2413,7 @@ function AdvancedPane({ cfg, view, disabled, onSave }: PaneProps & { view: Confi
 /* ---- Experimental ---- */
 
 /** `[experimental]` as a file without the table has it: every experiment off. */
-const EXPERIMENTS_OFF: Required<ExperimentalCfg> = { boards: false, voice: false, analytics: false, session_themes: false, experiments: false };
+const EXPERIMENTS_OFF: Required<ExperimentalCfg> = { boards: false, voice: false, analytics: false, experiments: false };
 
 /** `[voice]` as a file without the table has it (config.rs `VoiceCfg`). */
 export const VOICE_DEFAULT: Required<VoiceCfg> = { locale: '', send_on_release: false, tell_every: 20, meetings: false, meetings_folder: '', meeting_account: '', meeting_model: '', meeting_lead: 1, meeting_countdown: 5, meeting_calendars_off: [] };
@@ -2598,13 +2581,6 @@ function ExperimentalPane({ cfg, view, disabled, onSave }: PaneProps & { view: C
             </label>
           )}
         </section>
-        <SessionThemesSection
-          enabled={experimental.session_themes}
-          cfg={cfg}
-          disabled={disabled}
-          onToggle={(on) => void onSave({ ...cfg, experimental: { ...experimental, session_themes: on } })}
-          onSave={(next) => void onSave(next)}
-        />
         <section className="ca-settings-group">
           <label className="ca-field ca-settings-check ca-settings-experiment">
             <CheckBox checked={experimental.experiments} onChange={(on) => void onSave({ ...cfg, experimental: { ...experimental, experiments: on } })} />

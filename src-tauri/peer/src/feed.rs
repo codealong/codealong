@@ -100,7 +100,7 @@ pub struct FeedMsg {
 /// and `SessionInsight::ending`; 21: `Session::aside`; 22: `Session::agents`; 23:
 /// `SessionInsight::waits_until`; 24: `RunningIn::yours`; 25: `Session::api_error`; 26:
 /// `Session::tasks`; 27: `Session::orchestrator`; 28: `Orchestrator::looked_at`; 29: `Session::signed_out`;
-/// 30: `SessionInsight::waits_by_jev`; 31: `Session::peers`; 32: `Session::backdrop`; 33:
+/// 30: `SessionInsight::waits_by_jev`; 31: `Session::peers`; 32: `Session::backdrop`, since taken out; 33:
 /// `Session::snoozed_for_room`.
 pub const READS: u32 = 33;
 

@@ -10,11 +10,6 @@
         "terminal": "",
         "terminalId": ""
       },
-      "backgrounds": {
-        "account": "",
-        "enabled": false,
-        "prompt": ""
-      },
       "chatShortcut": "",
       "decisions": {
         "default": "jev",
@@ -38,7 +33,6 @@
         "analytics": false,
         "boards": false,
         "experiments": false,
-        "session_themes": false,
         "voice": false
       },
       "generatedAt": 1000,
@@ -390,11 +384,6 @@
           "terminal": "",
           "terminalId": ""
         },
-        "backgrounds": {
-          "account": "",
-          "enabled": false,
-          "prompt": ""
-        },
         "chatShortcut": "",
         "decisions": {
           "default": "jev",
@@ -418,7 +407,6 @@
           "analytics": false,
           "boards": false,
           "experiments": false,
-          "session_themes": false,
           "voice": false
         },
         "generatedAt": 1000,
@@ -773,11 +761,6 @@
         "terminal": "",
         "terminalId": ""
       },
-      "backgrounds": {
-        "account": "",
-        "enabled": false,
-        "prompt": ""
-      },
       "chatShortcut": "",
       "decisions": {
         "default": "jev",
@@ -801,7 +784,6 @@
         "analytics": false,
         "boards": false,
         "experiments": false,
-        "session_themes": false,
         "voice": false
       },
       "generatedAt": 2000,
@@ -1194,11 +1176,6 @@
         "terminal": "",
         "terminalId": ""
       },
-      "backgrounds": {
-        "account": "",
-        "enabled": false,
-        "prompt": ""
-      },
       "chatShortcut": "",
       "decisions": {
         "default": "jev",
@@ -1222,7 +1199,6 @@
         "analytics": false,
         "boards": false,
         "experiments": false,
-        "session_themes": false,
         "voice": false
       },
       "generatedAt": 3000,
@@ -1614,11 +1590,6 @@
         "terminal": "",
         "terminalId": ""
       },
-      "backgrounds": {
-        "account": "",
-        "enabled": false,
-        "prompt": ""
-      },
       "chatShortcut": "",
       "decisions": {
         "default": "jev",
@@ -1642,7 +1613,6 @@
         "analytics": false,
         "boards": false,
         "experiments": false,
-        "session_themes": false,
         "voice": false
       },
       "generatedAt": 4000,
@@ -2103,11 +2073,6 @@
         "terminal": "",
         "terminalId": ""
       },
-      "backgrounds": {
-        "account": "",
-        "enabled": false,
-        "prompt": ""
-      },
       "chatShortcut": "",
       "decisions": {
         "default": "jev",
@@ -2131,7 +2096,6 @@
         "analytics": false,
         "boards": false,
         "experiments": false,
-        "session_themes": false,
         "voice": false
       },
       "generatedAt": 5000,
@@ -2564,11 +2528,6 @@
         "terminal": "",
         "terminalId": ""
       },
-      "backgrounds": {
-        "account": "",
-        "enabled": false,
-        "prompt": ""
-      },
       "chatShortcut": "",
       "decisions": {
         "default": "jev",
@@ -2592,7 +2551,6 @@
         "analytics": false,
         "boards": false,
         "experiments": false,
-        "session_themes": false,
         "voice": false
       },
       "generatedAt": 6000,

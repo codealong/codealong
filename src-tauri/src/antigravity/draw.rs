@@ -1,4 +1,4 @@
-//! Pictures drawn for Codealong (`Adapter::draw`, for session emblems and AI backgrounds) via
+//! Pictures drawn for Codealong (`Adapter::draw`, for session emblems) via
 //! Antigravity's CLI (`agy -p`): runs a single print turn invoking the built-in `image-generator`
 //! subagent, which writes a `.jpg` (or `.png`) into `<cli_dir>/brain/<conversation_id>/`.
 //!

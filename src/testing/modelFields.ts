@@ -36,7 +36,6 @@ export type Session = Holds<Same<
   | "aside"
   | "asks"
   | "attachCommand"
-  | "backdrop"
   | "background"
   | "branch"
   | "chrome"
@@ -119,14 +118,6 @@ export type PeerTalk = Holds<Same<
   | "lastAt"
   | "title",
   Names<Types.PeerTalk>
->>;
-
-export type SessionBackdrop = Holds<Same<
-  | "accent"
-  | "luminance"
-  | "name"
-  | "picture",
-  Names<Types.SessionBackdrop>
 >>;
 
 export type Artifact = Holds<Same<
@@ -520,7 +511,6 @@ export type Notice = Holds<Same<
 
 export type Board = Holds<Same<
   | "apps"
-  | "backgrounds"
   | "chatShortcut"
   | "decisions"
   | "devices"
@@ -869,7 +859,6 @@ export type LeaderboardRow = Holds<Same<
 >>;
 
 export type TeamCfg = Holds<Same<
-  | "backgroundPrompt"
   | "neverSubmit"
   | "nudgeAbout"
   | "ownReviewInstructions"
@@ -1031,13 +1020,6 @@ export type ProjectThere = Holds<Same<
   Names<Types.ProjectThere>
 >>;
 
-export type BackgroundsCfg = Holds<Same<
-  | "account"
-  | "enabled"
-  | "prompt",
-  Names<Types.BackgroundsCfg>
->>;
-
 export type AccountCfg = Holds<Same<
   | "acp"
   | "chrome_profile"
@@ -1057,7 +1039,6 @@ export type Config = Holds<Same<
   | "accounts"
   | "appearance"
   | "apps"
-  | "backgrounds"
   | "debug"
   | "decisions"
   | "devices"
@@ -1123,7 +1104,6 @@ export type ExperimentalCfg = Holds<Same<
   | "analytics"
   | "boards"
   | "experiments"
-  | "session_themes"
   | "voice",
   Names<Types.ExperimentalCfg>
 >>;
@@ -1156,7 +1136,6 @@ export type Profile = Holds<Same<
 >>;
 
 export type ProjectCfg = Holds<Same<
-  | "background_prompt"
   | "chrome_profile"
   | "decisions"
   | "default"

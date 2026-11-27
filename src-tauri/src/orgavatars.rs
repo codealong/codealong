@@ -325,7 +325,6 @@ mod tests {
             chrome_profile: None,
             default: None,
             decisions: None,
-            background_prompt: None,
         }
     }
 

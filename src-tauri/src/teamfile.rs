@@ -54,10 +54,6 @@ pub struct TeamCfg {
     /// Its PRs waiting on your review go ahead of the sessions that need you, for everyone
     /// (`[pull_requests] reviews_first`).
     pub reviews_first: Option<bool>,
-    /// Style prompt for experimental AI session backgrounds in this repo (`[backgrounds] prompt`
-    /// or `prompt_file`), used when a user enables AI backgrounds and has no per-project override.
-    #[serde(default)]
-    pub background_prompt: String,
     /// What the team suggests each person turns on, for them to take or not.
     pub suggests: RepoCfg,
 }
@@ -78,7 +74,6 @@ pub fn parse(text: &str, file: &dyn Fn(&str) -> Result<Option<String>, String>) 
         match key.as_str() {
             "reviews" => reviews(table_of(value, "[reviews]")?, &mut cfg, &mut skipped, file)?,
             "pull_requests" => pull_requests(table_of(value, "[pull_requests]")?, &mut cfg, &mut skipped)?,
-            "backgrounds" => backgrounds(table_of(value, "[backgrounds]")?, &mut cfg, &mut skipped, file)?,
             k if PERSONAL_TABLES.contains(&k) => return Err(format!("{k} is each person's own: it goes in their config.toml, not the repo's.")),
             k => skipped.push(k.to_string()),
         }
@@ -145,33 +140,7 @@ fn pull_requests(t: &toml::Table, cfg: &mut TeamCfg, skipped: &mut Vec<String>) 
     Ok(())
 }
 
-fn backgrounds(t: &toml::Table, cfg: &mut TeamCfg, skipped: &mut Vec<String>, file: &dyn Fn(&str) -> Result<Option<String>, String>) -> Result<(), String> {
-    for (key, _) in t {
-        let name = format!("[backgrounds] {key}");
-        match key.as_str() {
-            "prompt" | "prompt_file" => {}
-            "enabled" | "account" => return Err(format!("{name} is each person's own: whether to draw AI backgrounds and which account draws them go in their config.toml.")),
-            _ => skipped.push(format!("backgrounds.{key}")),
-        }
-    }
-    let inline: Option<String> = t.get("prompt").map(|v| typed(v, "[backgrounds] prompt")).transpose()?;
-    let named: Option<String> = t.get("prompt_file").map(|v| typed(v, "[backgrounds] prompt_file")).transpose()?;
-    let words = match (inline, named) {
-        (Some(_), Some(_)) => return Err("[backgrounds] has prompt and prompt_file; use one of them.".into()),
-        (Some(w), None) => w,
-        (None, Some(name)) => {
-            let path = in_dir(&name).ok_or_else(|| format!("[backgrounds] prompt_file is {name:?}; name a file in {DIR}/, such as \"background.txt\"."))?;
-            file(&path)?.ok_or_else(|| format!("[backgrounds] prompt_file is {name:?}, which isn't in {DIR}/."))?
-        }
-        (None, None) => String::new(),
-    };
-    let words = words.trim().to_string();
-    if words.chars().count() > MOST_WORDS {
-        return Err(format!("[backgrounds] prompt is over {MOST_WORDS} characters; keep it shorter."));
-    }
-    cfg.background_prompt = words;
-    Ok(())
-}
+/// A table's `instructions`, or the file its `instructions_file` names in `.codealong/`; not both.
 fn instructions(t: &toml::Table, table: &str, file: &dyn Fn(&str) -> Result<Option<String>, String>) -> Result<String, String> {
     let inline: Option<String> = t.get("instructions").map(|v| typed(v, &format!("{table} instructions"))).transpose()?;
     let named: Option<String> = t.get("instructions_file").map(|v| typed(v, &format!("{table} instructions_file"))).transpose()?;
@@ -976,24 +945,5 @@ reviews_first = true
         assert!(t.notice().unwrap().contains("o/a's .codealong/config.toml couldn't be read: git timed out"));
         // What was read stays.
         assert_eq!(t.files().len(), 1);
-    }
-
-    #[test]
-    fn backgrounds_prompt_and_prompt_file_read_and_personal_keys_are_refused() {
-        let (cfg, skipped) = parse("[backgrounds]\nprompt = \"Japanese woodblock ridges\"\n", &none).unwrap();
-        assert_eq!(cfg.background_prompt, "Japanese woodblock ridges");
-        assert!(skipped.is_empty());
-
-        let files = HashMap::from([(format!("{DIR}/bg.txt"), "Soft gouache dunes\n".to_string())]);
-        let (cfg, _) = parse("[backgrounds]\nprompt_file = \"bg.txt\"\n", &|p| Ok(files.get(p).cloned())).unwrap();
-        assert_eq!(cfg.background_prompt, "Soft gouache dunes");
-
-        for bad in [
-            "[backgrounds]\nenabled = true\n",
-            "[backgrounds]\naccount = \"codex\"\n",
-            "[backgrounds]\nprompt = \"a\"\nprompt_file = \"bg.txt\"\n",
-        ] {
-            assert!(parse(bad, &|p| Ok(files.get(p).cloned())).is_err(), "{bad}");
-        }
     }
 }

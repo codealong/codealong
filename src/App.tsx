@@ -134,7 +134,6 @@ import { CODEALONG_REPO } from './improve';
 import { bare, keysIn } from './platform';
 import { useKeysShown } from './keysShown';
 import { useToolDisplaySync } from './toolDisplay';
-import { SessionThemeProvider } from './ui/SessionThemeProvider';
 
 /** No worktrees yet, as one list, so Settings doesn't see a new one on every render. */
 const NO_LANES: Lane[] = [];
@@ -2389,9 +2388,7 @@ export function App() {
   const projectIcons = useMemo(() => projectIconMap(projects), [projects]);
   return (
     <ProjectShown.Provider value={current}>
-      <ProjectIcons.Provider value={projectIcons}>
-        <SessionThemeProvider board={board} extraLanes={deviceLanes}>{page}</SessionThemeProvider>
-      </ProjectIcons.Provider>
+      <ProjectIcons.Provider value={projectIcons}>{page}</ProjectIcons.Provider>
     </ProjectShown.Provider>
   );
 }

@@ -70,9 +70,6 @@ import { PrChipCard } from './PrLink';
 import { AccountLabel, BranchLabel, Button, cx, HarnessChip, headerMenu, Icon, PanelBack, STATUS_WORD, SessionEmblem, SessionGlyph, type PanelBackTo } from './primitives';
 import { runFolder } from './RunButton';
 import { AddChip, LabelChip, TodoGlyph } from './TodoBits';
-import { SessionBackdrop } from './SessionBackdrop';
-import { useSessionTheme } from './SessionThemeProvider';
-import { artScheme, schemeClass } from '../sessionTheme';
 import { keysIn } from '../platform';
 
 /** The PRs it worked on, and the pages it made, each shown as chips before a "+N": a long session
@@ -528,14 +525,9 @@ export function SessionHeader({ lane, session: s, apps, now, onOpen, onShowLane,
   // Main window, in the windows that show a session as a card: not for a session Codealong runs
   // here, whose Open button goes there already. One on another device has no Open button.
   const toMain = !inMain && !(s.hosted && !device) ? actions?.reveal : undefined;
-  const theme = useSessionTheme(s);
-  const hasBackdrop = !!theme && (!theme.aiEnabled || !!theme.assigned.backdropImage);
-  // A picture behind the header alone sets its look, as one behind the whole panel sets the panel's.
-  const art = hasBackdrop && theme.prefs.surface === 'header' ? artScheme(theme.assigned) : null;
 
   return (
-    <header className={cx('ca-sessinsp-head', hasBackdrop && 'ca-st-head', art && 'is-art', schemeClass(art))} onContextMenu={headerMenu(onMenu && (() => onMenu()))}>
-      {hasBackdrop && theme.prefs.surface === 'header' && <SessionBackdrop theme={theme.assigned} vibe={theme.prefs.vibe} intensity={theme.prefs.intensity} place="header" working={s.status === 'working'} aiOnly={theme.aiEnabled} />}
+    <header className="ca-sessinsp-head" onContextMenu={headerMenu(onMenu && (() => onMenu()))}>
       {back && <PanelBack back={back} />}
       {lineage?.from && <KinRow kin={lineage.from} now={now} parent onShow={onShowSession} onMenu={onSessionMenu} />}
       {!lineage?.from && s.helper?.pr && <ReviewOf pr={s.helper.pr} yours={!!s.helper.yours} prs={prs} onOpenPr={onOpenPr} />}

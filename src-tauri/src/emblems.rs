@@ -26,6 +26,8 @@
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::Duration;
 
 use anyhow::{anyhow, bail, Context, Result};
 use serde::{Deserialize, Serialize};
@@ -499,6 +501,23 @@ pub fn shrink(png_bytes: &[u8]) -> Result<Vec<u8>> {
     encode(&scale_down(&px, w, h, (x0, y0, side), PICTURE_PX), PICTURE_PX)
 }
 
+/// A picture of another format (an Antigravity drawing is a JPEG, antigravity/draw.rs) as a PNG,
+/// by macOS's own `sips`.
+fn as_png(bytes: &[u8], ext: &str) -> Option<Vec<u8>> {
+    static SEQ: AtomicU64 = AtomicU64::new(0);
+    let id = SEQ.fetch_add(1, Ordering::Relaxed);
+    let pid = std::process::id();
+    let src = std::env::temp_dir().join(format!("codealong-drawn-{pid}-{id}.{ext}"));
+    let dst = std::env::temp_dir().join(format!("codealong-drawn-{pid}-{id}.png"));
+    let (src_s, dst_s) = (src.to_str()?, dst.to_str()?);
+    std::fs::write(&src, bytes).ok()?;
+    let ok = crate::procs::run("/usr/bin/sips", &["-s", "format", "png", src_s, "--out", dst_s], None, Duration::from_secs(20)).is_ok();
+    let out = if ok { std::fs::read(&dst).ok() } else { None };
+    let _ = std::fs::remove_file(&src);
+    let _ = std::fs::remove_file(&dst);
+    out
+}
+
 /// A PNG's (or on macOS, another image format's) pixels as RGBA, 8 bits a channel: its width,
 /// height and pixels.
 pub(crate) fn decode(bytes: &[u8]) -> Result<(usize, usize, Vec<u8>)> {
@@ -506,7 +525,7 @@ pub(crate) fn decode(bytes: &[u8]) -> Result<(usize, usize, Vec<u8>)> {
     let bytes = if crate::attachments::image_kind(bytes) == Some("png") {
         bytes
     } else if let Some(ext) = crate::attachments::image_kind(bytes).filter(|_| crate::os::current() == crate::os::Os::MacOs) {
-        png_owned = crate::backgrounds::sips_convert(bytes, ext, "png", None).ok_or_else(|| anyhow!("The drawing isn't a PNG Codealong can read"))?;
+        png_owned = as_png(bytes, ext).ok_or_else(|| anyhow!("The drawing isn't a PNG Codealong can read"))?;
         &png_owned
     } else {
         bytes

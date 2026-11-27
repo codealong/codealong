@@ -63,7 +63,6 @@ import { usePrLinks } from './PrLink';
 import { ProjectIcons, projectIconMap, ProjectShown } from './ProjectSaid';
 import { QueueEnd } from './QueueEnd';
 import { SessionCard, type WindowCan } from './SessionCard';
-import { SessionThemeProvider } from './SessionThemeProvider';
 import { useTheme } from './ThemeSwitch';
 import { Reading } from './Tip';
 import { useNow } from './useNow';
@@ -532,9 +531,7 @@ export function Waiting() {
   // What waits comes from every project, so a session says its project before its worktree.
   return (
     <ProjectShown.Provider value={ALL_PROJECTS}>
-      <ProjectIcons.Provider value={projectIcons}>
-        <SessionThemeProvider board={board}>{page}</SessionThemeProvider>
-      </ProjectIcons.Provider>
+      <ProjectIcons.Provider value={projectIcons}>{page}</ProjectIcons.Provider>
     </ProjectShown.Provider>
   );
 }
