@@ -13,7 +13,7 @@ use anyhow::{anyhow, bail, Context, Result};
 use clap::{ArgAction, Args, Subcommand};
 use serde_json::{json, Value};
 
-use crate::experiments::{self, gitops, report, Gate, JudgeCfg, Op};
+use crate::experiments::{self, gitops, report, Gate, JudgeCfg, JudgeMode, Op};
 use crate::server::{self, Request};
 use crate::util::{expand, file_name};
 
@@ -70,12 +70,15 @@ pub(super) struct ExpRunArgs {
     /// Arm specification `<worker>[+<reviewer>]`, where each seat is `<account>[:<model>][:<effort>][@<mode>]`. Pass at least twice unless `--preset` supplies arms.
     #[arg(long = "arm", action = ArgAction::Append)]
     pub arms: Vec<String>,
-    /// Blind pairwise judge seat `<account>[:<model>][:<effort>][@<mode>]` (overrides preset judge).
-    #[arg(long, conflicts_with = "no_judge")]
-    pub judge: Option<String>,
-    /// Skip the preset's judge for this run.
-    #[arg(long, conflicts_with = "judge")]
+    /// Blind judge seat `<account>[:<model>][:<effort>][@<mode>]`. Repeat for a multi-provider judge panel (overrides preset judge/judges).
+    #[arg(long = "judge", action = ArgAction::Append, conflicts_with = "no_judge")]
+    pub judges: Vec<String>,
+    /// Skip the preset's judge(s) for this run.
+    #[arg(long, conflicts_with = "judges")]
     pub no_judge: bool,
+    /// How judges compare surviving arms: `auto` (all-at-once ranking for 3+, pairwise for 2), `rank`, or `pairwise`.
+    #[arg(long, value_enum)]
+    pub judge_mode: Option<JudgeMode>,
     /// Extra evaluation criteria appended to the blind judge's prompt (overrides preset rubric).
     #[arg(long)]
     pub rubric: Option<String>,
@@ -166,7 +169,8 @@ pub(super) fn exp(cmd: ExpCmd, c: &mut Client, json_out: bool) -> Result<()> {
 struct ResolvedRun {
     experiment: String,
     arms: Vec<String>,
-    judge: Option<String>,
+    judges: Vec<String>,
+    judge_mode: JudgeMode,
     rubric: Option<String>,
     eval_cmd: Option<String>,
     eval_timeout: u64,
@@ -195,16 +199,21 @@ fn resolve_run_args(a: &ExpRunArgs, cfg: &crate::config::Config) -> Result<Resol
         bail!("Give at least two --arm entries, or choose a --preset from `[experiments.<name>]` in config.toml.");
     };
 
-    let judge = if a.no_judge {
-        None
+    let judges: Vec<String> = if a.no_judge {
+        Vec::new()
+    } else if !a.judges.is_empty() {
+        a.judges.iter().map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect()
+    } else if let Some(p) = preset {
+        p.resolved_judges()
     } else {
-        a.judge.clone().or_else(|| preset.and_then(|p| p.judge.clone())).map(|s| s.trim().to_string()).filter(|s| !s.is_empty())
+        Vec::new()
     };
+    let judge_mode = a.judge_mode.or_else(|| preset.and_then(|p| p.judge_mode)).unwrap_or(JudgeMode::Auto);
     let cli_rubric = a.rubric.as_deref().map(str::trim).filter(|s| !s.is_empty()).map(str::to_string);
-    if cli_rubric.is_some() && judge.is_none() {
-        bail!("--rubric requires a --judge (or a preset with `judge`).");
+    if cli_rubric.is_some() && judges.is_empty() {
+        bail!("--rubric requires a --judge (or a preset with `judge` / `judges`).");
     }
-    let rubric = if judge.is_some() {
+    let rubric = if !judges.is_empty() {
         cli_rubric.or_else(|| preset.and_then(|p| p.rubric.as_deref()).map(str::trim).filter(|s| !s.is_empty()).map(str::to_string))
     } else {
         None
@@ -230,7 +239,7 @@ fn resolve_run_args(a: &ExpRunArgs, cfg: &crate::config::Config) -> Result<Resol
         .or_else(|| a.preset.clone())
         .unwrap_or_else(|| "default".into());
 
-    Ok(ResolvedRun { experiment, arms, judge, rubric, eval_cmd, eval_timeout, skip_base_check, max_parallel })
+    Ok(ResolvedRun { experiment, arms, judges, judge_mode, rubric, eval_cmd, eval_timeout, skip_base_check, max_parallel })
 }
 
 fn exp_presets(cfg: &crate::config::Config, json_out: bool) -> Result<()> {
@@ -245,10 +254,12 @@ fn exp_presets(cfg: &crate::config::Config, json_out: bool) -> Result<()> {
         .experiments
         .iter()
         .map(|(name, p)| {
+            let judges = p.resolved_judges();
+            let judge_col = if judges.is_empty() { "—".into() } else { judges.join(", ") };
             vec![
                 name.clone(),
                 p.arms.join(", "),
-                p.judge.clone().unwrap_or_else(|| "—".into()),
+                judge_col,
                 p.rubric.as_deref().map(|s| {
                     let line = s.lines().next().unwrap_or("").trim();
                     if line.chars().count() > 48 { format!("{}…", line.chars().take(47).collect::<String>()) } else { line.to_string() }
@@ -257,7 +268,7 @@ fn exp_presets(cfg: &crate::config::Config, json_out: bool) -> Result<()> {
             ]
         })
         .collect();
-    print!("{}", table_text(&["Preset", "Arms", "Judge", "Rubric", "Eval"], rows));
+    print!("{}", table_text(&["Preset", "Arms", "Judge(s)", "Rubric", "Eval"], rows));
     Ok(())
 }
 
@@ -270,12 +281,8 @@ fn exp_run(a: ExpRunArgs, c: &mut Client, cfg: &crate::config::Config, json_out:
     let repo = file_name(&main);
 
     let arms: Vec<experiments::Arm> = resolved.arms.iter().map(|raw| experiments::parse_arm(cfg, raw)).collect::<Result<_>>()?;
-    let rubric = resolved.rubric.clone();
-    let judge = resolved
-        .judge
-        .as_deref()
-        .map(|raw| experiments::parse_seat(cfg, raw).map(|seat| JudgeCfg { seat, rubric: rubric.clone() }))
-        .transpose()?;
+    let judge_seats: Vec<experiments::Seat> = resolved.judges.iter().map(|raw| experiments::parse_seat(cfg, raw)).collect::<Result<_>>()?;
+    let judge = JudgeCfg::from_seats(judge_seats, resolved.judge_mode, resolved.rubric.clone());
     let warnings = experiments::validate_run(cfg, &main, &arms, judge.as_ref())?;
     for w in &warnings {
         eprintln!("warning: {w}");
@@ -292,7 +299,9 @@ fn exp_run(a: ExpRunArgs, c: &mut Client, cfg: &crate::config::Config, json_out:
             println!("  {}  {}", t.id, t.arm.label);
         }
         if let Some(j) = &run.judge {
-            println!("  judge  {}", j.seat.short());
+            let names: Vec<String> = j.resolved_seats().into_iter().map(|s| s.short()).collect();
+            let mode_word = if j.use_rank(run.trials.len()) { "rank" } else { "pairwise" };
+            println!("  judges {} ({mode_word})", names.join(", "));
             if let Some(r) = &j.rubric {
                 println!("  rubric {r}");
             }
@@ -385,12 +394,31 @@ fn exp_show(cfg: &crate::config::Config, prefix: &str, json_out: bool) -> Result
         })
         .collect();
     print!("{}", table_text(&["Trial", "Arm", "Stage", "Review", "Gate", "Cost", "Time", ""], rows));
+    if !run.rankings.is_empty() {
+        println!("\nJudge rankings:");
+        for rj in &run.rankings {
+            let order = if !rj.ranking.is_empty() {
+                rj.ranking.iter().map(|tier| tier.join(" = ")).collect::<Vec<_>>().join(" > ")
+            } else if let Some(err) = &rj.error {
+                format!("error: {err}")
+            } else if rj.done {
+                "no ranking".into()
+            } else {
+                "judging…".into()
+            };
+            println!("  {}  →  {}", rj.judge, order);
+            if let Some(why) = &rj.rationale {
+                println!("    {why}");
+            }
+        }
+    }
     if !run.comparisons.is_empty() {
         println!("\nJudge comparisons:");
         for c in &run.comparisons {
             let winner = c.consistent_winner.as_deref().unwrap_or("no consensus");
+            let who = c.judge.as_deref().map(|j| format!("[{j}] ")).unwrap_or_default();
             println!(
-                "  {} vs {}  →  {} (fwd: {}, rev: {})",
+                "  {who}{} vs {}  →  {} (fwd: {}, rev: {})",
                 c.trial_a,
                 c.trial_b,
                 winner,
@@ -535,7 +563,7 @@ mod tests {
         .unwrap();
         let Cmd::Exp { cmd: ExpCmd::Run(a) } = cli.cmd else { panic!("expected exp run") };
         assert_eq!(a.arms, vec!["claude:opus:high+codex:sol-6.2:high", "codex:sol-6.2:high"]);
-        assert_eq!(a.judge.as_deref(), Some("antigravity:gemini-4-neon-high"));
+        assert_eq!(a.judges, vec!["antigravity:gemini-4-neon-high"]);
         assert_eq!(a.eval_cmd.as_deref(), Some("npm test"));
         assert_eq!(a.experiment.as_deref(), Some("bench-1"));
         assert!(a.dry_run);
@@ -555,8 +583,8 @@ mod tests {
         cfg.experiments.insert(
             "quality".into(),
             experiments::PresetCfg {
-                arms: vec!["claude:opus:high".into(), "claude:sonnet+codex:medium".into()],
-                judge: Some("antigravity".into()),
+                arms: vec!["claude:opus:xhigh".into(), "codex:gpt-6.2-astra:xhigh".into(), "antigravity:gemini-4-neon-xhigh".into()],
+                judges: vec!["claude:opus:high".into(), "codex:gpt-6.2-astra:high".into(), "antigravity:gemini-4-neon-high".into()],
                 rubric: Some("Prefer idiomatic reuse of existing helpers.".into()),
                 eval: None,
                 max_parallel: Some(3),
@@ -567,8 +595,9 @@ mod tests {
         let Cmd::Exp { cmd: ExpCmd::Run(a) } = cli.cmd else { panic!("expected exp run") };
         let res = resolve_run_args(&a, &cfg).unwrap();
         assert_eq!(res.experiment, "quality");
-        assert_eq!(res.arms, vec!["claude:opus:high", "claude:sonnet+codex:medium"]);
-        assert_eq!(res.judge.as_deref(), Some("antigravity"));
+        assert_eq!(res.arms.len(), 3);
+        assert_eq!(res.judges, vec!["claude:opus:high", "codex:gpt-6.2-astra:high", "antigravity:gemini-4-neon-high"]);
+        assert_eq!(res.judge_mode, JudgeMode::Auto);
         assert_eq!(res.rubric.as_deref(), Some("Prefer idiomatic reuse of existing helpers."));
         assert_eq!(res.eval_cmd, None);
         assert_eq!(res.max_parallel, 3);
@@ -585,7 +614,7 @@ mod tests {
         let Cmd::Exp { cmd: ExpCmd::Run(a2) } = cli2.cmd else { panic!("expected exp run") };
         let res2 = resolve_run_args(&a2, &cfg).unwrap();
         assert_eq!(res2.experiment, "custom-cohort");
-        assert_eq!(res2.judge, None);
+        assert!(res2.judges.is_empty());
         assert_eq!(res2.rubric, None);
 
         // Passing --rubric without any judge is rejected cleanly.

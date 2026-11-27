@@ -46,10 +46,21 @@ export interface ExperimentPairView {
   trialB: string;
   labelA: string;
   labelB: string;
+  judge: string | null;
   forwardWinner: string | null;
   reversedWinner: string | null;
   consistentWinner: string | null;
   rationale: string | null;
+}
+
+export interface ExperimentRankView {
+  id: string;
+  judge: string;
+  ranking: string[][];
+  rankingLabels: string[][];
+  rationale: string | null;
+  error: string | null;
+  done: boolean;
 }
 
 export interface ExperimentRunView {
@@ -70,6 +81,7 @@ export interface ExperimentRunView {
   error: string | null;
   trials: ExperimentTrialView[];
   comparisons: ExperimentPairView[];
+  rankings: ExperimentRankView[];
 }
 
 export interface ExperimentLeaderboardRow {

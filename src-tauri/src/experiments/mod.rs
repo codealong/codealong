@@ -107,28 +107,95 @@ impl Default for Gate {
     }
 }
 
-/// Blind pairwise judge configuration.
+/// How judges evaluate surviving trials in a run.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, Default, PartialEq, Eq, clap::ValueEnum)]
+#[serde(rename_all = "kebab-case")]
+pub enum JudgeMode {
+    /// All-at-once ranking for 3+ survivors; pairwise (both orders) for 2 survivors.
+    #[default]
+    Auto,
+    /// All surviving diffs evaluated together with cyclic label rotation across judges.
+    Rank,
+    /// Every unordered pair evaluated in both A/B and B/A order.
+    Pairwise,
+    #[serde(other)]
+    #[value(skip)]
+    Unknown,
+}
+
+fn is_empty_seat(s: &Seat) -> bool {
+    s.account.is_empty()
+}
+
+fn is_default_judge_mode(m: &JudgeMode) -> bool {
+    *m == JudgeMode::Auto
+}
+
+/// Blind judge configuration (single seat or multi-provider panel).
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq, Eq)]
 #[serde(default, rename_all = "camelCase")]
 pub struct JudgeCfg {
+    /// Primary (or sole) judge seat; kept for backward compatibility with single-judge runs.
+    #[serde(skip_serializing_if = "is_empty_seat")]
     pub seat: Seat,
+    /// Full panel of judge seats when 2+ judges are configured.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub seats: Vec<Seat>,
+    /// `auto` (all-at-once ranking for 3+ survivors, pairwise for 2), `rank`, or `pairwise`.
+    #[serde(skip_serializing_if = "is_default_judge_mode")]
+    pub mode: JudgeMode,
     /// Optional extra evaluation criteria appended to the blind judge's prompt.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub rubric: Option<String>,
 }
 
+impl JudgeCfg {
+    /// Builds a `JudgeCfg` from 1 or more resolved seats (`None` when `seats` is empty).
+    pub fn from_seats(seats: Vec<Seat>, mode: JudgeMode, rubric: Option<String>) -> Option<Self> {
+        let first = seats.first()?.clone();
+        let panel = if seats.len() > 1 { seats } else { Vec::new() };
+        Some(Self { seat: first, seats: panel, mode, rubric })
+    }
+
+    /// Returns all configured judge seats in panel order (falling back to `[seat]` for single-judge configs).
+    pub fn resolved_seats(&self) -> Vec<&Seat> {
+        if !self.seats.is_empty() {
+            self.seats.iter().collect()
+        } else if !self.seat.account.is_empty() {
+            vec![&self.seat]
+        } else {
+            Vec::new()
+        }
+    }
+
+    /// Whether judging should use all-at-once ranking (`RankJudge`) instead of pairwise (`PairComparison`).
+    pub fn use_rank(&self, survivor_count: usize) -> bool {
+        match self.mode {
+            JudgeMode::Rank => true,
+            JudgeMode::Pairwise => false,
+            JudgeMode::Auto | JudgeMode::Unknown => survivor_count >= 3,
+        }
+    }
+}
+
 /// One `[experiments.<name>]` preset in `config.toml`: a reusable set of arms and an optional
-/// blind judge (and rubric) so `codealong exp run --preset <name>` only needs a task prompt.
-/// No mechanical `eval` gate is required; omit it when relying on agents + judge for quality.
+/// blind judge or multi-provider judge panel (and rubric) so `codealong exp run --preset <name>`
+/// only needs a task prompt. No mechanical `eval` gate is required.
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq, Eq)]
 #[serde(default)]
 pub struct PresetCfg {
     /// Arm specs (`<worker>[+<reviewer>]`), at least two.
     pub arms: Vec<String>,
-    /// Optional blind pairwise judge seat (`<account>[:<model>][:<effort>][@<mode>]`).
+    /// Single blind judge seat (`<account>[:<model>][:<effort>][@<mode>]`). Use `judges` for a panel.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub judge: Option<String>,
-    /// Optional extra evaluation criteria for the blind judge.
+    /// Panel of blind judge seats (e.g. `["claude:opus:high", "codex:gpt-6.2-astra:high", "antigravity:gemini-4-neon-high"]`).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub judges: Vec<String>,
+    /// Judging mode: `auto` (rank for 3+ survivors, pairwise for 2), `rank`, or `pairwise`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub judge_mode: Option<JudgeMode>,
+    /// Optional extra evaluation criteria for the blind judge(s).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub rubric: Option<String>,
     /// Optional mechanical gate command; omit when not needed.
@@ -143,6 +210,19 @@ pub struct PresetCfg {
     /// Optional max concurrent trials (defaults to 2).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_parallel: Option<usize>,
+}
+
+impl PresetCfg {
+    /// Resolved judge seat strings from `judges` (when set) or `judge`.
+    pub fn resolved_judges(&self) -> Vec<String> {
+        if !self.judges.is_empty() {
+            self.judges.iter().map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect()
+        } else if let Some(j) = self.judge.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+            vec![j.to_string()]
+        } else {
+            Vec::new()
+        }
+    }
 }
 
 /// Removes extracted `judge/*/repo` base-commit snapshots under a run's artifact folder so they
@@ -315,12 +395,15 @@ impl PairOrder {
     }
 }
 
-/// Both orderings of a blind pairwise comparison between two surviving trials.
+/// Both orderings of a blind pairwise comparison between two surviving trials by one judge seat.
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq, Eq)]
 #[serde(default, rename_all = "camelCase")]
 pub struct PairComparison {
     pub trial_a: String,
     pub trial_b: String,
+    /// Judge seat evaluating this pair (`None` in legacy single-judge runs, which use `run.judge.seat`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub judge: Option<Seat>,
     pub forward: PairOrder,
     pub reversed: PairOrder,
     /// `Some(trial_id)` only when both orderings independently pick the same trial.
@@ -329,12 +412,13 @@ pub struct PairComparison {
 }
 
 impl PairComparison {
-    pub fn new(trial_a: String, trial_b: String) -> Self {
+    pub fn new(trial_a: String, trial_b: String, judge: Option<Seat>) -> Self {
         Self {
             forward: PairOrder { a_trial: trial_a.clone(), b_trial: trial_b.clone(), ..Default::default() },
             reversed: PairOrder { a_trial: trial_b.clone(), b_trial: trial_a.clone(), ..Default::default() },
             trial_a,
             trial_b,
+            judge,
             consistent_winner: None,
         }
     }
@@ -353,6 +437,43 @@ impl PairComparison {
             (Some(f), Some(r)) if f == r => Some(f.to_string()),
             _ => None,
         };
+    }
+}
+
+/// One blind all-at-once ranking pass by a single judge seat over all surviving trials.
+/// Labels `A`, `B`, `C`, ... correspond positionally to `order` (cyclically rotated across judges
+/// to neutralize position bias).
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq, Eq)]
+#[serde(default, rename_all = "camelCase")]
+pub struct RankJudge {
+    pub id: String,
+    pub judge: Seat,
+    /// Trial ids mapped to `A`, `B`, `C`, ... for this pass.
+    pub order: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub session_key: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub started_at: Option<i64>,
+    /// Ranked tiers of trial ids from best to worst; elements in the same inner Vec tied.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub ranking: Vec<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rationale: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+    pub done: bool,
+}
+
+impl RankJudge {
+    /// Returns the unique top-ranked trial id when tier 0 has a single winner (no tie at #1).
+    pub fn top_trial(&self) -> Option<&str> {
+        let first = self.ranking.first()?;
+        (first.len() == 1).then(|| first[0].as_str())
+    }
+
+    /// Returns the 0-based tier index of `trial_id` in `ranking` (lower is better).
+    pub fn tier_of(&self, trial_id: &str) -> Option<usize> {
+        self.ranking.iter().position(|tier| tier.iter().any(|id| id == trial_id))
     }
 }
 
@@ -376,6 +497,8 @@ pub struct Run {
     pub stage: RunStage,
     pub trials: Vec<Trial>,
     pub comparisons: Vec<PairComparison>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub rankings: Vec<RankJudge>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub recommended: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -525,8 +648,12 @@ pub fn check_presets(cfg: &Config) -> std::result::Result<(), String> {
                 accounts.push(rev.account);
             }
         }
-        if let Some(raw_judge) = preset.judge.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
-            let seat = parse_seat(cfg, raw_judge).map_err(|e| format!("[experiments.{name}] judge: {e}"))?;
+        let has_single = preset.judge.as_deref().map(str::trim).is_some_and(|s| !s.is_empty());
+        if has_single && !preset.judges.is_empty() {
+            return Err(format!("[experiments.{name}] sets both `judge` and `judges`; use one or the other."));
+        }
+        for raw_judge in preset.resolved_judges() {
+            let seat = parse_seat(cfg, &raw_judge).map_err(|e| format!("[experiments.{name}] judge: {e}"))?;
             accounts.push(seat.account);
         }
         let refs: Vec<&str> = accounts.iter().map(String::as_str).collect();
@@ -536,7 +663,7 @@ pub fn check_presets(cfg: &Config) -> std::result::Result<(), String> {
 }
 
 /// Validates every seat in a run (ACP hosted support, boundary consistency, repo hooks) and returns
-/// non-fatal warnings (such as the judge sharing a harness with an arm).
+/// non-fatal warnings (such as a single judge sharing a harness with an arm).
 pub fn validate_run(cfg: &Config, main_worktree: &Path, arms: &[Arm], judge: Option<&JudgeCfg>) -> Result<Vec<String>> {
     if arms.len() < 2 {
         bail!("An experiment run needs at least two --arm entries.");
@@ -558,10 +685,19 @@ pub fn validate_run(cfg: &Config, main_worktree: &Path, arms: &[Arm], judge: Opt
     }
     let mut warnings = Vec::new();
     if let Some(j) = judge {
-        let acct = ensure_acp_seat(cfg, &j.seat, &user_home)?;
-        all_accounts.push(&acct.name);
-        if arm_harnesses.contains(&acct.harness) {
-            warnings.push(format!("Judge account {} uses the same harness ({}) as an arm; consider a judge on another provider to reduce self-preference bias.", acct.name, acct.harness));
+        let seats = j.resolved_seats();
+        let mut judge_harnesses = HashSet::new();
+        for seat in &seats {
+            let acct = ensure_acp_seat(cfg, seat, &user_home)?;
+            all_accounts.push(&acct.name);
+            judge_harnesses.insert((acct.name.as_str(), acct.harness.as_str()));
+        }
+        if seats.len() == 1 {
+            if let Some(&(name, harness)) = judge_harnesses.iter().next() {
+                if arm_harnesses.contains(harness) {
+                    warnings.push(format!("Judge account {name} uses the same harness ({harness}) as an arm; consider an out-of-family judge or a multi-provider judge panel to reduce self-preference bias."));
+                }
+            }
         }
     }
     check_boundary(cfg, &all_accounts)?;
@@ -578,38 +714,111 @@ fn ensure_acp_seat<'a>(cfg: &'a Config, seat: &Seat, user_home: &Path) -> Result
     Ok(acct)
 }
 
-/// Builds pairwise comparisons for every unordered pair of surviving trials.
-pub fn build_comparisons(trials: &[Trial]) -> Vec<PairComparison> {
+/// Builds pairwise comparisons for every unordered pair of surviving trials across all judge seats.
+pub fn build_comparisons(trials: &[Trial], judges: &[&Seat]) -> Vec<PairComparison> {
     let survivors: Vec<&str> = trials.iter().filter(|t| t.survives()).map(|t| t.id.as_str()).collect();
+    let seats: Vec<Option<Seat>> = if judges.is_empty() { vec![None] } else { judges.iter().map(|s| Some((*s).clone())).collect() };
     let mut out = Vec::new();
     for i in 0..survivors.len() {
         for j in (i + 1)..survivors.len() {
-            out.push(PairComparison::new(survivors[i].to_string(), survivors[j].to_string()));
+            for seat in &seats {
+                out.push(PairComparison::new(survivors[i].to_string(), survivors[j].to_string(), seat.clone()));
+            }
         }
     }
     out
 }
 
-/// Computes the overall recommendation from surviving trials and resolved pairwise comparisons.
-/// Recommends a winner only when a single survivor strictly leads in consistent pairwise wins
-/// (both orderings agreed) with no head-to-head consistent loss to the runner-up.
-pub fn compute_recommendation(trials: &[Trial], comparisons: &[PairComparison]) -> (Option<String>, String) {
+/// Builds blind all-at-once ranking passes over all surviving trials.
+///
+/// - For 2+ judges: one pass per judge, cyclically rotating candidate labels (`A,B,C`, `B,C,A`,
+///   `C,A,B`) so every arm occupies every position across the panel.
+/// - For 1 judge: two passes (forward and reversed) so position bias is still checked.
+pub fn build_rankings(trials: &[Trial], judges: &[&Seat]) -> Vec<RankJudge> {
+    let survivors: Vec<String> = trials.iter().filter(|t| t.survives()).map(|t| t.id.clone()).collect();
+    if survivors.len() < 2 || judges.is_empty() {
+        return Vec::new();
+    }
+    if judges.len() == 1 {
+        let mut rev = survivors.clone();
+        rev.reverse();
+        return vec![
+            RankJudge { id: "j0-fwd".into(), judge: judges[0].clone(), order: survivors, ..Default::default() },
+            RankJudge { id: "j0-rev".into(), judge: judges[0].clone(), order: rev, ..Default::default() },
+        ];
+    }
+    let n = survivors.len();
+    judges
+        .iter()
+        .enumerate()
+        .map(|(idx, seat)| {
+            let mut order = survivors.clone();
+            order.rotate_left(idx % n);
+            RankJudge { id: format!("j{idx}"), judge: (*seat).clone(), order, ..Default::default() }
+        })
+        .collect()
+}
+
+/// Counts head-to-head ballot wins (`a_ahead`, `b_ahead`) between two trials across all completed
+/// ranking ballots that include both trials.
+pub(crate) fn rank_head_to_head(rankings: &[RankJudge], a: &str, b: &str) -> (usize, usize) {
+    let mut a_ahead = 0;
+    let mut b_ahead = 0;
+    for rj in rankings {
+        if let (Some(ta), Some(tb)) = (rj.tier_of(a), rj.tier_of(b)) {
+            if ta < tb {
+                a_ahead += 1;
+            } else if tb < ta {
+                b_ahead += 1;
+            }
+        }
+    }
+    (a_ahead, b_ahead)
+}
+
+/// Computes the overall recommendation from surviving trials and either all-at-once `rankings`
+/// (Borda score + first-place votes) or pairwise `comparisons` (consistent forward+reversed votes).
+pub fn compute_recommendation(trials: &[Trial], comparisons: &[PairComparison], rankings: &[RankJudge]) -> (Option<String>, String) {
     let survivors: Vec<&Trial> = trials.iter().filter(|t| t.survives()).collect();
     match survivors.len() {
         0 => return (None, "No arm produced a passing diff.".into()),
         1 => return (Some(survivors[0].id.clone()), format!("Only surviving arm ({}).", survivors[0].arm.label)),
         _ => {}
     }
+    if !rankings.is_empty() {
+        return compute_rank_recommendation(&survivors, rankings);
+    }
     if comparisons.is_empty() {
         return (None, "No judge configured; compare surviving diffs by hand.".into());
     }
-    let mut wins: BTreeMap<&str, usize> = survivors.iter().map(|t| (t.id.as_str(), 0)).collect();
+    // Group pairwise comparisons by unordered pair so multi-judge pairwise panels vote per pair.
+    let mut pair_votes: BTreeMap<(&str, &str), (usize, usize)> = BTreeMap::new();
     for c in comparisons {
-        if let Some(w) = c.consistent_winner.as_deref() {
-            if let Some(slot) = wins.get_mut(w) {
+        let (a, b) = if c.trial_a <= c.trial_b { (c.trial_a.as_str(), c.trial_b.as_str()) } else { (c.trial_b.as_str(), c.trial_a.as_str()) };
+        let entry = pair_votes.entry((a, b)).or_insert((0, 0));
+        if c.consistent_winner.as_deref() == Some(a) {
+            entry.0 += 1;
+        } else if c.consistent_winner.as_deref() == Some(b) {
+            entry.1 += 1;
+        }
+    }
+    let mut wins: BTreeMap<&str, usize> = survivors.iter().map(|t| (t.id.as_str(), 0)).collect();
+    let mut pair_winner: BTreeMap<(&str, &str), Option<&str>> = BTreeMap::new();
+    for ((a, b), (va, vb)) in &pair_votes {
+        let w = if va > vb {
+            if let Some(slot) = wins.get_mut(*a) {
                 *slot += 1;
             }
-        }
+            Some(*a)
+        } else if vb > va {
+            if let Some(slot) = wins.get_mut(*b) {
+                *slot += 1;
+            }
+            Some(*b)
+        } else {
+            None
+        };
+        pair_winner.insert((*a, *b), w);
     }
     let mut ranked: Vec<(&str, usize)> = wins.into_iter().collect();
     ranked.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(b.0)));
@@ -618,16 +827,79 @@ pub fn compute_recommendation(trials: &[Trial], comparisons: &[PairComparison]) 
     if top_wins == 0 || top_wins == second_wins {
         return (None, "Too close: pairwise orderings did not agree on a clear winner.".into());
     }
-    // Check that the leader didn't lose or draw inconsistently head-to-head against the runner-up.
-    let beat_second = comparisons.iter().any(|c| {
-        ((c.trial_a == top_id && c.trial_b == second_id) || (c.trial_a == second_id && c.trial_b == top_id))
-            && c.consistent_winner.as_deref() == Some(top_id)
-    });
-    if !beat_second {
+    let pair_key = if top_id <= second_id { (top_id, second_id) } else { (second_id, top_id) };
+    if pair_winner.get(&pair_key).copied().flatten() != Some(top_id) {
         return (None, "Too close: top arms did not have a consistent head-to-head winner.".into());
     }
     let label = survivors.iter().find(|t| t.id == top_id).map_or(top_id, |t| t.arm.label.as_str());
     (Some(top_id.to_string()), format!("Recommended {label} ({top_wins}/{} consistent pairwise wins).", survivors.len() - 1))
+}
+
+fn compute_rank_recommendation(survivors: &[&Trial], rankings: &[RankJudge]) -> (Option<String>, String) {
+    let valid: Vec<&RankJudge> = rankings.iter().filter(|r| !r.ranking.is_empty()).collect();
+    if valid.is_empty() {
+        return (None, "No judge produced a valid ranking.".into());
+    }
+    // Single-judge forward/reversed mode requires both orders to agree on #1.
+    let single_judge_pair = rankings.len() == 2 && rankings[0].id.ends_with("-fwd") && rankings[1].id.ends_with("-rev");
+    if single_judge_pair {
+        if valid.len() < 2 {
+            return (None, "Too close: single judge did not complete both forward and reversed rankings.".into());
+        }
+        let fwd_top = rankings[0].top_trial();
+        let rev_top = rankings[1].top_trial();
+        return match (fwd_top, rev_top) {
+            (Some(f), Some(r)) if f == r => {
+                let label = survivors.iter().find(|t| t.id == f).map_or(f, |t| t.arm.label.as_str());
+                (Some(f.to_string()), format!("Recommended {label} (#1 in both forward and reversed rankings)."))
+            }
+            _ => (None, "Too close: forward and reversed ranking passes did not agree on #1.".into()),
+        };
+    }
+
+    let n = survivors.len();
+    let mut borda: BTreeMap<&str, f64> = survivors.iter().map(|t| (t.id.as_str(), 0.0)).collect();
+    let mut firsts: BTreeMap<&str, usize> = survivors.iter().map(|t| (t.id.as_str(), 0)).collect();
+    for rj in &valid {
+        let mut pos = 0usize;
+        for tier in &rj.ranking {
+            if tier.is_empty() {
+                continue;
+            }
+            // Standard tie-split Borda points: average of (n - 1 - k) for k in pos..(pos + tier.len()).
+            let sum_pts: f64 = (pos..(pos + tier.len())).map(|k| n.saturating_sub(1 + k) as f64).sum();
+            let avg_pts = sum_pts / (tier.len() as f64);
+            for id in tier {
+                if let Some(slot) = borda.get_mut(id.as_str()) {
+                    *slot += avg_pts;
+                }
+            }
+            pos += tier.len();
+        }
+        if let Some(top) = rj.top_trial() {
+            if let Some(slot) = firsts.get_mut(top) {
+                *slot += 1;
+            }
+        }
+    }
+
+    let mut ranked: Vec<(&str, f64, usize)> = survivors
+        .iter()
+        .map(|t| (t.id.as_str(), borda[t.id.as_str()], firsts[t.id.as_str()]))
+        .collect();
+    ranked.sort_by(|a, b| b.1.total_cmp(&a.1).then_with(|| b.2.cmp(&a.2)).then_with(|| a.0.cmp(b.0)));
+
+    let (top_id, top_pts, top_firsts) = ranked[0];
+    let (_, second_pts, _) = ranked[1];
+    if top_pts <= second_pts + 1e-9 {
+        return (None, format!("Too close: tied at the top ({top_pts:.1} Borda pts across {} judges).", valid.len()));
+    }
+    let max_pts = ((n - 1) * valid.len()) as f64;
+    let label = survivors.iter().find(|t| t.id == top_id).map_or(top_id, |t| t.arm.label.as_str());
+    (
+        Some(top_id.to_string()),
+        format!("Recommended {label} ({top_pts:.1}/{max_pts:.1} Borda pts, {top_firsts}/{} #1 votes across {} judges).", valid.len(), valid.len()),
+    )
 }
 
 /// Creates a new `Run` struct with queued trials ready to be saved to `experiments.json`.
@@ -659,6 +931,7 @@ pub fn make_run(experiment: String, repo: String, main_worktree: PathBuf, base_s
         stage: RunStage::Running,
         trials,
         comparisons: Vec::new(),
+        rankings: Vec::new(),
         recommended: None,
         recommendation_note: None,
         adopted_trial: None,
@@ -753,27 +1026,66 @@ mod tests {
         let trial = |id: &str| Trial { id: id.into(), arm: Arm { label: id.into(), ..Default::default() }, stage: TrialStage::Ready, diff_bytes: 100, gate_passed: Some(true), ..Default::default() };
         let trials = vec![trial("t1"), trial("t2")];
         // Both orders pick t1 -> recommended.
-        let mut c = PairComparison::new("t1".into(), "t2".into());
+        let mut c = PairComparison::new("t1".into(), "t2".into(), None);
         c.forward.done = true;
         c.forward.winner = Some("A".into());
         c.reversed.done = true;
         c.reversed.winner = Some("B".into());
         c.resolve();
         assert_eq!(c.consistent_winner.as_deref(), Some("t1"));
-        let (rec, _) = compute_recommendation(&trials, &[c]);
+        let (rec, _) = compute_recommendation(&trials, &[c], &[]);
         assert_eq!(rec.as_deref(), Some("t1"));
 
         // Order bias (both pick "A") -> inconsistent -> too close.
-        let mut biased = PairComparison::new("t1".into(), "t2".into());
+        let mut biased = PairComparison::new("t1".into(), "t2".into(), None);
         biased.forward.done = true;
         biased.forward.winner = Some("A".into());
         biased.reversed.done = true;
         biased.reversed.winner = Some("A".into());
         biased.resolve();
         assert_eq!(biased.consistent_winner, None);
-        let (rec, note) = compute_recommendation(&trials, &[biased]);
+        let (rec, note) = compute_recommendation(&trials, &[biased], &[]);
         assert_eq!(rec, None);
         assert!(note.contains("Too close"), "{note}");
+    }
+
+    #[test]
+    fn rankings_rotate_cyclically_and_score_borda_with_tie_splitting() {
+        let trial = |id: &str| Trial { id: id.into(), arm: Arm { label: id.into(), ..Default::default() }, stage: TrialStage::Ready, diff_bytes: 100, ..Default::default() };
+        let trials = vec![trial("t1"), trial("t2"), trial("t3")];
+        let j1 = Seat { account: "claude".into(), ..Default::default() };
+        let j2 = Seat { account: "codex".into(), ..Default::default() };
+        let j3 = Seat { account: "antigravity".into(), ..Default::default() };
+        let mut panel = build_rankings(&trials, &[&j1, &j2, &j3]);
+        assert_eq!(panel.len(), 3);
+        assert_eq!(panel[0].order, vec!["t1", "t2", "t3"]);
+        assert_eq!(panel[1].order, vec!["t2", "t3", "t1"]);
+        assert_eq!(panel[2].order, vec!["t3", "t1", "t2"]);
+
+        // j1: t2 > t1 > t3 (t2: 2, t1: 1, t3: 0)
+        // j2: t2 > t3 = t1 (t2: 2, t3: 0.5, t1: 0.5)
+        // j3: t1 > t2 > t3 (t1: 2, t2: 1, t3: 0)
+        // Totals: t2 = 5.0 (2 #1 votes), t1 = 3.5 (1 #1 vote), t3 = 0.5.
+        panel[0].ranking = vec![vec!["t2".into()], vec!["t1".into()], vec!["t3".into()]];
+        panel[1].ranking = vec![vec!["t2".into()], vec!["t3".into(), "t1".into()]];
+        panel[2].ranking = vec![vec!["t1".into()], vec!["t2".into()], vec!["t3".into()]];
+        for r in &mut panel {
+            r.done = true;
+        }
+        let (rec, note) = compute_recommendation(&trials, &[], &panel);
+        assert_eq!(rec.as_deref(), Some("t2"));
+        assert!(note.contains("5.0/6.0 Borda pts, 2/3 #1 votes"), "{note}");
+
+        // Single judge builds fwd + rev passes and requires agreement on #1.
+        let mut single = build_rankings(&trials, &[&j1]);
+        assert_eq!(single.len(), 2);
+        assert_eq!(single[0].order, vec!["t1", "t2", "t3"]);
+        assert_eq!(single[1].order, vec!["t3", "t2", "t1"]);
+        single[0].ranking = vec![vec!["t2".into()], vec!["t1".into()], vec!["t3".into()]];
+        single[1].ranking = vec![vec!["t1".into()], vec!["t2".into()], vec!["t3".into()]];
+        let (rec_disagree, note_disagree) = compute_recommendation(&trials, &[], &single);
+        assert_eq!(rec_disagree, None);
+        assert!(note_disagree.contains("did not agree"), "{note_disagree}");
     }
 
     #[test]
@@ -783,13 +1095,22 @@ mod tests {
             "quality".into(),
             PresetCfg {
                 arms: vec!["claude:opus:high".into(), "claude:sonnet+codex:medium".into()],
-                judge: Some("codex:high".into()),
+                judges: vec!["claude:opus:high".into(), "codex:high".into()],
+                judge_mode: Some(JudgeMode::Rank),
                 rubric: Some("Prefer idiomatic reuse of existing helpers.".into()),
                 eval: None,
                 ..Default::default()
             },
         );
         assert!(check_presets(&cfg).is_ok());
+
+        // Setting both `judge` and `judges` is rejected.
+        cfg.experiments.insert(
+            "both".into(),
+            PresetCfg { arms: vec!["claude".into(), "codex".into()], judge: Some("claude".into()), judges: vec!["codex".into()], ..Default::default() },
+        );
+        assert!(check_presets(&cfg).unwrap_err().contains("both `judge` and `judges`"));
+        cfg.experiments.remove("both");
 
         // Too few arms is rejected.
         cfg.experiments.insert("one".into(), PresetCfg { arms: vec!["claude".into()], ..Default::default() });
