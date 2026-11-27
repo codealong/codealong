@@ -1046,6 +1046,7 @@ export type Config = Holds<Same<
   | "devices"
   | "emblems"
   | "experimental"
+  | "experiments"
   | "limits"
   | "prices"
   | "projects"

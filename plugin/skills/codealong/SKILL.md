@@ -657,6 +657,25 @@ When it can wait for your user, write it instead as a code block whose first lin
 `!` in your session's box, in a tab of theirs, and you get a message from them with what it
 printed once it ends.
 
+## Experiments
+
+When `[experimental] experiments = true` is on in `config.toml`, `codealong exp` runs pinned
+agent combinations side-by-side on the same task and base commit (each in an isolated worktree),
+with optional 1-round local review (`worker+reviewer`), an optional blind pairwise judge (which
+reads `spec.md`, `A.diff`, `B.diff`, and a clean read-only `repo/` snapshot at the base commit in
+both A/B and B/A order), and an optional `--eval` command.
+
+- **Presets:** `codealong exp presets` lists named `[experiments.<name>]` presets from
+  `config.toml` (`arms`, optional `judge`, optional `rubric`, optional `eval`, `max_parallel`).
+  Run one with `codealong exp run --preset <name> --prompt "..."` (or `--todo <id>` /
+  `--prompt-file <path>`). No `--eval` is required when relying on the judge for code quality.
+- **Ad-hoc runs:** pass `--arm "<worker>[+<reviewer>]"` at least twice, `--judge "<seat>"`,
+  optional `--rubric "<criteria>"`, and `--dry-run` first to check seats and boundaries.
+- **Inspecting and finishing:** `codealong exp show <id>` shows live stages, review verdicts,
+  pairwise judge consensus, and costs; `codealong exp results [experiment]` shows the leaderboard;
+  `codealong exp adopt <run>/<trial>` marks the winner; `codealong exp discard <run>` cleans up
+  non-adopted worktrees (diffs remain saved under `refs/codealong/experiments/<run>/<trial>`).
+
 ## Configuring Codealong
 
 Codealong's settings are one TOML file, `config.toml`, whose path `codealong status` prints.

@@ -665,6 +665,8 @@ Usage: codealong exp [OPTIONS] <COMMAND>
 Commands:
   run      Start a bake-off run across pinned agent combinations on the same task and
            base commit
+  presets  List named experiment presets configured under `[experiments.<name>]` in
+           config.toml
   list     List experiment runs
   show     Show one experiment run in full (trials, gate, pairwise comparisons, costs)
   results  Show the leaderboard aggregated across completed runs
@@ -694,33 +696,48 @@ Options:
 ```
 Start a bake-off run across pinned agent combinations on the same task and base commit
 
-Usage: codealong exp run [OPTIONS] --arm <ARMS>
+Usage: codealong exp run [OPTIONS]
 
 Options:
-      --arm <ARMS>
-          Arm specification `<worker>[+<reviewer>]`, where each seat is
-          `<account>[:<model>][:<effort>][@<mode>]`. Pass at least twice
-
       --json
           JSON output. The default when stdout isn't a terminal
 
-      --judge <JUDGE>
-          Blind pairwise judge seat `<account>[:<model>][:<effort>][@<mode>]`
+      --preset <PRESET>
+          Named preset from `[experiments.<name>]` in config.toml (supplies arms, judge,
+          rubric, and optional eval)
+
+      --arm <ARMS>
+          Arm specification `<worker>[+<reviewer>]`, where each seat is
+          `<account>[:<model>][:<effort>][@<mode>]`. Pass at least twice unless
+          `--preset` supplies arms
 
       --table
           Tables, even when piped
 
-      --eval <EVAL_CMD>
-          Mechanical gate command run through your login shell in each trial worktree
-          after its last agent turn
+      --judge <JUDGE>
+          Blind pairwise judge seat `<account>[:<model>][:<effort>][@<mode>]` (overrides
+          preset judge)
 
       --verbose
           Say on stderr whether Codealong's server or the files answered
 
+      --no-judge
+          Skip the preset's judge for this run
+
+      --rubric <RUBRIC>
+          Extra evaluation criteria appended to the blind judge's prompt (overrides
+          preset rubric)
+
+      --eval <EVAL_CMD>
+          Optional mechanical gate command run through your login shell in each trial
+          worktree after its last agent turn
+
+      --no-eval
+          Skip the preset's mechanical gate command for this run
+
       --eval-timeout <EVAL_TIMEOUT>
-          Timeout in seconds for each gate execution
-          
-          [default: 600]
+          Timeout in seconds for each gate execution (default 600, or preset's
+          `eval_timeout`)
 
       --skip-base-check
           Skip running --eval once on a clean base worktree before launching arms
@@ -736,9 +753,8 @@ Options:
           to the todo)
 
       --experiment <EXPERIMENT>
-          Named experiment cohort for grouping leaderboard results
-          
-          [default: default]
+          Named experiment cohort for grouping leaderboard results (defaults to the
+          preset name, or `default`)
 
       --worktree <WORKTREE>
           Repository folder to base trial worktrees on (default `.`)
@@ -751,13 +767,33 @@ Options:
           [default: HEAD]
 
       --max-parallel <MAX_PARALLEL>
-          Maximum number of arms running concurrently
-          
-          [default: 2]
+          Maximum number of arms running concurrently (default 2, or preset's
+          `max_parallel`)
 
       --dry-run
           Validate arms, boundaries, and base commit and print the plan without starting
           anything
+
+  -h, --help
+          Print help
+```
+
+## codealong exp presets
+
+```
+List named experiment presets configured under `[experiments.<name>]` in config.toml
+
+Usage: codealong exp presets [OPTIONS]
+
+Options:
+      --json
+          JSON output. The default when stdout isn't a terminal
+
+      --table
+          Tables, even when piped
+
+      --verbose
+          Say on stderr whether Codealong's server or the files answered
 
   -h, --help
           Print help

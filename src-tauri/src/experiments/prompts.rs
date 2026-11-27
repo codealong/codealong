@@ -46,13 +46,23 @@ pub fn fix_prompt(review_path: &Path) -> String {
     )
 }
 
-/// Prompt for a blind pairwise judge running in an isolated folder containing ONLY `spec.md`,
-/// `A.diff`, `B.diff`, and optionally `gate.txt`.
-pub fn judge_prompt(has_gate: bool) -> String {
+/// Prompt for a blind pairwise judge running in an isolated folder containing `spec.md`,
+/// `A.diff`, `B.diff`, optionally `repo/` (a clean read-only snapshot of the codebase at
+/// `base_sha` with no `.git` metadata), and optionally `gate.txt`.
+pub fn judge_prompt(has_gate: bool, has_repo: bool, rubric: Option<&str>) -> String {
+    let repo_line = if has_repo {
+        "- `repo/`: read-only snapshot of the repository at the base commit (no git history) — inspect surrounding code, existing helpers, and repo rules (e.g. `AGENTS.md` / `CLAUDE.md`) to judge codebase fit\n"
+    } else {
+        ""
+    };
     let gate_line = if has_gate {
         "- `gate.txt`: mechanical test/check gate summary for both candidates\n"
     } else {
         ""
+    };
+    let rubric_block = match rubric.map(str::trim).filter(|s| !s.is_empty()) {
+        Some(r) => format!("\nAdditional evaluation criteria:\n{r}\n"),
+        None => String::new(),
     };
     format!(
         "You are a blind code judge comparing two anonymous implementations (`Candidate A` and `Candidate B`) for the same task.\n\n\
@@ -60,8 +70,8 @@ pub fn judge_prompt(has_gate: bool) -> String {
         - `spec.md`: the task specification\n\
         - `A.diff`: Candidate A's complete diff from the base commit\n\
         - `B.diff`: Candidate B's complete diff from the base commit\n\
-        {gate_line}\n\
-        Evaluate both candidates purely on correctness, completeness against `spec.md`, code quality, simplicity, and test coverage.\n\
+        {repo_line}{gate_line}{rubric_block}\n\
+        Evaluate both candidates on correctness, completeness against `spec.md`, code quality, codebase fit (reusing existing helpers and following repo conventions), simplicity, and test coverage.\n\
         Do not try to infer which model or tool wrote either diff, and do not modify any files.\n\n\
         Give a concise comparison citing concrete files/hunks from `A.diff` and `B.diff`, then end your reply with a single final line in this exact format:\n\
         `Winner: A` or `Winner: B` or `Winner: tie`"
@@ -131,5 +141,18 @@ mod tests {
         let p = worker_prompt("Fix the parser.");
         assert!(!p.contains("scripts/land.sh"));
         assert!(p.contains("Do NOT push"));
+    }
+
+    #[test]
+    fn judge_prompt_includes_repo_context_and_optional_rubric() {
+        let plain = judge_prompt(false, true, None);
+        assert!(plain.contains("`repo/`"), "{plain}");
+        assert!(!plain.contains("`gate.txt`"), "{plain}");
+        assert!(!plain.contains("Additional evaluation criteria"), "{plain}");
+
+        let with_rubric = judge_prompt(true, true, Some("Prefer minimal diffs over new abstractions."));
+        assert!(with_rubric.contains("`repo/`"), "{with_rubric}");
+        assert!(with_rubric.contains("`gate.txt`"), "{with_rubric}");
+        assert!(with_rubric.contains("Additional evaluation criteria:\nPrefer minimal diffs over new abstractions."), "{with_rubric}");
     }
 }

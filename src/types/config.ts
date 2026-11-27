@@ -172,6 +172,9 @@ export interface Config {
   /** `[prices."<model>"]`: API prices for models Codealong has none or the wrong ones for
    *  (prices.rs `Price`). Settings leaves them as config.toml has them. */
   prices?: Record<string, unknown>;
+  /** `[experiments."<name>"]`: named experiment presets for `codealong exp run --preset`
+   *  (experiments/mod.rs `PresetCfg`). Settings leaves them as config.toml has them. */
+  experiments?: Record<string, unknown>;
 }
 
 /** `[experimental]` (config.rs `ExperimentalCfg`): features still being tried out, each off until

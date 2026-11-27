@@ -403,6 +403,8 @@ fn run_job(engine: &Handle, cfg: &Config, job: &Job) {
                 });
             }
             Job::StartJudge { run_id, pair_idx, swapped } | Job::FinishJudge { run_id, pair_idx, swapped } => {
+                let dir = folder(run_id).join("judge").join(format!("p{pair_idx}-{}", if *swapped { "rev" } else { "fwd" }));
+                let _ = std::fs::remove_dir_all(dir.join("repo"));
                 let _ = super::change(|f| {
                     if let Some(c) = f.runs.iter_mut().find(|r| r.id == *run_id).and_then(|r| r.comparisons.get_mut(*pair_idx)) {
                         let ord = if *swapped { &mut c.reversed } else { &mut c.forward };
@@ -703,7 +705,9 @@ fn exec_start_judge(engine: &Handle, cfg: &Config, run_id: &str, pair_idx: usize
     let tb = run.trials.iter().find(|t| t.id == ord.b_trial).ok_or_else(|| anyhow!("Trial {} missing.", ord.b_trial))?;
 
     // Isolated scratch folder outside the repo and away from experiments.json so the judge is
-    // strictly blind to model/harness names and git history.
+    // strictly blind to model/harness names and git history. A clean read-only export of the
+    // base commit goes into `repo/` (no `.git` dir) so the judge can inspect surrounding code
+    // and repo conventions without seeing trial branches or refs.
     let dir = folder(run_id).join("judge").join(format!("p{pair_idx}-{}", if swapped { "rev" } else { "fwd" }));
     std::fs::create_dir_all(&dir)?;
     std::fs::write(dir.join("spec.md"), &run.prompt)?;
@@ -711,6 +715,8 @@ fn exec_start_judge(engine: &Handle, cfg: &Config, run_id: &str, pair_idx: usize
     let raw_b = std::fs::read_to_string(folder(run_id).join(&tb.id).join("diff.patch")).unwrap_or_default();
     std::fs::write(dir.join("A.diff"), gitops::blind_diff(&raw_a, ta.worktree.as_deref()))?;
     std::fs::write(dir.join("B.diff"), gitops::blind_diff(&raw_b, tb.worktree.as_deref()))?;
+    let repo_dir = dir.join("repo");
+    gitops::export_tree(Path::new(&run.main_worktree), &run.base_sha, &repo_dir)?;
     let has_gate = run.gate.is_some();
     if has_gate {
         let gate_txt = format!(
@@ -721,9 +727,15 @@ fn exec_start_judge(engine: &Handle, cfg: &Config, run_id: &str, pair_idx: usize
         std::fs::write(dir.join("gate.txt"), gate_txt)?;
     }
 
-    let prompt = prompts::judge_prompt(has_gate);
+    let prompt = prompts::judge_prompt(has_gate, true, judge.rubric.as_deref());
     let now = now_ms();
-    let key = start_hosted_in_dir(engine, cfg, &dir, &judge.seat, &prompt, None)?;
+    let key = match start_hosted_in_dir(engine, cfg, &dir, &judge.seat, &prompt, None) {
+        Ok(key) => key,
+        Err(e) => {
+            let _ = std::fs::remove_dir_all(&repo_dir);
+            return Err(e);
+        }
+    };
 
     super::change(|f| {
         if let Some(c) = f.runs.iter_mut().find(|r| r.id == run_id).and_then(|r| r.comparisons.get_mut(pair_idx)) {
@@ -748,6 +760,7 @@ fn exec_finish_judge(engine: &Handle, cfg: &Config, run_id: &str, pair_idx: usiz
     let dir = folder(run_id).join("judge").join(format!("p{pair_idx}-{}", if swapped { "rev" } else { "fwd" }));
     let _ = std::fs::write(dir.join("reply.md"), &reply);
     mark_done(engine, key);
+    let _ = std::fs::remove_dir_all(dir.join("repo"));
 
     let rationale = reply.lines().rev().find(|l| !l.trim().is_empty() && !l.trim().to_ascii_lowercase().starts_with("winner:")).map(|s| s.trim().to_string());
     super::change(|f| {
@@ -786,7 +799,7 @@ mod tests {
 
     fn sample_run(n: usize) -> Run {
         let arms: Vec<Arm> = (1..=n).map(|i| Arm { label: format!("arm-{i}"), worker: Seat { account: "claude".into(), ..Default::default() }, ..Default::default() }).collect();
-        super::super::make_run("bench".into(), "repo".into(), PathBuf::from("/r"), "abc1234".into(), "Fix bug".into(), arms, None, Some(JudgeCfg { seat: Seat { account: "codex".into(), ..Default::default() } }), 2)
+        super::super::make_run("bench".into(), "repo".into(), PathBuf::from("/r"), "abc1234".into(), "Fix bug".into(), arms, None, Some(JudgeCfg { seat: Seat { account: "codex".into(), ..Default::default() }, rubric: None }), 2)
     }
 
     #[test]

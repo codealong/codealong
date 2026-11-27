@@ -23,6 +23,8 @@ use super::*;
 pub(super) enum ExpCmd {
     /// Start a bake-off run across pinned agent combinations on the same task and base commit.
     Run(ExpRunArgs),
+    /// List named experiment presets configured under `[experiments.<name>]` in config.toml.
+    Presets,
     /// List experiment runs.
     List {
         /// Only runs in this named experiment.
@@ -62,18 +64,30 @@ pub(super) enum ExpCmd {
 
 #[derive(Args, Debug)]
 pub(super) struct ExpRunArgs {
-    /// Arm specification `<worker>[+<reviewer>]`, where each seat is `<account>[:<model>][:<effort>][@<mode>]`. Pass at least twice.
-    #[arg(long = "arm", required = true, action = ArgAction::Append)]
-    pub arms: Vec<String>,
-    /// Blind pairwise judge seat `<account>[:<model>][:<effort>][@<mode>]`.
+    /// Named preset from `[experiments.<name>]` in config.toml (supplies arms, judge, rubric, and optional eval).
     #[arg(long)]
+    pub preset: Option<String>,
+    /// Arm specification `<worker>[+<reviewer>]`, where each seat is `<account>[:<model>][:<effort>][@<mode>]`. Pass at least twice unless `--preset` supplies arms.
+    #[arg(long = "arm", action = ArgAction::Append)]
+    pub arms: Vec<String>,
+    /// Blind pairwise judge seat `<account>[:<model>][:<effort>][@<mode>]` (overrides preset judge).
+    #[arg(long, conflicts_with = "no_judge")]
     pub judge: Option<String>,
-    /// Mechanical gate command run through your login shell in each trial worktree after its last agent turn.
-    #[arg(long = "eval")]
+    /// Skip the preset's judge for this run.
+    #[arg(long, conflicts_with = "judge")]
+    pub no_judge: bool,
+    /// Extra evaluation criteria appended to the blind judge's prompt (overrides preset rubric).
+    #[arg(long)]
+    pub rubric: Option<String>,
+    /// Optional mechanical gate command run through your login shell in each trial worktree after its last agent turn.
+    #[arg(long = "eval", conflicts_with = "no_eval")]
     pub eval_cmd: Option<String>,
-    /// Timeout in seconds for each gate execution.
-    #[arg(long, default_value_t = 600)]
-    pub eval_timeout: u64,
+    /// Skip the preset's mechanical gate command for this run.
+    #[arg(long, conflicts_with = "eval_cmd")]
+    pub no_eval: bool,
+    /// Timeout in seconds for each gate execution (default 600, or preset's `eval_timeout`).
+    #[arg(long)]
+    pub eval_timeout: Option<u64>,
     /// Skip running --eval once on a clean base worktree before launching arms.
     #[arg(long)]
     pub skip_base_check: bool,
@@ -86,18 +100,18 @@ pub(super) struct ExpRunArgs {
     /// Read the task prompt from a todo's title and description (without linking arms to the todo).
     #[arg(long, conflicts_with_all = ["prompt", "prompt_file"])]
     pub todo: Option<String>,
-    /// Named experiment cohort for grouping leaderboard results.
-    #[arg(long, default_value = "default")]
-    pub experiment: String,
+    /// Named experiment cohort for grouping leaderboard results (defaults to the preset name, or `default`).
+    #[arg(long)]
+    pub experiment: Option<String>,
     /// Repository folder to base trial worktrees on (default `.`).
     #[arg(long, default_value = ".")]
     pub worktree: String,
     /// Git ref to pin every arm's starting commit to (default `HEAD`).
     #[arg(long, default_value = "HEAD")]
     pub base: String,
-    /// Maximum number of arms running concurrently.
-    #[arg(long, default_value_t = 2)]
-    pub max_parallel: usize,
+    /// Maximum number of arms running concurrently (default 2, or preset's `max_parallel`).
+    #[arg(long)]
+    pub max_parallel: Option<usize>,
     /// Validate arms, boundaries, and base commit and print the plan without starting anything.
     #[arg(long)]
     pub dry_run: bool,
@@ -110,6 +124,7 @@ pub(super) fn exp(cmd: ExpCmd, c: &mut Client, json_out: bool) -> Result<()> {
     }
     match cmd {
         ExpCmd::Run(a) => exp_run(a, c, &cfg, json_out),
+        ExpCmd::Presets => exp_presets(&cfg, json_out),
         ExpCmd::List { experiment } => exp_list(&cfg, experiment.as_deref(), json_out),
         ExpCmd::Show { id } => exp_show(&cfg, &id, json_out),
         ExpCmd::Results { experiment } => exp_results(&cfg, experiment.as_deref(), json_out),
@@ -147,21 +162,126 @@ pub(super) fn exp(cmd: ExpCmd, c: &mut Client, json_out: bool) -> Result<()> {
     }
 }
 
+#[derive(Debug, PartialEq, Eq)]
+struct ResolvedRun {
+    experiment: String,
+    arms: Vec<String>,
+    judge: Option<String>,
+    rubric: Option<String>,
+    eval_cmd: Option<String>,
+    eval_timeout: u64,
+    skip_base_check: bool,
+    max_parallel: usize,
+}
+
+fn resolve_run_args(a: &ExpRunArgs, cfg: &crate::config::Config) -> Result<ResolvedRun> {
+    let preset = match a.preset.as_deref() {
+        Some(name) => Some(cfg.experiments.get(name).ok_or_else(|| {
+            if cfg.experiments.is_empty() {
+                anyhow!("No experiment preset {name:?}. Add `[experiments.{name}]` to config.toml.")
+            } else {
+                let names: Vec<&str> = cfg.experiments.keys().map(String::as_str).collect();
+                anyhow!("No experiment preset {name:?}. Configured presets: {}.", names.join(", "))
+            }
+        })?),
+        None => None,
+    };
+
+    let arms = if !a.arms.is_empty() {
+        a.arms.clone()
+    } else if let Some(p) = preset {
+        p.arms.clone()
+    } else {
+        bail!("Give at least two --arm entries, or choose a --preset from `[experiments.<name>]` in config.toml.");
+    };
+
+    let judge = if a.no_judge {
+        None
+    } else {
+        a.judge.clone().or_else(|| preset.and_then(|p| p.judge.clone())).map(|s| s.trim().to_string()).filter(|s| !s.is_empty())
+    };
+    let cli_rubric = a.rubric.as_deref().map(str::trim).filter(|s| !s.is_empty()).map(str::to_string);
+    if cli_rubric.is_some() && judge.is_none() {
+        bail!("--rubric requires a --judge (or a preset with `judge`).");
+    }
+    let rubric = if judge.is_some() {
+        cli_rubric.or_else(|| preset.and_then(|p| p.rubric.as_deref()).map(str::trim).filter(|s| !s.is_empty()).map(str::to_string))
+    } else {
+        None
+    };
+
+    let eval_cmd = if a.no_eval {
+        None
+    } else {
+        a.eval_cmd.clone().or_else(|| preset.and_then(|p| p.eval.clone())).map(|s| s.trim().to_string()).filter(|s| !s.is_empty())
+    };
+    let eval_timeout = a.eval_timeout.or_else(|| preset.and_then(|p| p.eval_timeout)).unwrap_or(600);
+    let skip_base_check = a.skip_base_check || preset.is_some_and(|p| p.skip_base_check);
+    let max_parallel = a.max_parallel.or_else(|| preset.and_then(|p| p.max_parallel)).unwrap_or(2);
+    if max_parallel == 0 {
+        bail!("--max-parallel must be at least 1.");
+    }
+    let experiment = a
+        .experiment
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+        .or_else(|| a.preset.clone())
+        .unwrap_or_else(|| "default".into());
+
+    Ok(ResolvedRun { experiment, arms, judge, rubric, eval_cmd, eval_timeout, skip_base_check, max_parallel })
+}
+
+fn exp_presets(cfg: &crate::config::Config, json_out: bool) -> Result<()> {
+    if json_out {
+        return print_json(&cfg.experiments);
+    }
+    if cfg.experiments.is_empty() {
+        println!("No experiment presets configured. Add `[experiments.<name>]` in config.toml.");
+        return Ok(());
+    }
+    let rows: Vec<Vec<String>> = cfg
+        .experiments
+        .iter()
+        .map(|(name, p)| {
+            vec![
+                name.clone(),
+                p.arms.join(", "),
+                p.judge.clone().unwrap_or_else(|| "—".into()),
+                p.rubric.as_deref().map(|s| {
+                    let line = s.lines().next().unwrap_or("").trim();
+                    if line.chars().count() > 48 { format!("{}…", line.chars().take(47).collect::<String>()) } else { line.to_string() }
+                }).unwrap_or_else(|| "—".into()),
+                p.eval.clone().unwrap_or_else(|| "—".into()),
+            ]
+        })
+        .collect();
+    print!("{}", table_text(&["Preset", "Arms", "Judge", "Rubric", "Eval"], rows));
+    Ok(())
+}
+
 fn exp_run(a: ExpRunArgs, c: &mut Client, cfg: &crate::config::Config, json_out: bool) -> Result<()> {
+    let resolved = resolve_run_args(&a, cfg)?;
     let prompt = read_task_prompt(&a, c)?;
     let folder = resolve_repo_folder(&a.worktree)?;
     let (_, main) = crate::repos::locate(&folder).ok_or_else(|| anyhow!("{} isn't in a git repository.", folder.display()))?;
     let base_sha = gitops::resolve_sha(&main, &a.base)?;
     let repo = file_name(&main);
 
-    let arms: Vec<experiments::Arm> = a.arms.iter().map(|raw| experiments::parse_arm(cfg, raw)).collect::<Result<_>>()?;
-    let judge = a.judge.as_deref().map(|raw| experiments::parse_seat(cfg, raw).map(|seat| JudgeCfg { seat })).transpose()?;
+    let arms: Vec<experiments::Arm> = resolved.arms.iter().map(|raw| experiments::parse_arm(cfg, raw)).collect::<Result<_>>()?;
+    let rubric = resolved.rubric.clone();
+    let judge = resolved
+        .judge
+        .as_deref()
+        .map(|raw| experiments::parse_seat(cfg, raw).map(|seat| JudgeCfg { seat, rubric: rubric.clone() }))
+        .transpose()?;
     let warnings = experiments::validate_run(cfg, &main, &arms, judge.as_ref())?;
     for w in &warnings {
         eprintln!("warning: {w}");
     }
-    let gate = a.eval_cmd.map(|cmd| Gate { cmd, timeout_secs: a.eval_timeout, check_base: !a.skip_base_check });
-    let run = experiments::make_run(a.experiment, repo, main, base_sha, prompt, arms, gate, judge, a.max_parallel);
+    let gate = resolved.eval_cmd.map(|cmd| Gate { cmd, timeout_secs: resolved.eval_timeout, check_base: !resolved.skip_base_check });
+    let run = experiments::make_run(resolved.experiment, repo, main, base_sha, prompt, arms, gate, judge, resolved.max_parallel);
 
     if a.dry_run {
         if json_out {
@@ -173,6 +293,12 @@ fn exp_run(a: ExpRunArgs, c: &mut Client, cfg: &crate::config::Config, json_out:
         }
         if let Some(j) = &run.judge {
             println!("  judge  {}", j.seat.short());
+            if let Some(r) = &j.rubric {
+                println!("  rubric {r}");
+            }
+        }
+        if let Some(g) = &run.gate {
+            println!("  eval   {}", g.cmd);
         }
         return Ok(());
     }
@@ -259,6 +385,23 @@ fn exp_show(cfg: &crate::config::Config, prefix: &str, json_out: bool) -> Result
         })
         .collect();
     print!("{}", table_text(&["Trial", "Arm", "Stage", "Review", "Gate", "Cost", "Time", ""], rows));
+    if !run.comparisons.is_empty() {
+        println!("\nJudge comparisons:");
+        for c in &run.comparisons {
+            let winner = c.consistent_winner.as_deref().unwrap_or("no consensus");
+            println!(
+                "  {} vs {}  →  {} (fwd: {}, rev: {})",
+                c.trial_a,
+                c.trial_b,
+                winner,
+                c.forward_winner.as_deref().unwrap_or("tie"),
+                c.reversed_winner.as_deref().unwrap_or("tie"),
+            );
+            if let Some(why) = &c.rationale {
+                println!("    {why}");
+            }
+        }
+    }
     Ok(())
 }
 
@@ -394,7 +537,7 @@ mod tests {
         assert_eq!(a.arms, vec!["claude:opus:high+codex:sol-6.2:high", "codex:sol-6.2:high"]);
         assert_eq!(a.judge.as_deref(), Some("antigravity:gemini-4-neon-high"));
         assert_eq!(a.eval_cmd.as_deref(), Some("npm test"));
-        assert_eq!(a.experiment, "bench-1");
+        assert_eq!(a.experiment.as_deref(), Some("bench-1"));
         assert!(a.dry_run);
 
         let adopt = Cli::try_parse_from(["codealong", "exp", "adopt", "exp-1/t2"]).unwrap();
@@ -402,5 +545,58 @@ mod tests {
         assert_eq!(split_run_trial("exp-1/t2", None).unwrap(), ("exp-1".into(), "t2".into()));
         assert_eq!(split_run_trial("exp-1", Some("t2")).unwrap(), ("exp-1".into(), "t2".into()));
         assert!(split_run_trial("exp-1", None).is_err());
+        let presets = Cli::try_parse_from(["codealong", "exp", "presets"]).unwrap();
+        assert!(matches!(presets.cmd, Cmd::Exp { cmd: ExpCmd::Presets }));
+    }
+
+    #[test]
+    fn preset_resolution_works_without_eval_and_allows_cli_overrides() {
+        let mut cfg = crate::config::Config::default();
+        cfg.experiments.insert(
+            "quality".into(),
+            experiments::PresetCfg {
+                arms: vec!["claude:opus:high".into(), "claude:sonnet+codex:medium".into()],
+                judge: Some("antigravity".into()),
+                rubric: Some("Prefer idiomatic reuse of existing helpers.".into()),
+                eval: None,
+                max_parallel: Some(3),
+                ..Default::default()
+            },
+        );
+        let cli = Cli::try_parse_from(["codealong", "exp", "run", "--preset", "quality", "--prompt", "Refactor auth"]).unwrap();
+        let Cmd::Exp { cmd: ExpCmd::Run(a) } = cli.cmd else { panic!("expected exp run") };
+        let res = resolve_run_args(&a, &cfg).unwrap();
+        assert_eq!(res.experiment, "quality");
+        assert_eq!(res.arms, vec!["claude:opus:high", "claude:sonnet+codex:medium"]);
+        assert_eq!(res.judge.as_deref(), Some("antigravity"));
+        assert_eq!(res.rubric.as_deref(), Some("Prefer idiomatic reuse of existing helpers."));
+        assert_eq!(res.eval_cmd, None);
+        assert_eq!(res.max_parallel, 3);
+
+        // CLI overrides preset fields (--no-judge drops judge & preset rubric; --experiment overrides cohort).
+        let cli2 = Cli::try_parse_from([
+            "codealong", "exp", "run",
+            "--preset", "quality",
+            "--no-judge",
+            "--experiment", "custom-cohort",
+            "--prompt", "Quick test",
+        ])
+        .unwrap();
+        let Cmd::Exp { cmd: ExpCmd::Run(a2) } = cli2.cmd else { panic!("expected exp run") };
+        let res2 = resolve_run_args(&a2, &cfg).unwrap();
+        assert_eq!(res2.experiment, "custom-cohort");
+        assert_eq!(res2.judge, None);
+        assert_eq!(res2.rubric, None);
+
+        // Passing --rubric without any judge is rejected cleanly.
+        let cli3 = Cli::try_parse_from([
+            "codealong", "exp", "run",
+            "--arm", "claude", "--arm", "codex",
+            "--rubric", "Prefer short diffs",
+            "--prompt", "Task",
+        ])
+        .unwrap();
+        let Cmd::Exp { cmd: ExpCmd::Run(a3) } = cli3.cmd else { panic!("expected exp run") };
+        assert!(resolve_run_args(&a3, &cfg).unwrap_err().to_string().contains("--rubric"));
     }
 }

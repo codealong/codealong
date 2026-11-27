@@ -107,6 +107,47 @@ fn save_commit_ref(worktree: &Path, base_sha: &str, tree: &str, run_id: &str, tr
     Ok(ref_name)
 }
 
+/// Exports the tracked repository tree at `base_sha` into `dest` using a temporary
+/// `GIT_INDEX_FILE` (`git read-tree` + `git checkout-index`).
+///
+/// Leaves NO `.git` directory in `dest`, touches neither the repository's real index nor its
+/// working tree, and exposes zero branch names, trial refs, or commit history — giving a blind
+/// judge full read-only codebase context at `base_sha`.
+pub fn export_tree(repo: &Path, base_sha: &str, dest: &Path) -> Result<()> {
+    if dest.exists() {
+        std::fs::remove_dir_all(dest).with_context(|| format!("clearing {}", dest.display()))?;
+    }
+    std::fs::create_dir_all(dest).with_context(|| format!("creating {}", dest.display()))?;
+    let abs = dunce::canonicalize(dest).unwrap_or_else(|_| dest.to_path_buf());
+    let mut prefix = abs.to_string_lossy().replace('\\', "/");
+    if !prefix.ends_with('/') {
+        prefix.push('/');
+    }
+    let mut b = [0u8; 6];
+    crate::os::system::random_bytes(&mut b);
+    let idx = std::env::temp_dir().join(format!(
+        "codealong-exp-export-{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}",
+        b[0], b[1], b[2], b[3], b[4], b[5]
+    ));
+    let env = vec![("GIT_INDEX_FILE".to_string(), idx.to_string_lossy().into_owned())];
+    let prefix_arg = format!("--prefix={prefix}");
+    let result = (|| -> Result<()> {
+        let rt = procs::run_in("git", &["read-tree", base_sha], repo, &env, "", GIT_WAIT)?;
+        if !rt.ok {
+            let msg = rt.err.trim();
+            anyhow::bail!("git read-tree {base_sha} failed: {}", if msg.is_empty() { rt.out.trim() } else { msg });
+        }
+        let co = procs::run_in("git", &["checkout-index", "-a", "-f", &prefix_arg], repo, &env, "", GIT_WAIT)?;
+        if !co.ok {
+            let msg = co.err.trim();
+            anyhow::bail!("git checkout-index failed: {}", if msg.is_empty() { co.out.trim() } else { msg });
+        }
+        Ok(())
+    })();
+    let _ = std::fs::remove_file(&idx);
+    result
+}
+
 /// Removes worktree-path clues and harness markers from a diff before handing it to a blind judge.
 pub fn blind_diff(diff: &str, worktree_path: Option<&str>) -> String {
     let mut out = diff.to_string();
@@ -192,5 +233,43 @@ mod tests {
         let blinded = blind_diff(raw, Some("/tmp/repo/.codealong/worktrees/amber-fox"));
         assert!(!blinded.contains("amber-fox"), "{blinded}");
         assert!(blinded.contains("<worktree>"), "{blinded}");
+    }
+
+    #[test]
+    fn export_tree_extracts_base_commit_without_git_metadata_or_later_changes() {
+        let dir = crate::fixtures::scratch("exp-export");
+        let repo = dir.join("repo");
+        std::fs::create_dir_all(&repo).unwrap();
+        let s = repo.to_string_lossy().into_owned();
+        procs::run("git", &["init", "-b", "main", &s], None, GIT_WAIT).unwrap();
+        procs::run("git", &["-C", &s, "config", "user.name", "Test"], None, GIT_WAIT).unwrap();
+        procs::run("git", &["-C", &s, "config", "user.email", "test@example.com"], None, GIT_WAIT).unwrap();
+        std::fs::create_dir_all(repo.join("sub")).unwrap();
+        std::fs::write(repo.join("a.txt"), "base-a\n").unwrap();
+        std::fs::write(repo.join("sub/b.txt"), "base-b\n").unwrap();
+        procs::run("git", &["-C", &s, "add", "."], None, GIT_WAIT).unwrap();
+        procs::run("git", &["-C", &s, "commit", "-m", "base"], None, GIT_WAIT).unwrap();
+        let base = resolve_sha(&repo, "HEAD").unwrap();
+
+        // Add a later commit, uncommitted edit, untracked file, and experiment ref.
+        std::fs::write(repo.join("a.txt"), "later-a\n").unwrap();
+        std::fs::write(repo.join("later.txt"), "secret\n").unwrap();
+        procs::run("git", &["-C", &s, "add", "."], None, GIT_WAIT).unwrap();
+        procs::run("git", &["-C", &s, "commit", "-m", "later"], None, GIT_WAIT).unwrap();
+        std::fs::write(repo.join("untracked.txt"), "dirty\n").unwrap();
+        let _ = snapshot(&repo, &base, Some(("exp-1", "t1"))).unwrap();
+
+        let dest = dir.join("judge/p0-fwd/repo");
+        export_tree(&repo, &base, &dest).unwrap();
+
+        assert_eq!(std::fs::read_to_string(dest.join("a.txt")).unwrap(), "base-a\n");
+        assert_eq!(std::fs::read_to_string(dest.join("sub/b.txt")).unwrap(), "base-b\n");
+        assert!(!dest.join(".git").exists(), "exported tree must have no .git metadata");
+        assert!(!dest.join("later.txt").exists(), "later commit files must not leak");
+        assert!(!dest.join("untracked.txt").exists(), "untracked files must not leak");
+
+        // Real repo index stays clean (still at `later` commit).
+        let staged = procs::run("git", &["-C", &s, "diff", "--cached", "--name-only"], None, GIT_WAIT).unwrap();
+        assert!(staged.trim().is_empty(), "real index was modified: {staged}");
     }
 }
