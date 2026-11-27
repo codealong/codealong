@@ -202,7 +202,7 @@ pub fn start() -> Result<Ctx, String> {
     let (continuer, continues_with) = (Arc::new(Mutex::new(reconnect::Continuer::default())), engine_slot.clone());
     let cut_by_us = continuer.clone();
     let (rerequester, rerequests_with) = (Arc::new(Mutex::new(rerequest::Rerequester::default())), engine_slot.clone());
-    let (reporter, reports_with) = (Arc::new(Mutex::new(helpers::Reporter::default())), engine_slot.clone());
+    let (reporter, reports_with) = (Arc::new(Mutex::new(helpers::Reporter::new())), engine_slot.clone());
     let (reviewer, reviews_with) = (Arc::new(Mutex::new(autoreview::Reviewer::load())), engine_slot.clone());
     let reviews = reviewer.clone();
     let engine = engine::start(move |board| {
