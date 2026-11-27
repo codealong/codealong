@@ -578,7 +578,8 @@ user's sessions with nothing tying them to yours.
   waits through that, so don't start another.
 - Or start it with `--report` too and end your turn: Codealong sends you a message when its
   turn ends or it waits on your user, naming it and the command that prints its reply. Use
-  one or the other, not both, or you'll hear of it twice.
+  one or the other, not both, or you'll hear of it twice. A turn that ends with the helper
+  messaging you itself isn't told of again: its message is its report.
 - Leave `--in` out unless your user asked for a place: out of sight is already where a helper
   goes. Don't pass `--in background` for a harness with no background service of its own (Codex,
   OpenCode, Antigravity, Cursor): for those it means a terminal behind your user's windows, where

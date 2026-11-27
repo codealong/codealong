@@ -18,6 +18,13 @@
 //! user that's over by the time it goes is no news; a send that fails is tried again a little
 //! later, a few times.
 //!
+//! A turn that ended with a message from the helper to its session (`codealong session send`,
+//! kept in chatter.rs) isn't told of: that message was its report. Helpers aren't told that their
+//! turn's end is, and most send their session what they found as they finish, so it heard of
+//! each twice and spent a turn saying it knew (2026-11-25: 30 of 55 such ends, on one Mac). News
+//! of ends alone closes as a PR's approval does (nudges.rs `QUIET`): a session it changes nothing
+//! for marks its turn seen, so its user isn't left that turn to read.
+//!
 //! A helper started in a terminal whose session hasn't shown a few minutes on is told of too,
 //! once (`origins::Pending::stuck`): its terminal UI likely sits on a screen of its own, and the
 //! session that started it, which has no key to wait on, would otherwise wait on it unseen. What
@@ -29,7 +36,7 @@
 //! started since doesn't tell it again.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use crate::engine::{Handle, Trouble};
 use crate::model::{Board, OriginHow, Session, Status};
@@ -56,6 +63,13 @@ const UNSEEN_MS: i64 = 10 * 60_000;
 /// How long after `UNSEEN_MS` such a start is still looked for: a restart finds older ones in
 /// origins.json, whose sessions may be gone from the board for other reasons by now.
 const UNSEEN_LOOK_MS: i64 = 60 * 60_000;
+/// How long before a helper's turn ended it may have messaged its session for that message to be
+/// its report (`reported`): long enough for a closing reply that says it again, short of a further
+/// step's work, whose end its session is still told of.
+const SAID_MS: i64 = 2 * 60_000;
+
+/// When one session last messaged another (chatter.rs `last_sent`).
+type LastSent = Arc<dyn Fn(&str, &str) -> Option<i64> + Send + Sync>;
 
 /// Where a helper stands, as a board shows it.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -156,9 +170,25 @@ pub struct Reporter {
     /// The latest board looked at (`Board::rev`): a wake's board older than it would undo what
     /// that one found.
     rev: u64,
+    /// When a helper last messaged its session (`new()`), for a turn that ended with its report
+    /// (`reported`); none in `default()`, which tells of every end.
+    last_sent: Option<LastSent>,
+}
+
+/// Whether helper `s`'s turn, just ended, ended with a message to `parent`: one sent since the
+/// prompt it was answering, `SAID_MS` or less before its last activity.
+fn reported(last_sent: Option<&LastSent>, s: &Session, parent: &str) -> bool {
+    let Some(at) = last_sent.and_then(|f| f(&s.key, parent)) else { return false };
+    at >= s.last_prompt_at && s.last_activity - at <= SAID_MS
 }
 
 impl Reporter {
+    /// A reporter that knows which helpers messaged their sessions, from the server's record of
+    /// what sessions send each other (chatter.rs), for the server.
+    pub fn new() -> Reporter {
+        Reporter { last_sent: Some(Arc::new(crate::chatter::last_sent)), ..Reporter::default() }
+    }
+
     /// The messages due now, at `now` (ms). A reporting helper's turn ends when the last board
     /// had it working or waiting on its user and this one has it still, or when it's still on
     /// both with a newer prompt it has answered since (a turn quicker than a board apart); a
@@ -256,6 +286,8 @@ impl Reporter {
                     },
                     _ => None,
                 };
+                // Its message to its session as it finished was its report: its end is no news.
+                let news = news.filter(|n| !(*n == News::Ended && reported(self.last_sent.as_ref(), s, parent)));
                 if let Some(news) = news.filter(|_| runs_here(parent)) {
                     self.owed.entry(parent.to_string()).or_default().owe(Note { helper: s.key.clone(), title: s.title.clone(), news }, now);
                 }
@@ -374,11 +406,18 @@ pub fn words(notes: &[Note]) -> String {
         News::Unstarted { .. } | News::Unseen { .. } => format!("The helper {}", line(n)),
         _ => line(n),
     };
-    match notes {
+    let text = match notes {
         [one] => format!("Your helper {}", line(one)),
         // A note's further lines (what a helper waits on) go under it, so they don't read as
         // another helper's news (`glance`).
         _ => format!("About your helpers:\n{}", notes.iter().map(|n| crate::glance::item(&named(n))).collect::<Vec<_>>().join("\n")),
+    };
+    // Ends alone may change nothing for it (it had the reply already, say). What else it's told
+    // asks it to tell its user, so that's never left unread.
+    match notes {
+        [one] if one.news == News::Ended => format!("{text} {}", crate::nudges::QUIET),
+        [_, _, ..] if notes.iter().all(|n| n.news == News::Ended) => format!("{text}\n{}", crate::nudges::QUIET),
+        _ => text,
     }
 }
 
@@ -547,6 +586,51 @@ mod tests {
         r.told(&jobs[0], true, NOW);
         // A prompt it hasn't answered yet isn't a turn's end.
         assert!(r.due(&starts(&[]), &board(vec![boss(Status::Idle), rev(Status::Idle, 70, 70)]), NOW).is_empty());
+    }
+
+    /// A helper that messaged its session as it finished had reported already: its session was
+    /// told of its end as well, and spent a turn saying it knew (2026-11-25).
+    #[test]
+    fn a_turn_that_ended_with_a_message_to_its_session_isnt_told_again() {
+        let sent = |to: &'static str, at: Option<i64>| Reporter { last_sent: Some(Arc::new(move |from: &str, whom: &str| at.filter(|_| from == REV && whom == to))), ..Reporter::default() };
+        let ends = |mut r: Reporter, activity: i64| {
+            assert!(r.due(&starts(&[]), &board(vec![boss(Status::Idle), rev(Status::Working, 10, 20)]), NOW).is_empty());
+            news(&r.due(&starts(&[]), &board(vec![boss(Status::Idle), rev(Status::Idle, 10, activity)]), NOW))
+        };
+        let told = [(BOSS.to_string(), News::Ended)];
+        // Sent to its session as it finished, or after its last activity as the board read it: no news.
+        assert!(ends(sent(BOSS, Some(35)), 40).is_empty());
+        assert!(ends(sent(BOSS, Some(45)), 40).is_empty());
+        // Sent in an earlier turn, or long enough before the end for a further step, to another
+        // session, or never: its end is told.
+        assert_eq!(ends(sent(BOSS, Some(5)), 40), told);
+        assert_eq!(ends(sent(BOSS, Some(15)), 15 + SAID_MS + 1), told);
+        assert_eq!(ends(sent("claude:claude:other", Some(35)), 40), told);
+        assert_eq!(ends(sent(BOSS, None), 40), told);
+        assert_eq!(ends(Reporter::default(), 40), told);
+        // That it waits on its user after its message is told all the same.
+        let mut r = sent(BOSS, Some(25));
+        r.due(&starts(&[]), &board(vec![boss(Status::Idle), rev(Status::Working, 10, 20)]), NOW);
+        assert!(matches!(news(&r.due(&starts(&[]), &board(vec![boss(Status::Idle), rev(Status::Needs, 10, 30)]), NOW))[..], [(_, News::OnUser(_))]));
+    }
+
+    /// News of ends alone closes as a PR's approval does, so a session it changes nothing for can
+    /// mark its turn seen; news that asks it to tell its user doesn't.
+    #[test]
+    fn news_of_ends_alone_says_how_to_end_the_turn_quietly() {
+        let note = |key: &str, news: News| Note { helper: key.into(), title: "Review the diff".into(), news };
+        let one = words(&[note(REV, News::Ended)]);
+        assert!(one.ends_with(&format!("ends it once you have what you need. {}", crate::nudges::QUIET)), "{one}");
+        let two = words(&[note(REV, News::Ended), note("codex:codex:two", News::Ended)]);
+        assert!(two.ends_with(&format!("ends it once you have what you need.\n{}", crate::nudges::QUIET)), "{two}");
+        // Its card reads as before.
+        assert_eq!(glance(&one).unwrap().words(), "“Review the diff” ended its turn");
+        assert_eq!(glance(&two).unwrap().parts.iter().map(|p| p.session.as_ref().map(|n| n.key.as_str())).collect::<Vec<_>>(), [Some(REV), Some("codex:codex:two")]);
+        assert_eq!(glance(&two).unwrap().words(), "“Review the diff” ended its turn · “Review the diff” ended its turn");
+        for asks in [News::OnUser(None), News::Limited { account: "codex".into(), limit: "5-hour limit".into(), resets_in: None }] {
+            assert!(!words(&[note(REV, asks.clone())]).contains("session seen me"));
+            assert!(!words(&[note(REV, News::Ended), note("codex:codex:two", asks)]).contains("session seen me"));
+        }
     }
 
     /// A turn its account's sign-in stopped didn't end: its session hears it waits on its user,

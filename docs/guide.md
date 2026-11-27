@@ -4895,7 +4895,11 @@ when the helper's turn ends or it starts waiting on you, so the agent can end it
 the message names the helper and the command that prints its reply, not the reply itself, so
 nothing the helper wrote is typed in as if you'd written it. It's sent while the session runs on
 this Mac and isn't waiting on you to answer a prompt, several helpers' news in one message, and a
-send that doesn't go is tried again a few times, then said in a notice.
+send that doesn't go is tried again a few times, then said in a notice. A turn that ended with the
+helper messaging its session (`codealong session send`, within two minutes of its end) isn't told
+of: that message was its report. A message that only tells of turns that ended ends by having the
+session mark its turn seen with `codealong session seen me` when the news changes nothing for it,
+as PR news does, so a turn that only says it knew doesn't wait on you.
 
 A start in a terminal whose harness names its own sessions (Codex, OpenCode, Antigravity) has no
 session until its terminal UI makes one, and the UI can first stop on a screen of its own (Codex's

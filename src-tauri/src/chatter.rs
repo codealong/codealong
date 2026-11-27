@@ -3,8 +3,10 @@
 //! chatter on each session (`Session::peers`), and flag ping-pong pairs in `codealong changes`.
 //!
 //! Parent↔helper exchanges (`Session::helper`, `origins::Store::helper_of`) and automatic PR
-//! review helpers are left out: hub-and-spoke delegation to a helper is expected, whereas two
-//! top-level peers messaging each other back and forth usually means unclear task ownership.
+//! review helpers never count as chatter: hub-and-spoke delegation to a helper is expected, whereas
+//! two top-level peers messaging each other back and forth usually means unclear task ownership.
+//! They're kept all the same, so a helper's turn that ended with a message to its session is
+//! known to have reported already (`last_sent`, helpers.rs).
 //!
 //! Kept in `chatter.json` next to the config (through store.rs), pruned to the last day so a
 //! server restart doesn't lose active threads and the file stays small.
@@ -80,6 +82,22 @@ impl Log {
         }
         self.notes.push(Note { from: from.to_string(), to: to.to_string(), at: now });
         self.prune(now);
+    }
+
+    /// Records a send from `from` to `to` at `now` (ms), and the warning to return to `from`
+    /// for it, if any: never between a session and its helper (`helper_pair`), whose messages
+    /// are kept only for `last_sent`.
+    pub fn sent(&mut self, from: &str, to: &str, helper_pair: bool, to_title: &str, now: i64) -> Option<String> {
+        self.record(from, to, now);
+        if helper_pair {
+            return None;
+        }
+        self.warning(from, to, to_title, now)
+    }
+
+    /// When `from` last messaged `to`, as far back as the log keeps.
+    pub fn last_sent(&self, from: &str, to: &str) -> Option<i64> {
+        self.notes.iter().filter(|n| n.from == from && n.to == to).map(|n| n.at).max()
     }
 
     fn prune(&mut self, now: i64) {
@@ -227,17 +245,18 @@ pub fn record_and_warn(board: &Board, from: &str, to: &str) -> Option<String> {
     let origins = origins::current();
     let sf = board.session(from).map(|(_, s)| s);
     let st = board.session(to).map(|(_, s)| s);
-    if let (Some(a), Some(b)) = (sf, st) {
-        if is_helper_pair(a, b, &origins) {
-            return None;
-        }
-    }
+    let helper_pair = matches!((sf, st), (Some(a), Some(b)) if is_helper_pair(a, b, &origins));
     let now = crate::util::now_ms();
     let title = st.map(|s| s.title.as_str()).unwrap_or("");
     let mut guard = log().lock().unwrap_or_else(|e| e.into_inner());
-    guard.record(from, to, now);
+    let warning = guard.sent(from, to, helper_pair, title, now);
     save(&guard);
-    guard.warning(from, to, title, now)
+    warning
+}
+
+/// When `from` last messaged `to` on this Mac (`Log::last_sent`), from the server's chatter log.
+pub fn last_sent(from: &str, to: &str) -> Option<i64> {
+    log().lock().unwrap_or_else(|e| e.into_inner()).last_sent(from, to)
 }
 
 /// Active peer exchanges for every session in `sessions`, read from the server's chatter log.
@@ -298,6 +317,17 @@ mod tests {
         let mut sh = sess(helper, "Review helper");
         sh.helper = Some(Helper { parent: Some(boss.into()), ..Default::default() });
         let sessions = vec![sess(boss, "Boss"), sh];
+        assert!(log.peers_for(&sessions, &origins::Store::default(), NOW).is_empty());
+
+        // Kept, though, for when a helper last reported to its session (helpers.rs), and never
+        // warned of.
+        assert_eq!((log.last_sent(helper, boss), log.last_sent(boss, helper)), (Some(NOW - 1000), Some(NOW - 2000)));
+        assert_eq!(log.last_sent(helper, "claude:claude:other"), None);
+        for _ in 0..6 {
+            assert_eq!(log.sent(helper, boss, true, "Boss", NOW), None);
+            log.sent(boss, helper, true, "Review helper", NOW);
+        }
+        assert_eq!(log.last_sent(helper, boss), Some(NOW));
         assert!(log.peers_for(&sessions, &origins::Store::default(), NOW).is_empty());
 
         // Also excluded when origins knows the helper link even before board helper is set.
