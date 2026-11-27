@@ -2131,8 +2131,11 @@ impl crate::harness::Adapter for Antigravity {
         acp::start_mode(home)
     }
 
+    /// Only on macOS: what it draws is a JPEG, and only macOS's own `sips` makes it the PNG an
+    /// emblem is read from (emblems.rs `as_png`). Elsewhere a drawing would spend its usage and
+    /// then not read.
     fn draws(&self) -> bool {
-        true
+        crate::os::is_macos()
     }
 
     fn draw(&self, ctx: &Ctx<'_>, cwd: &Path, prompt: &str) -> anyhow::Result<crate::harness::Drawn> {
@@ -2465,6 +2468,15 @@ impl crate::harness::Adapter for Antigravity {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn draws_only_where_its_pictures_can_be_read() {
+        use crate::harness::Adapter;
+        use crate::os::{as_if, Os};
+        assert!(as_if(Os::MacOs, || super::Antigravity.draws()));
+        assert!(!as_if(Os::Linux, || super::Antigravity.draws()));
+        assert!(!as_if(Os::Windows, || super::Antigravity.draws()));
+    }
+
     /// Both folders' tables claiming one conversation: the copy from the folder with its record
     /// wins, wherever it was read, and with neither keeping it the first stays.
     #[test]

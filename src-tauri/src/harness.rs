@@ -575,8 +575,8 @@ pub trait Adapter: Sync {
         bail!("{} can't answer questions about a PR here.", self.harness().word())
     }
 
-    /// Whether its accounts draw pictures (`draw`). `src/harness.ts` `DRAWS` lists the
-    /// harnesses that do.
+    /// Whether its accounts draw pictures (`draw`) on this OS. `src/harness.ts` `draws` says the
+    /// same for the windows.
     fn draws(&self) -> bool {
         false
     }
