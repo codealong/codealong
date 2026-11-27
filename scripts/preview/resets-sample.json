@@ -11,7 +11,7 @@
     },
     { "account": "cursor", "available": 1, "credits": [{ "id": "cursor-1" }] },
     { "account": "antigravity", "available": 2, "credits": [], "canUse": false, "note": "Its provider says how many limit resets the account holds but not which, so Codealong leaves using one to it." },
-    { "account": "claude", "available": 0, "canUse": false, "note": "Codealong can't read Claude Code's limit resets." },
+    { "account": "claude", "available": 2, "credits": [{ "id": "claude-1", "title": "Full reset", "expiresIn": 10 }] },
     { "account": "claude2", "available": 0, "canUse": false, "note": "Codealong can't read Claude Code's limit resets." }
   ]
 }

@@ -1,7 +1,7 @@
-// The usage bar with a Codex account holding three limit resets and its card up, for a
-// screenshot of the chip's mark and the card.
-//   PREVIEW_RESETS=scripts/preview/resets-sample.json PREVIEW_INIT=scripts/preview/resets-init.js PREVIEW_NAME=resets scripts/preview.sh sessions
-//   PREVIEW_SCHEME=dark PREVIEW_RESETS=scripts/preview/resets-sample.json PREVIEW_INIT=scripts/preview/resets-init.js PREVIEW_NAME=resets scripts/preview.sh sessions
+// The usage bar with a Codex account close to its limit holding three limit resets and its card
+// up, for a screenshot of the chip's mark and the card.
+//   PREVIEW_USAGE=scripts/preview/resets-usage-sample.json PREVIEW_RESETS=scripts/preview/resets-sample.json PREVIEW_INIT=scripts/preview/resets-init.js PREVIEW_NAME=resets scripts/preview.sh sessions
+//   PREVIEW_SCHEME=dark PREVIEW_USAGE=scripts/preview/resets-usage-sample.json PREVIEW_RESETS=scripts/preview/resets-sample.json PREVIEW_INIT=scripts/preview/resets-init.js PREVIEW_NAME=resets scripts/preview.sh sessions
 (function () {
   var tries = 0;
   var hover = function () {

@@ -1,18 +1,36 @@
 // The limit resets an account holds, as the engine reads them (resets.rs): which accounts the
-// usage bar marks, and the words its card uses.
+// status bar marks (only once close to a limit), and the words its card uses.
 import { count, duration } from './format';
-import type { Meter, Resets } from './types';
+import type { Meter, Resets, Usage } from './types';
 
 const DAY = 24 * 60 * 60 * 1000;
+
+/** How full a limit is before an account is close enough to its limits to show its reset option:
+ *  where a meter turns to warning (usage.rs `severity`). */
+export const CLOSE_TO_LIMIT = 75;
 
 /** An account's reading, when it's been read. */
 export function resetsOf(list: Resets[] | undefined, account: string): Resets | undefined {
   return list?.find((r) => r.account === account);
 }
 
-/** The bar marks it: it holds a reset. */
+/** The account holds at least one reset. */
 export function holds(r: Resets | undefined): r is Resets {
   return !!r && r.available > 0;
+}
+
+/** Whether any of the account's limits is close to running out (at warning or critical, or at
+ *  least CLOSE_TO_LIMIT% used). Unread accounts have no meters and aren't close. */
+export function closeToLimit(meters: Meter[]): boolean {
+  return meters.some((m) => m.severity !== 'normal' || m.percent >= CLOSE_TO_LIMIT);
+}
+
+/** The resets to show on `u`'s chip and card: only when it's signed in, holds some, and is close
+ *  to a limit. */
+export function offered(list: Resets[] | undefined, u: Usage): Resets | undefined {
+  if (u.needsSignIn || !closeToLimit(u.meters)) return undefined;
+  const r = resetsOf(list, u.account);
+  return holds(r) ? r : undefined;
 }
 
 /** Its card offers Use a reset: Codealong can use one, and knows which (a use names it). One the

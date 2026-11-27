@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { earlyNote, expiryPhrase, heldNote, holds, resetsTitle, usable } from './resets';
-import type { Meter, Resets } from './types';
+import { closeToLimit, earlyNote, expiryPhrase, heldNote, holds, offered, resetsTitle, usable } from './resets';
+import * as fx from './testing/fixtures';
+import type { Meter, Resets, Severity } from './types';
 
 const NOW = Date.UTC(2026, 10, 18, 20, 0);
 const DAY = 24 * 60 * 60 * 1000;
@@ -10,8 +11,8 @@ function resets(available: number, expires: (number | null)[], title: string | n
   return { account: 'codex', available, credits, canUse: true, note: null, asOf: NOW };
 }
 
-function meter(percent: number): Meter {
-  return { key: 'week', label: 'Week', window: 'Weekly', percent, resetsAt: null, severity: 'normal', model: null };
+function meter(percent: number, severity: Severity = 'normal'): Meter {
+  return { key: 'week', label: 'Week', window: 'Weekly', percent, resetsAt: null, severity, model: null };
 }
 
 describe('limit resets', () => {
@@ -50,5 +51,25 @@ describe('limit resets', () => {
     expect(earlyNote([meter(6)])).toBe('Its fullest limit is at 6%, so a reset now would free little.');
     expect(earlyNote([meter(6), meter(93)])).toBeNull();
     expect(earlyNote([])).toBeNull();
+  });
+
+  it('offers resets only when signed in, holding some, and close to a limit', () => {
+    expect(closeToLimit([])).toBe(false);
+    expect(closeToLimit([meter(8), meter(74.9)])).toBe(false);
+    expect(closeToLimit([meter(75)])).toBe(true);
+    expect(closeToLimit([meter(8), meter(70, 'warning')])).toBe(true);
+    expect(closeToLimit([meter(60, 'critical')])).toBe(true);
+
+    const held = [resets(3, [NOW + DAY])];
+    const codex = (meters: Meter[], needsSignIn = false) => fx.usage({ account: 'codex', meters, needsSignIn });
+    expect(offered(held, codex([meter(8)]))).toBeUndefined();
+    expect(offered(held, codex([]))).toBeUndefined();
+    expect(offered(held, codex([meter(74.9)]))).toBeUndefined();
+    expect(offered(held, codex([meter(75)]))).toEqual(held[0]);
+    expect(offered(held, codex([meter(70, 'warning')]))).toEqual(held[0]);
+    expect(offered(held, codex([meter(94, 'critical')]))).toEqual(held[0]);
+    expect(offered(held, codex([meter(94, 'critical')], true))).toBeUndefined();
+    expect(offered([resets(0, [])], codex([meter(94, 'critical')]))).toBeUndefined();
+    expect(offered(undefined, codex([meter(94, 'critical')]))).toBeUndefined();
   });
 });

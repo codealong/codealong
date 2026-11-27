@@ -5066,12 +5066,13 @@ where every account stands (*Not trained on*, *Training on*) and offers the same
 
 Some providers grant resets: each puts a plan's usage limits back to empty before they'd reset
 by themselves, and runs out after a while. Codealong reads what each account holds at launch,
-every hour and when you click the bar's refresh. An account that holds one has a counterclockwise
-clock on its chip; its card, on hover, says how many, what kind and when the first expires, and
-stays up while the pointer is on it. **Use a reset…** asks once more in the card, then uses the
-one that expires first and reads the account again (a toast says how it went and how many are
-left). While the account's fullest limit is under half, the card says a reset would free little;
-a provider that finds no limit far enough along to reset spends nothing, and the toast says so. A
+every hour and when you click the bar's refresh. Once one of an account's limits is close to
+running out (at warning or critical, or at least 75% used), an account that holds a reset has a
+counterclockwise clock on its chip; its card, on hover, says how many, what kind and when the
+first expires, and stays up while the pointer is on it. **Use a reset…** asks once more in the
+card, then uses the one that expires first and reads the account again (a toast says how it went
+and how many are left). A provider that finds no limit far enough along to reset spends nothing,
+and the toast says so. A
 use always names the reset it spends. When the provider doesn't answer one, Codealong reads the
 account again and its card shows what's left: if the reset it named is gone, it went through,
 and using the next is spending another. A provider that says how many an account holds but not

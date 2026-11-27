@@ -26,15 +26,16 @@
 // Codealong can, and opens the provider's settings page; that card stays up while the pointer is
 // on it.
 //
-// An account that holds limit resets (resets.ts) has a counterclockwise clock on its chip, and its
-// card says how many and when the first runs out, with Use a reset, which asks again in the card
-// before it spends one, the first to expire.
+// An account that holds limit resets (resets.ts) and is close to a limit (warning/critical, or at
+// least 75% used) has a counterclockwise clock on its chip, and its card says how many and when
+// the first runs out, with Use a reset, which asks again in the card before it spends one, the
+// first to expire.
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { agoPhrase, resetsPhrase, untilShort } from '../format';
 import { usageNote } from '../harness';
-import { earlyNote, heldNote, holds, resetsOf, resetsTitle, usable } from '../resets';
+import { earlyNote, heldNote, offered, resetsTitle, usable } from '../resets';
 import { cardTitle, flagged, readNote, trainingOf } from '../training';
 import type { DeviceView, Load, Meter, Resets, Severity, Training, Usage } from '../types';
 import { LoadTag } from './LoadTag';
@@ -571,10 +572,18 @@ export function StatusBar({ usage: board, now, onRefresh, onUsage, onSignIn, tra
   useEffect(() => {
     if (fit === 'all') hide(true);
   }, [fit, hide]);
+  const peeked = peek ? usage.find((u) => u.account === peek.account) : undefined;
+  const peekedTraining = peeked && trainingOf(training, peeked.account);
+  const flaggedPeek = flagged(peekedTraining) ? peekedTraining : undefined;
+  const heldPeek = peeked ? offered(resets, peeked) : undefined;
+  // A card in place of the chip's tooltip (flagged for training, or offering resets) lists its
+  // limits even when the chip shows them all, since the chip may leave a model's name out.
+  const peekMeters = (fit !== 'all' || !!flaggedPeek || !!heldPeek) && !!peeked && peeked.meters.length > 0;
+  // A card with buttons stays up while the pointer is on it.
+  const peekActs = !!flaggedPeek || usable(heldPeek);
   // A press anywhere but on a card's buttons. Any key, which goes on to do what it does, puts away
   // a card that only shows; one with buttons goes on Escape, so Return and Space work them.
-  const peekHasButtons = !!peek && (flagged(trainingOf(training, peek.account)) || usable(resetsOf(resets, peek.account)));
-  useDismiss(null, () => hide(true), { when: !!peek, keys: peekHasButtons ? 'escape' : 'any', inside: '.ca-usage-popover.has-buttons' });
+  useDismiss(null, () => hide(true), { when: !!peek, keys: peekActs ? 'escape' : 'any', inside: '.ca-usage-popover.has-buttons' });
   useEffect(() => {
     const el = row.current;
     if (!el || !peek) return;
@@ -587,21 +596,6 @@ export function StatusBar({ usage: board, now, onRefresh, onUsage, onSignIn, tra
     };
   }, [peek, hide]);
 
-  const peeked = peek ? usage.find((u) => u.account === peek.account) : undefined;
-  const peekedTraining = peeked && trainingOf(training, peeked.account);
-  const flaggedPeek = flagged(peekedTraining) ? peekedTraining : undefined;
-  const peekedResets = peeked && resetsOf(resets, peeked.account);
-  const heldPeek = holds(peekedResets) && !peeked?.needsSignIn ? peekedResets : undefined;
-  // A card in place of the chip's tooltip (flagged for training, or holding resets) lists its limits
-  // even when the chip shows them all, since the chip may leave a model's name out.
-  const peekMeters = (fit !== 'all' || !!flaggedPeek || !!heldPeek) && !!peeked && peeked.meters.length > 0;
-  // A card with buttons stays up while the pointer is on it.
-  const peekActs = !!flaggedPeek || usable(heldPeek);
-  // A signed-out chip has no card for its resets: signing in comes first.
-  const heldBy = (u: Usage) => {
-    const r = resetsOf(resets, u.account);
-    return holds(r) && !u.needsSignIn ? r : undefined;
-  };
   return (
     <div className="ca-statusbar" role="region" aria-label="Status bar">
       <div className="ca-statusbar-main">
@@ -618,7 +612,7 @@ export function StatusBar({ usage: board, now, onRefresh, onUsage, onSignIn, tra
                 now={now}
                 fit={fit}
                 training={flagged(t) ? t : undefined}
-                resets={heldBy(u)}
+                resets={offered(resets, u)}
                 onOpen={() => onUsage(u.account)}
                 onSignIn={() => onSignIn(u.account)}
                 onPeek={(el) => {
@@ -637,7 +631,7 @@ export function StatusBar({ usage: board, now, onRefresh, onUsage, onSignIn, tra
         <div key={f} ref={f === 'all' ? measureAll : measureOne} className="ca-statusbar-measure" aria-hidden="true">
           {usage.map((u) => {
             const t = trainingOf(training, u.account);
-            return <AccountChip key={u.account} usage={u} now={now} fit={f} measure training={flagged(t) ? t : undefined} resets={heldBy(u)} />;
+            return <AccountChip key={u.account} usage={u} now={now} fit={f} measure training={flagged(t) ? t : undefined} resets={offered(resets, u)} />;
           })}
         </div>
       ))}
