@@ -53,6 +53,7 @@ import { runFolder } from './RunButton';
 import { SessionHeader, type SessionHeaderProps } from './SessionHeader';
 import { Reply } from './SessionReply';
 import { SessionThread } from './SessionThread';
+import { MovedNote, useMovedCopy } from './MovedNote';
 import { SnoozeSuggestion } from './SnoozeSuggestion';
 import { LiveStrip } from './Listening';
 import { useListening } from '../listening';
@@ -484,6 +485,9 @@ export function SessionPanel({ variant = 'panel', zoom, queue, notice, hotkeys, 
   // Moving or handing off to another account asks first in a quick confirmation modal
   // (MoveAccount.tsx), from the account/model selector or from Move… on a header banner.
   const moves = header.actions?.moveAccounts;
+  // One that moved goes on as its copy (`Session.movedTo`), which the engine sends to instead: its
+  // box is the copy's, and says so (MovedNote.tsx).
+  const copy = useMovedCopy(s);
   const [moving, setMoving] = useState<{ key: string; to: string | null; model?: string | null; modelLabel?: string | null } | null>(null);
   const ask = (to: string | null, model?: string | null, modelLabel?: string | null) => setMoving({ key, to, model, modelLabel });
   // Edit from here asks for your edit first (EditFrom.tsx), where the session's Mac takes requests
@@ -553,7 +557,26 @@ export function SessionPanel({ variant = 'panel', zoom, queue, notice, hotkeys, 
               {device.name} doesn't take prompts from your other devices. To send from here, turn on <b>Let my linked devices act on sessions here</b> in Settings › Devices on {device.name}.
             </p>
           ) : (
-            <Reply session={s} terminal={terminal} deviceName={device?.name} runIn={folder ?? undefined} runsUnder={apps.runIn !== 'terminal'} onOpen={openIt} autoFocus={autoFocus && !renaming} keys={keys} onSending={onSending} onSent={onSent} onFailed={onFailed} onAnswered={onAnswered} onNext={goesOn ? onDone : undefined} onAsked={header.actions?.askAside} sayKeys={!!hotkeys} moves={moves} onMove={ask} above={<SnoozeSuggestion session={s} snooze={header.actions?.snooze} now={now} />} />
+            <Reply
+              session={copy?.session ?? s}
+              terminal={terminal}
+              deviceName={device?.name}
+              runIn={folder ?? undefined}
+              runsUnder={apps.runIn !== 'terminal'}
+              onOpen={openIt}
+              autoFocus={autoFocus && !renaming}
+              keys={keys}
+              onSending={onSending}
+              onSent={onSent}
+              onFailed={onFailed}
+              onAnswered={onAnswered}
+              onNext={goesOn ? onDone : undefined}
+              onAsked={copy ? undefined : header.actions?.askAside}
+              sayKeys={!!hotkeys}
+              moves={copy ? undefined : moves}
+              onMove={copy ? undefined : ask}
+              above={copy ? <MovedNote to={copy} onShow={header.onShowSession} /> : <SnoozeSuggestion session={s} snooze={header.actions?.snooze} now={now} />}
+            />
           )}
           {folder !== null && terminals && !away && (
             <TerminalDrawer

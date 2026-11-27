@@ -185,6 +185,11 @@ export interface Session {
   /** The session it came from, when its harness or Codealong wrote that down; a headless run's,
    *  the session whose command ran it, when Codealong saw it running (board.rs `run_started_by`). */
   origin?: SessionOrigin;
+  /** The session it moved to and goes on as, by its key, while the board has that one: a move to
+   *  another account or harness, followed on where that one moved too (origins.rs
+   *  `Store::moved_to`), not a handoff that kept it open. The engine neither sends to it nor
+   *  resumes it, and it moves no further: its box sends to the copy (SessionPanel.tsx). */
+  movedTo?: string;
   /** Busy but silent for a long while: stuck mid-turn. When it went quiet. */
   stalledSince: number | null;
   /** Why it needs you, as the engine reads it (`Session::need`): the one thing a headline, a

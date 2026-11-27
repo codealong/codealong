@@ -1,0 +1,15 @@
+/* Above a moved session's box, which sends to its copy (MovedNote.tsx): where it went, and that
+   what's written goes there. */
+.ca-movednote {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  color: var(--ink-3);
+  font: var(--type-meta);
+}
+.ca-movednote > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

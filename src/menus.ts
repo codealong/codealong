@@ -534,7 +534,10 @@ export function sessionActions(lane: Lane, s: Session, can: SessionCan): Session
       report.error(errorText(e));
     });
   };
-  const movable = here && !movedHere.has(s.key) && !s.visitor;
+  // One that moved already goes on as its copy, which the engine says (`Session.movedTo`) from
+  // whichever window or command moved it, and across relaunches; `movedHere` covers the moment
+  // between the click and the board that says so.
+  const movable = here && !movedHere.has(s.key) && !s.visitor && !s.movedTo;
   // Any signed-in, enabled account on this Mac can receive a move or cross-provider handoff.
   const moveTargets = movable ? moveTargetsFor(s, accounts) : [];
   const moveTo = moveTargets.map((t) => t.account);

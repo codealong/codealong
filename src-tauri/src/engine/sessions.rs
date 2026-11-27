@@ -143,7 +143,8 @@ impl Engine {
     /// session that started it as one (origins.json), or the PR whose automatic review it is
     /// (reviews.json, or its first prompt: `autoreview::reviewers`), else the session whose
     /// scratch folder it runs in (`board::scratch_helpers`), unless you made it your own
-    /// (`SeenState::own`); and whether you're talking to it (`SeenState::talking`).
+    /// (`SeenState::own`); whether you're talking to it (`SeenState::talking`); and the copy a
+    /// session that moved goes on as (`Session::moved_to`).
     fn with_origins(&self, mut sessions: Vec<Session>) -> Vec<Session> {
         let store = origins::current();
         let reviewers = autoreview::reviewers(&self.reviews, &sessions);
@@ -158,6 +159,7 @@ impl Engine {
                 }
             }
         }
+        store.mark_moves(&mut sessions);
         board::scratch_helpers(&mut sessions, crate::harness::scratch_owner, |k| self.seen.is_own(k));
         if !self.seen.talking.is_empty() {
             for s in sessions.iter_mut() {
