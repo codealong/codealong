@@ -779,6 +779,7 @@ export type RunView = Holds<Same<
   | "id"
   | "judgeCostApi"
   | "prompt"
+  | "rankings"
   | "recommendationNote"
   | "recommended"
   | "repo"
@@ -818,6 +819,7 @@ export type TrialView = Holds<Same<
 export type PairView = Holds<Same<
   | "consistentWinner"
   | "forwardWinner"
+  | "judge"
   | "labelA"
   | "labelB"
   | "rationale"
@@ -825,6 +827,17 @@ export type PairView = Holds<Same<
   | "trialA"
   | "trialB",
   Names<Types.ExperimentPairView>
+>>;
+
+export type RankJudgeView = Holds<Same<
+  | "done"
+  | "error"
+  | "id"
+  | "judge"
+  | "ranking"
+  | "rankingLabels"
+  | "rationale",
+  Names<Types.ExperimentRankView>
 >>;
 
 export type CostBreakdown = Holds<Same<

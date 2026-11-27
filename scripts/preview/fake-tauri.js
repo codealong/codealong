@@ -691,8 +691,9 @@ window.__TAURI_INTERNALS__ = {
               { id: 't2', label: 'claude/opus/high', worker: 'claude/opus/high', reviewer: null, observedModel: 'claude-opus-5-5', stage: 'ready', worktree: '/Users/me/northwind/.codealong/worktrees/calm-otter', branch: 'worktree-calm-otter', workerKey: null, reviewerKey: null, diffBytes: 1920, diffRef: 'refs/codealong/experiments/exp-a1b2c3d4/t2', reviewVerdict: null, reviewerModifiedTree: false, gatePassed: true, prOpened: false, drift: null, error: null, interruptions: 0, durationMs: 365000, cost: { totalApi: 6.48, workerApi: 6.48, reviewerApi: 0, inputTokens: 96000, outputTokens: 8100, cacheReadTokens: 61000, unpricedCalls: 0 }, adopted: false, discarded: false, recommended: false },
             ],
             comparisons: [
-              { trialA: 't1', trialB: 't2', labelA: 'codex/sol-6.2/high + claude/opus/high', labelB: 'claude/opus/high', forwardWinner: 't1', reversedWinner: 't1', consistentWinner: 't1', rationale: 'Candidate A handled multi-byte UTF-8 splits at chunk boundaries and added regression tests.' },
+              { trialA: 't1', trialB: 't2', labelA: 'codex/sol-6.2/high + claude/opus/high', labelB: 'claude/opus/high', judge: null, forwardWinner: 't1', reversedWinner: 't1', consistentWinner: 't1', rationale: 'Candidate A handled multi-byte UTF-8 splits at chunk boundaries and added regression tests.' },
             ],
+            rankings: [],
           },
         ],
       } : { on: false, experiments: [], leaderboard: [], runs: [] });

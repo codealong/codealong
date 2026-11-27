@@ -66,6 +66,7 @@ describe('experiments helpers', () => {
       error: null,
       trials: [trial(), trial({ id: 't2', cost: { totalApi: 0.9, workerApi: 0.9, reviewerApi: 0, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, unpricedCalls: 0 } })],
       comparisons: [],
+      rankings: [],
     };
     expect(runTotalCost(run)).toBeCloseTo(2.75);
     expect(trialFlags(trial({ recommended: true, prOpened: true, reviewerModifiedTree: true, interruptions: 1 }))).toEqual([
@@ -117,6 +118,7 @@ describe('experiments helpers', () => {
       error: null,
       trials: [],
       comparisons: [],
+      rankings: [],
     });
     expect(filterRuns([run('a'), run('b')], 'b')).toHaveLength(1);
   });

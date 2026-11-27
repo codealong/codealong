@@ -714,15 +714,26 @@ Options:
       --table
           Tables, even when piped
 
-      --judge <JUDGE>
-          Blind pairwise judge seat `<account>[:<model>][:<effort>][@<mode>]` (overrides
-          preset judge)
+      --judge <JUDGES>
+          Blind judge seat `<account>[:<model>][:<effort>][@<mode>]`. Repeat for a
+          multi-provider judge panel (overrides preset judge/judges)
 
       --verbose
           Say on stderr whether Codealong's server or the files answered
 
       --no-judge
-          Skip the preset's judge for this run
+          Skip the preset's judge(s) for this run
+
+      --judge-mode <JUDGE_MODE>
+          How judges compare surviving arms: `auto` (all-at-once ranking for 3+,
+          pairwise for 2), `rank`, or `pairwise`
+
+          Possible values:
+          - auto:     All-at-once ranking for 3+ survivors; pairwise (both orders) for 2
+            survivors
+          - rank:     All surviving diffs evaluated together with cyclic label rotation
+            across judges
+          - pairwise: Every unordered pair evaluated in both A/B and B/A order
 
       --rubric <RUBRIC>
           Extra evaluation criteria appended to the blind judge's prompt (overrides
@@ -775,7 +786,7 @@ Options:
           anything
 
   -h, --help
-          Print help
+          Print help (see a summary with '-h')
 ```
 
 ## codealong exp presets

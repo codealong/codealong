@@ -68,10 +68,23 @@ pub struct PairView {
     pub trial_b: String,
     pub label_a: String,
     pub label_b: String,
+    pub judge: Option<String>,
     pub forward_winner: Option<String>,
     pub reversed_winner: Option<String>,
     pub consistent_winner: Option<String>,
     pub rationale: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct RankJudgeView {
+    pub id: String,
+    pub judge: String,
+    pub ranking: Vec<Vec<String>>,
+    pub ranking_labels: Vec<Vec<String>>,
+    pub rationale: Option<String>,
+    pub error: Option<String>,
+    pub done: bool,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
@@ -94,6 +107,7 @@ pub struct RunView {
     pub error: Option<String>,
     pub trials: Vec<TrialView>,
     pub comparisons: Vec<PairView>,
+    pub rankings: Vec<RankJudgeView>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
@@ -246,10 +260,27 @@ fn build_run_view(db: &Connection, cfg: &Config, run: &Run) -> Result<RunView> {
             trial_b: c.trial_b.clone(),
             label_a: label_of(&c.trial_a),
             label_b: label_of(&c.trial_b),
+            judge: c.judge.as_ref().map(|s| s.short()),
             forward_winner: c.forward.winning_trial().map(str::to_string),
             reversed_winner: c.reversed.winning_trial().map(str::to_string),
             consistent_winner: c.consistent_winner.clone(),
             rationale: c.forward.rationale.clone().or_else(|| c.reversed.rationale.clone()),
+        });
+    }
+    let mut rankings = Vec::with_capacity(run.rankings.len());
+    for rj in &run.rankings {
+        if let Some(key) = rj.session_key.as_deref() {
+            judge_cost_api += price_session(db, cfg, key).total.api;
+        }
+        let ranking_labels = rj.ranking.iter().map(|tier| tier.iter().map(|id| label_of(id)).collect()).collect();
+        rankings.push(RankJudgeView {
+            id: rj.id.clone(),
+            judge: rj.judge.short(),
+            ranking: rj.ranking.clone(),
+            ranking_labels,
+            rationale: rj.rationale.clone(),
+            error: rj.error.clone(),
+            done: rj.done,
         });
     }
 
@@ -272,6 +303,7 @@ fn build_run_view(db: &Connection, cfg: &Config, run: &Run) -> Result<RunView> {
         error: run.error.clone(),
         trials,
         comparisons,
+        rankings,
     })
 }
 
@@ -399,18 +431,53 @@ fn accumulate_leaderboard(agg: &mut BTreeMap<String, Agg>, cfg: &Config, run: &R
         if t.adopted {
             entry.adopted_count += 1;
         }
-        // Tally pairwise comparison results for this trial.
-        for c in &run.comparisons {
-            if c.trial_a != t.id && c.trial_b != t.id {
-                continue;
+        // Tally judge results for this trial: either all-at-once panel rankings (head-to-head
+        // ballot majority against each other surviving trial) or pairwise comparisons (grouped per
+        // opponent so multi-judge pairwise panels vote once per pair).
+        if run.rankings.iter().any(|r| !r.ranking.is_empty()) {
+            if t.survives() {
+                for other in &run.trials {
+                    if other.id == t.id || !other.survives() {
+                        continue;
+                    }
+                    let (me_ahead, other_ahead) = super::rank_head_to_head(&run.rankings, &t.id, &other.id);
+                    if me_ahead > other_ahead {
+                        entry.wins += 1;
+                    } else if other_ahead > me_ahead {
+                        entry.losses += 1;
+                    } else {
+                        entry.ties += 1;
+                    }
+                }
             }
-            if !c.is_done() {
-                continue;
+        } else {
+            let mut by_opp: BTreeMap<&str, (usize, usize)> = BTreeMap::new();
+            for c in &run.comparisons {
+                if !c.is_done() {
+                    continue;
+                }
+                let opp = if c.trial_a == t.id {
+                    c.trial_b.as_str()
+                } else if c.trial_b == t.id {
+                    c.trial_a.as_str()
+                } else {
+                    continue;
+                };
+                let slot = by_opp.entry(opp).or_insert((0, 0));
+                match c.consistent_winner.as_deref() {
+                    Some(w) if w == t.id => slot.0 += 1,
+                    Some(_) => slot.1 += 1,
+                    None => {}
+                }
             }
-            match c.consistent_winner.as_deref() {
-                Some(w) if w == t.id => entry.wins += 1,
-                Some(_) => entry.losses += 1,
-                None => entry.ties += 1,
+            for (w, l) in by_opp.into_values() {
+                if w > l {
+                    entry.wins += 1;
+                } else if l > w {
+                    entry.losses += 1;
+                } else {
+                    entry.ties += 1;
+                }
             }
         }
     }
@@ -497,6 +564,11 @@ pub fn apply_op(engine: Option<&Handle>, op: Op) -> Result<Value> {
                     let _ = crate::acp::cancel(key);
                 }
             }
+            for rj in &run.rankings {
+                if let Some(key) = rj.session_key.as_deref() {
+                    let _ = crate::acp::cancel(key);
+                }
+            }
             super::cleanup_judge_repos(&run.id);
             let now = now_ms();
             super::change(|f| {
@@ -541,7 +613,7 @@ mod tests {
         db.execute("INSERT INTO calls (at, session, model, input, output) VALUES (?1, ?2, 'claude-opus-5-5', 100000, 10000)", rusqlite::params![now, s1]).unwrap();
         db.execute("INSERT INTO calls (at, session, model, input, output) VALUES (?1, ?2, 'gpt-5', 50000, 5000)", rusqlite::params![now, s2]).unwrap();
 
-        let mut cmp = PairComparison::new("t1".into(), "t2".into());
+        let mut cmp = PairComparison::new("t1".into(), "t2".into(), None);
         cmp.forward.done = true;
         cmp.forward.winner = Some("A".into());
         cmp.reversed.done = true;
@@ -597,5 +669,63 @@ mod tests {
         assert_eq!(rep.leaderboard.len(), 2);
         assert_eq!(rep.leaderboard[0].wins, 1);
         assert_eq!(rep.leaderboard[1].losses, 1);
+    }
+
+    #[test]
+    fn report_tallies_3_arm_panel_rankings_into_leaderboard_and_costs() {
+        let db = ledger::in_memory();
+        let mut cfg = Config::default();
+        cfg.experimental.experiments = true;
+        cfg.accounts = vec![
+            toml::from_str::<AccountCfg>("name = \"claude\"\nharness = \"claude\"\nhome = \"~/.claude\"\n").unwrap(),
+            toml::from_str::<AccountCfg>("name = \"codex\"\nharness = \"codex\"\nhome = \"~/.codex\"\n").unwrap(),
+            toml::from_str::<AccountCfg>("name = \"antigravity\"\nharness = \"antigravity\"\nhome = \"~/.gemini/antigravity\"\n").unwrap(),
+        ];
+        let now = now_ms();
+        let mk_trial = |id: &str, acct: &str| Trial {
+            id: id.into(),
+            arm: Arm { label: acct.into(), worker: Seat { account: acct.into(), ..Default::default() }, ..Default::default() },
+            stage: TrialStage::Ready,
+            times: PhaseTimes { queued_at: now - 10_000, started_at: Some(now - 9000), finished_at: Some(now), ..Default::default() },
+            diff_bytes: 300,
+            ..Default::default()
+        };
+        let mk_rank = |id: &str, acct: &str, tiers: Vec<Vec<&str>>| crate::experiments::RankJudge {
+            id: id.into(),
+            judge: Seat { account: acct.into(), ..Default::default() },
+            order: vec!["t1".into(), "t2".into(), "t3".into()],
+            ranking: tiers.into_iter().map(|t| t.into_iter().map(str::to_string).collect()).collect(),
+            done: true,
+            ..Default::default()
+        };
+        let run = Run {
+            id: "exp-panel".into(),
+            experiment: "xhigh".into(),
+            repo: "codealong".into(),
+            main_worktree: "/r".into(),
+            base_sha: "abc".into(),
+            prompt: "Test".into(),
+            max_parallel: 3,
+            stage: RunStage::Complete,
+            recommended: Some("t2".into()),
+            created_at: now - 10_000,
+            finished_at: Some(now),
+            trials: vec![mk_trial("t1", "claude"), mk_trial("t2", "codex"), mk_trial("t3", "antigravity")],
+            rankings: vec![
+                mk_rank("j0", "claude", vec![vec!["t2"], vec!["t1"], vec!["t3"]]),
+                mk_rank("j1", "codex", vec![vec!["t2"], vec!["t3"], vec!["t1"]]),
+                mk_rank("j2", "antigravity", vec![vec!["t1"], vec!["t2"], vec!["t3"]]),
+            ],
+            ..Default::default()
+        };
+
+        let rep = build_in(&db, &cfg, &[run], None).unwrap();
+        assert_eq!(rep.runs[0].rankings.len(), 3);
+        assert_eq!(rep.runs[0].rankings[0].ranking_labels, vec![vec!["codex"], vec!["claude"], vec!["antigravity"]]);
+        // t2 beat t1 (2-1) and t3 (3-0) -> 2W-0L; t1 beat t3 (2-1) -> 1W-1L; t3 -> 0W-2L.
+        let by_label = |l: &str| rep.leaderboard.iter().find(|r| r.label == l).unwrap();
+        assert_eq!((by_label("codex").wins, by_label("codex").losses, by_label("codex").ties), (2, 0, 0));
+        assert_eq!((by_label("claude").wins, by_label("claude").losses, by_label("claude").ties), (1, 1, 0));
+        assert_eq!((by_label("antigravity").wins, by_label("antigravity").losses, by_label("antigravity").ties), (0, 2, 0));
     }
 }

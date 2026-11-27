@@ -1,6 +1,6 @@
 ---
 name: codealong
-description: Codealong todos, sessions and accounts on this Mac, through the `codealong` command. Use when the user asks for something done with a Codealong todo (adding, starting, changing, finishing) or the session was started on one, when you need to know what other agents or sessions did in this repo, to message one (on any account or harness) or to name one or a todo in a reply (as a link), when you'd have another account, harness or model (Codex, say) review, check or take on parts of your work (a helper, started here, not with its own CLI or plugin), when asked to go over the sessions that wait on the user and suggest replies, to run as their orchestrator, to visualize or lay out their sessions on Codealong's canvas, or to make a board of some work or add to one, when asked about a meeting Codealong heard (its transcript or notes), when choosing an account to start something on, or when a task needs a service you have no tool for (Slack, Figma, a mailbox) that another account's MCP servers or connectors may reach.
+description: Codealong todos, sessions, experiments and accounts on this Mac via `codealong`. Use for Codealong todos (add, start, update, finish) or sessions started on one, checking what other agents did in this repo, messaging or linking a session/todo, spawning another account/harness/model (e.g. Codex) as a helper, running or inspecting a named Codealong experiment across models/providers, reviewing sessions waiting on the user, running as orchestrator, laying out sessions on Codealong's canvas or boards, reading meeting transcripts/notes, picking an account to start on, or reaching services (Slack, Figma, mail) through another account's MCPs/connectors.
 ---
 
 # Codealong
@@ -661,20 +661,29 @@ printed once it ends.
 
 When `[experimental] experiments = true` is on in `config.toml`, `codealong exp` runs pinned
 agent combinations side-by-side on the same task and base commit (each in an isolated worktree),
-with optional 1-round local review (`worker+reviewer`), an optional blind pairwise judge (which
-reads `spec.md`, `A.diff`, `B.diff`, and a clean read-only `repo/` snapshot at the base commit in
-both A/B and B/A order), and an optional `--eval` command.
+with optional 1-round local review (`worker+reviewer`), an optional blind judge or multi-provider
+judge panel (each judge reads `spec.md`, blinded candidate diffs, and a clean read-only `repo/`
+snapshot at the base commit — all-at-once ranking with cyclic rotation for 3+ arms, or pairwise
+both-orders for 2 arms), and an optional `--eval` command.
 
-- **Presets:** `codealong exp presets` lists named `[experiments.<name>]` presets from
-  `config.toml` (`arms`, optional `judge`, optional `rubric`, optional `eval`, `max_parallel`).
-  Run one with `codealong exp run --preset <name> --prompt "..."` (or `--todo <id>` /
-  `--prompt-file <path>`). No `--eval` is required when relying on the judge for code quality.
-- **Ad-hoc runs:** pass `--arm "<worker>[+<reviewer>]"` at least twice, `--judge "<seat>"`,
-  optional `--rubric "<criteria>"`, and `--dry-run` first to check seats and boundaries.
+- **When your user asks to run a named experiment** (e.g. *"run this as the `<name>` experiment"*):
+  1. Run `codealong exp presets` to find the matching `[experiments.<name>]` preset in `config.toml`.
+  2. Do **not** edit files or implement the task directly in the current checkout; instead,
+     distill the task and any relevant context from the conversation into a clear, self-contained
+     prompt and launch `codealong exp run --preset <name> --prompt-file -` (passing `--worktree`
+     if you're not in the target repo).
+  3. Report the queued run id and arms so the user can watch with `codealong exp show <id>`.
+- **Presets in `config.toml`:** `[experiments.<name>]` sets `arms` (at least 2), optional `judge`
+  or `judges = [...]` (panel), optional `judge_mode` (`"auto"`, `"rank"`, `"pairwise"`), optional
+  `rubric`, optional `eval`, and optional `max_parallel`. No `eval` is required when relying on
+  the judge(s) for code quality.
+- **Ad-hoc runs:** pass `--arm "<worker>[+<reviewer>]"` at least twice, repeatable `--judge "<seat>"`,
+  optional `--judge-mode auto|rank|pairwise`, optional `--rubric "<criteria>"`, and `--dry-run`
+  first to check seats and boundaries.
 - **Inspecting and finishing:** `codealong exp show <id>` shows live stages, review verdicts,
-  pairwise judge consensus, and costs; `codealong exp results [experiment]` shows the leaderboard;
-  `codealong exp adopt <run>/<trial>` marks the winner; `codealong exp discard <run>` cleans up
-  non-adopted worktrees (diffs remain saved under `refs/codealong/experiments/<run>/<trial>`).
+  judge rankings or pairwise consensus, and costs; `codealong exp results [experiment]` shows the
+  leaderboard; `codealong exp adopt <run>/<trial>` marks the winner; `codealong exp discard <run>`
+  cleans up non-adopted worktrees (diffs remain saved under `refs/codealong/experiments/<run>/<trial>`).
 
 ## Configuring Codealong
 

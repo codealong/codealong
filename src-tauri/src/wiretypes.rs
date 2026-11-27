@@ -91,6 +91,7 @@ fn others() -> Vec<Pair> {
             pair::<crate::experiments::report::RunView>("ExperimentRunView"),
             pair::<crate::experiments::report::TrialView>("ExperimentTrialView"),
             pair::<crate::experiments::report::PairView>("ExperimentPairView"),
+            pair::<crate::experiments::report::RankJudgeView>("ExperimentRankView"),
             pair::<crate::experiments::report::CostBreakdown>("ExperimentCost"),
             pair::<crate::experiments::report::LeaderboardRow>("ExperimentLeaderboardRow"),
         ],

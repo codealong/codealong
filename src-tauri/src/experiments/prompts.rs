@@ -78,6 +78,90 @@ pub fn judge_prompt(has_gate: bool, has_repo: bool, rubric: Option<&str>) -> Str
     )
 }
 
+/// Prompt for a blind all-at-once judge comparing 2+ anonymous candidates (`A.diff`, `B.diff`,
+/// `C.diff`, ...) together against `spec.md` and `repo/` (base-commit read-only snapshot).
+pub fn rank_judge_prompt(labels: &[char], has_gate: bool, has_repo: bool, rubric: Option<&str>) -> String {
+    let diff_lines: String = labels
+        .iter()
+        .map(|l| format!("- `{l}.diff`: Candidate {l}'s complete diff from the base commit\n"))
+        .collect();
+    let repo_line = if has_repo {
+        "- `repo/`: read-only snapshot of the repository at the base commit (no git history) — inspect surrounding code, existing helpers, and repo rules (e.g. `AGENTS.md` / `CLAUDE.md`) to judge codebase fit\n"
+    } else {
+        ""
+    };
+    let gate_line = if has_gate {
+        "- `gate.txt`: mechanical test/check gate summary for every candidate\n"
+    } else {
+        ""
+    };
+    let rubric_block = match rubric.map(str::trim).filter(|s| !s.is_empty()) {
+        Some(r) => format!("\nAdditional evaluation criteria:\n{r}\n"),
+        None => String::new(),
+    };
+    let example: String = labels.iter().map(|c| c.to_string()).collect::<Vec<_>>().join(" > ");
+    format!(
+        "You are a blind code judge comparing {} anonymous implementations ({}) for the same task.\n\n\
+        Read the files in this folder:\n\
+        - `spec.md`: the task specification\n\
+        {diff_lines}{repo_line}{gate_line}{rubric_block}\n\
+        Evaluate all candidates on correctness, completeness against `spec.md`, code quality, codebase fit (reusing existing helpers and following repo conventions), simplicity, and test coverage.\n\
+        Do not try to infer which model or tool wrote any diff, and do not modify any files.\n\n\
+        Give a concise comparative review citing concrete files/hunks from each diff, then end your reply with a single final line ranking EVERY candidate from best to worst using `>` (strictly better) or `=` (genuine tie), e.g.:\n\
+        `Ranking: {example}`",
+        labels.len(),
+        labels.iter().map(|l| format!("`Candidate {l}`")).collect::<Vec<_>>().join(", "),
+    )
+}
+
+/// Parses a judge's final `Ranking: B > A = C` line into ordered tiers of candidate letters.
+/// Returns `None` unless every label in `expected` appears exactly once.
+pub fn parse_ranking(reply: &str, expected: &[char]) -> Option<Vec<Vec<char>>> {
+    if expected.is_empty() {
+        return None;
+    }
+    let expected_upper: std::collections::HashSet<char> = expected.iter().map(|c| c.to_ascii_uppercase()).collect();
+    for line in reply.lines().rev() {
+        let trimmed = line.trim().trim_matches(|c: char| c == '`' || c == '*' || c == '_');
+        let lower = trimmed.to_ascii_lowercase();
+        let Some(rest) = lower.strip_prefix("ranking:") else { continue };
+        let body = rest.trim().trim_matches(|c: char| c == '`' || c == '*' || c == '_' || c == '.');
+        let mut tiers: Vec<Vec<char>> = Vec::new();
+        let mut seen: std::collections::HashSet<char> = std::collections::HashSet::new();
+        let mut ok = true;
+        for tier_str in body.split('>') {
+            let mut tier = Vec::new();
+            for item in tier_str.split('=') {
+                let cleaned = item
+                    .trim()
+                    .trim_matches(|c: char| matches!(c, '`' | '*' | '_' | '.' | ',' | '(' | ')'))
+                    .trim_start_matches("candidate")
+                    .trim_start_matches(['-', ':', ' ']);
+                let mut chars = cleaned.chars();
+                let (Some(ch), None) = (chars.next(), chars.next()) else {
+                    ok = false;
+                    break;
+                };
+                let up = ch.to_ascii_uppercase();
+                if !expected_upper.contains(&up) || !seen.insert(up) {
+                    ok = false;
+                    break;
+                }
+                tier.push(up);
+            }
+            if !ok || tier.is_empty() {
+                ok = false;
+                break;
+            }
+            tiers.push(tier);
+        }
+        if ok && seen.len() == expected_upper.len() {
+            return Some(tiers);
+        }
+    }
+    None
+}
+
 /// Parses the reviewer's final `Verdict:` line, accepting `request changes`, `request-changes`,
 /// and `request_changes` (underscores aren't normalized by `autoreview::verdict_of`).
 pub fn parse_review_verdict(reply: &str) -> Option<crate::github::Verdict> {
@@ -154,5 +238,22 @@ mod tests {
         assert!(with_rubric.contains("`repo/`"), "{with_rubric}");
         assert!(with_rubric.contains("`gate.txt`"), "{with_rubric}");
         assert!(with_rubric.contains("Additional evaluation criteria:\nPrefer minimal diffs over new abstractions."), "{with_rubric}");
+    }
+
+    #[test]
+    fn rank_judge_prompt_and_parse_ranking_handle_ties_and_reject_incomplete_lines() {
+        let prompt = rank_judge_prompt(&['A', 'B', 'C'], false, true, Some("Reuse helpers."));
+        assert!(prompt.contains("`A.diff`") && prompt.contains("`B.diff`") && prompt.contains("`C.diff`"), "{prompt}");
+        assert!(prompt.contains("`repo/`") && prompt.contains("Reuse helpers."), "{prompt}");
+
+        assert_eq!(parse_ranking("Analysis...\n\nRanking: B > A > C", &['A', 'B', 'C']), Some(vec![vec!['B'], vec!['A'], vec!['C']]));
+        assert_eq!(parse_ranking("**Ranking: C > A = B.**\n", &['A', 'B', 'C']), Some(vec![vec!['C'], vec!['A', 'B']]));
+        assert_eq!(
+            parse_ranking("`Ranking: Candidate A = Candidate B > Candidate C`", &['A', 'B', 'C']),
+            Some(vec![vec!['A', 'B'], vec!['C']])
+        );
+        // Rejects missing or duplicate labels.
+        assert_eq!(parse_ranking("Ranking: A > B", &['A', 'B', 'C']), None);
+        assert_eq!(parse_ranking("Ranking: A > A > B", &['A', 'B', 'C']), None);
     }
 }

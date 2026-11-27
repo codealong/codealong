@@ -19,7 +19,7 @@ use crate::start::{Place, StartSpec};
 use crate::util::now_ms;
 use crate::worktree;
 
-use super::{build_comparisons, compute_recommendation, folder, gitops, prompts, PairComparison, Run, RunStage, Seat, StoreFile, Trial, TrialStage};
+use super::{build_comparisons, build_rankings, compute_recommendation, folder, gitops, prompts, PairComparison, RankJudge, Run, RunStage, Seat, StoreFile, Trial, TrialStage};
 
 /// How often the experiment runner checks active runs.
 const TICK: Duration = Duration::from_secs(5);
@@ -36,6 +36,8 @@ pub enum Job {
     RunGate { run_id: String, trial_id: String },
     StartJudge { run_id: String, pair_idx: usize, swapped: bool },
     FinishJudge { run_id: String, pair_idx: usize, swapped: bool },
+    StartRankJudge { run_id: String, rank_idx: usize },
+    FinishRankJudge { run_id: String, rank_idx: usize },
 }
 
 impl Job {
@@ -50,6 +52,9 @@ impl Job {
             | Job::RunGate { run_id, trial_id } => format!("trial:{run_id}:{trial_id}"),
             Job::StartJudge { run_id, pair_idx, swapped } | Job::FinishJudge { run_id, pair_idx, swapped } => {
                 format!("judge:{run_id}:{pair_idx}:{}", if *swapped { "r" } else { "f" })
+            }
+            Job::StartRankJudge { run_id, rank_idx } | Job::FinishRankJudge { run_id, rank_idx } => {
+                format!("rank:{run_id}:{rank_idx}")
             }
         }
     }
@@ -66,6 +71,7 @@ pub enum Note {
     FlagPr { run_id: String, trial_id: String },
     CountInterruption { run_id: String, trial_id: String },
     BeginJudging { run_id: String, comparisons: Vec<PairComparison> },
+    BeginRanking { run_id: String, rankings: Vec<RankJudge> },
     CompleteRun { run_id: String, recommended: Option<String>, note: String, at: i64 },
 }
 
@@ -201,43 +207,101 @@ pub fn plan(runs: &[Run], board: &Board, busy: &HashSet<String>, gate_busy: bool
                 // 3. Once every trial is terminal, move to Judging or Complete.
                 if all_terminal {
                     let survivors = run.trials.iter().filter(|t| t.survives()).count();
-                    if run.judge.is_some() && survivors >= 2 {
-                        notes.push(Note::BeginJudging { run_id: run.id.clone(), comparisons: build_comparisons(&run.trials) });
+                    let judge_seats = run.judge.as_ref().map(|j| j.resolved_seats()).unwrap_or_default();
+                    if let Some(j) = run.judge.as_ref().filter(|_| !judge_seats.is_empty() && survivors >= 2) {
+                        if j.use_rank(survivors) {
+                            notes.push(Note::BeginRanking { run_id: run.id.clone(), rankings: build_rankings(&run.trials, &judge_seats) });
+                        } else {
+                            notes.push(Note::BeginJudging { run_id: run.id.clone(), comparisons: build_comparisons(&run.trials, &judge_seats) });
+                        }
                     } else {
-                        let (rec, note) = compute_recommendation(&run.trials, &[]);
+                        let (rec, note) = compute_recommendation(&run.trials, &[], &[]);
                         notes.push(Note::CompleteRun { run_id: run.id.clone(), recommended: rec, note, at: now });
                     }
                 }
             }
             RunStage::Judging => {
+                if !run.rankings.is_empty() {
+                    if run.rankings.iter().all(|r| r.done) {
+                        let (rec, note) = compute_recommendation(&run.trials, &run.comparisons, &run.rankings);
+                        notes.push(Note::CompleteRun { run_id: run.id.clone(), recommended: rec, note, at: now });
+                        continue;
+                    }
+                    // Run distinct judge accounts in parallel; serialize passes on the same account.
+                    let mut active_accounts: HashSet<&str> = HashSet::new();
+                    for (idx, rj) in run.rankings.iter().enumerate() {
+                        if rj.done {
+                            continue;
+                        }
+                        let rkey = format!("rank:{}:{idx}", run.id);
+                        if busy.contains(&rkey) {
+                            active_accounts.insert(rj.judge.account.as_str());
+                            continue;
+                        }
+                        if let (Some(key), Some(started)) = (rj.session_key.as_deref(), rj.started_at) {
+                            active_accounts.insert(rj.judge.account.as_str());
+                            if let Some(s) = find_session(board, key) {
+                                if turn_ended(s, started) {
+                                    jobs.push(Job::FinishRankJudge { run_id: run.id.clone(), rank_idx: idx });
+                                }
+                            }
+                        }
+                    }
+                    for (idx, rj) in run.rankings.iter().enumerate() {
+                        if rj.done || rj.session_key.is_some() {
+                            continue;
+                        }
+                        let rkey = format!("rank:{}:{idx}", run.id);
+                        if busy.contains(&rkey) || active_accounts.contains(rj.judge.account.as_str()) {
+                            continue;
+                        }
+                        jobs.push(Job::StartRankJudge { run_id: run.id.clone(), rank_idx: idx });
+                        active_accounts.insert(rj.judge.account.as_str());
+                    }
+                    continue;
+                }
+
                 if run.comparisons.iter().all(PairComparison::is_done) {
-                    let (rec, note) = compute_recommendation(&run.trials, &run.comparisons);
+                    let (rec, note) = compute_recommendation(&run.trials, &run.comparisons, &run.rankings);
                     notes.push(Note::CompleteRun { run_id: run.id.clone(), recommended: rec, note, at: now });
                     continue;
                 }
-                // Run at most one judge order at a time per run so judge accounts aren't contended.
-                let mut judge_active = false;
+                // Run distinct judge accounts in parallel; serialize orders on the same account.
+                let fallback_acct = run.judge.as_ref().map(|j| j.seat.account.as_str()).unwrap_or("");
+                let mut active_accounts: HashSet<&str> = HashSet::new();
                 for (idx, c) in run.comparisons.iter().enumerate() {
+                    let acct = c.judge.as_ref().map_or(fallback_acct, |s| s.account.as_str());
                     for (swapped, ord) in [(false, &c.forward), (true, &c.reversed)] {
                         if ord.done {
                             continue;
                         }
                         let jkey = format!("judge:{}:{idx}:{}", run.id, if swapped { "r" } else { "f" });
                         if busy.contains(&jkey) {
-                            judge_active = true;
+                            active_accounts.insert(acct);
                             continue;
                         }
                         if let (Some(key), Some(started)) = (ord.session_key.as_deref(), ord.started_at) {
-                            judge_active = true;
+                            active_accounts.insert(acct);
                             if let Some(s) = find_session(board, key) {
                                 if turn_ended(s, started) {
                                     jobs.push(Job::FinishJudge { run_id: run.id.clone(), pair_idx: idx, swapped });
                                 }
                             }
-                        } else if !judge_active {
-                            jobs.push(Job::StartJudge { run_id: run.id.clone(), pair_idx: idx, swapped });
-                            judge_active = true;
                         }
+                    }
+                }
+                for (idx, c) in run.comparisons.iter().enumerate() {
+                    let acct = c.judge.as_ref().map_or(fallback_acct, |s| s.account.as_str());
+                    for (swapped, ord) in [(false, &c.forward), (true, &c.reversed)] {
+                        if ord.done || ord.session_key.is_some() {
+                            continue;
+                        }
+                        let jkey = format!("judge:{}:{idx}:{}", run.id, if swapped { "r" } else { "f" });
+                        if busy.contains(&jkey) || active_accounts.contains(acct) {
+                            continue;
+                        }
+                        jobs.push(Job::StartJudge { run_id: run.id.clone(), pair_idx: idx, swapped });
+                        active_accounts.insert(acct);
                     }
                 }
             }
@@ -277,6 +341,13 @@ pub fn apply_notes(file: &mut StoreFile, notes: &[Note]) -> bool {
                 if let Some(r) = file.runs.iter_mut().find(|r| r.id == *run_id) {
                     r.stage = RunStage::Judging;
                     r.comparisons = comparisons.clone();
+                    changed = true;
+                }
+            }
+            Note::BeginRanking { run_id, rankings } => {
+                if let Some(r) = file.runs.iter_mut().find(|r| r.id == *run_id) {
+                    r.stage = RunStage::Judging;
+                    r.rankings = rankings.clone();
                     changed = true;
                 }
             }
@@ -370,6 +441,8 @@ fn run_job(engine: &Handle, cfg: &Config, job: &Job) {
         Job::RunGate { run_id, trial_id } => exec_run_gate(run_id, trial_id),
         Job::StartJudge { run_id, pair_idx, swapped } => exec_start_judge(engine, cfg, run_id, *pair_idx, *swapped),
         Job::FinishJudge { run_id, pair_idx, swapped } => exec_finish_judge(engine, cfg, run_id, *pair_idx, *swapped),
+        Job::StartRankJudge { run_id, rank_idx } => exec_start_rank_judge(engine, cfg, run_id, *rank_idx),
+        Job::FinishRankJudge { run_id, rank_idx } => exec_finish_rank_judge(engine, cfg, run_id, *rank_idx),
     };
     if let Err(e) = res {
         eprintln!("codealong: experiment job {:?} failed: {e:#}", job);
@@ -411,6 +484,21 @@ fn run_job(engine: &Handle, cfg: &Config, job: &Job) {
                         ord.error = Some(format!("{e:#}"));
                         ord.done = true;
                         c.resolve();
+                        return true;
+                    }
+                    false
+                });
+            }
+            Job::StartRankJudge { run_id, rank_idx } | Job::FinishRankJudge { run_id, rank_idx } => {
+                if let Ok(file) = super::load() {
+                    if let Some(id) = file.runs.iter().find(|r| r.id == *run_id).and_then(|r| r.rankings.get(*rank_idx)).map(|r| r.id.clone()) {
+                        let _ = std::fs::remove_dir_all(folder(run_id).join("judge").join(id).join("repo"));
+                    }
+                }
+                let _ = super::change(|f| {
+                    if let Some(rj) = f.runs.iter_mut().find(|r| r.id == *run_id).and_then(|r| r.rankings.get_mut(*rank_idx)) {
+                        rj.error = Some(format!("{e:#}"));
+                        rj.done = true;
                         return true;
                     }
                     false
@@ -728,8 +816,9 @@ fn exec_start_judge(engine: &Handle, cfg: &Config, run_id: &str, pair_idx: usize
     }
 
     let prompt = prompts::judge_prompt(has_gate, true, judge.rubric.as_deref());
+    let seat = cmp.judge.as_ref().unwrap_or(&judge.seat);
     let now = now_ms();
-    let key = match start_hosted_in_dir(engine, cfg, &dir, &judge.seat, &prompt, None) {
+    let key = match start_hosted_in_dir(engine, cfg, &dir, seat, &prompt, None) {
         Ok(key) => key,
         Err(e) => {
             let _ = std::fs::remove_dir_all(&repo_dir);
@@ -776,6 +865,108 @@ fn exec_finish_judge(engine: &Handle, cfg: &Config, run_id: &str, pair_idx: usiz
     })
 }
 
+fn candidate_labels(n: usize) -> Result<Vec<char>> {
+    if n == 0 || n > 26 {
+        bail!("All-at-once ranking supports between 1 and 26 candidates (got {n}).");
+    }
+    Ok((0..n).map(|i| (b'A' + i as u8) as char).collect())
+}
+
+fn exec_start_rank_judge(engine: &Handle, cfg: &Config, run_id: &str, rank_idx: usize) -> Result<()> {
+    let file = super::load()?;
+    let run = file.runs.iter().find(|r| r.id == run_id).ok_or_else(|| anyhow!("Run {run_id} not found."))?;
+    let judge_cfg = run.judge.as_ref().ok_or_else(|| anyhow!("Run {run_id} has no judge."))?;
+    let rj = run.rankings.get(rank_idx).ok_or_else(|| anyhow!("Rank judge {rank_idx} missing."))?;
+    let labels = candidate_labels(rj.order.len())?;
+
+    let dir = folder(run_id).join("judge").join(&rj.id);
+    std::fs::create_dir_all(&dir)?;
+    std::fs::write(dir.join("spec.md"), &run.prompt)?;
+    let has_gate = run.gate.is_some();
+    let mut gate_lines = String::new();
+    for (&label, tid) in labels.iter().zip(&rj.order) {
+        let trial = run.trials.iter().find(|t| t.id == *tid).ok_or_else(|| anyhow!("Trial {tid} missing."))?;
+        let raw = std::fs::read_to_string(folder(run_id).join(&trial.id).join("diff.patch")).unwrap_or_default();
+        std::fs::write(dir.join(format!("{label}.diff")), gitops::blind_diff(&raw, trial.worktree.as_deref()))?;
+        if has_gate {
+            gate_lines.push_str(&format!(
+                "Candidate {label} gate: {}\n",
+                if trial.gate_passed == Some(true) { "PASSED" } else { "FAILED" }
+            ));
+        }
+    }
+    if has_gate {
+        std::fs::write(dir.join("gate.txt"), gate_lines)?;
+    }
+    let repo_dir = dir.join("repo");
+    gitops::export_tree(Path::new(&run.main_worktree), &run.base_sha, &repo_dir)?;
+
+    let prompt = prompts::rank_judge_prompt(&labels, has_gate, true, judge_cfg.rubric.as_deref());
+    let now = now_ms();
+    let key = match start_hosted_in_dir(engine, cfg, &dir, &rj.judge, &prompt, None) {
+        Ok(key) => key,
+        Err(e) => {
+            let _ = std::fs::remove_dir_all(&repo_dir);
+            return Err(e);
+        }
+    };
+
+    super::change(|f| {
+        if let Some(slot) = f.runs.iter_mut().find(|r| r.id == run_id).and_then(|r| r.rankings.get_mut(rank_idx)) {
+            slot.session_key = Some(key);
+            slot.started_at = Some(now);
+            return true;
+        }
+        false
+    })
+}
+
+fn exec_finish_rank_judge(engine: &Handle, cfg: &Config, run_id: &str, rank_idx: usize) -> Result<()> {
+    let file = super::load()?;
+    let run = file.runs.iter().find(|r| r.id == run_id).ok_or_else(|| anyhow!("Run {run_id} not found."))?;
+    let rj = run.rankings.get(rank_idx).ok_or_else(|| anyhow!("Rank judge {rank_idx} missing."))?;
+    let key = rj.session_key.as_deref().ok_or_else(|| anyhow!("Rank judge session key missing."))?;
+    let started = rj.started_at.unwrap_or(0);
+    let labels = candidate_labels(rj.order.len())?;
+
+    let reply = read_reply(engine, cfg, key, started)?;
+    let parsed = prompts::parse_ranking(&reply, &labels);
+    let mapped: Vec<Vec<String>> = parsed
+        .unwrap_or_default()
+        .into_iter()
+        .map(|tier| {
+            tier.into_iter()
+                .filter_map(|ch| {
+                    let pos = labels.iter().position(|&l| l == ch)?;
+                    rj.order.get(pos).cloned()
+                })
+                .collect()
+        })
+        .filter(|tier: &Vec<String>| !tier.is_empty())
+        .collect();
+    let dir = folder(run_id).join("judge").join(&rj.id);
+    let _ = std::fs::write(dir.join("reply.md"), &reply);
+    mark_done(engine, key);
+    let _ = std::fs::remove_dir_all(dir.join("repo"));
+
+    let rationale = reply
+        .lines()
+        .rev()
+        .find(|l| !l.trim().is_empty() && !l.trim().to_ascii_lowercase().starts_with("ranking:"))
+        .map(|s| s.trim().to_string());
+    let parse_err = mapped.is_empty().then(|| "Judge reply did not end with a valid `Ranking:` line.".to_string());
+    super::change(|f| {
+        if let Some(slot) = f.runs.iter_mut().find(|r| r.id == run_id).and_then(|r| r.rankings.get_mut(rank_idx)) {
+            slot.ranking = mapped;
+            slot.rationale = rationale;
+            slot.error = parse_err;
+            slot.done = true;
+            return true;
+        }
+        false
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use std::path::PathBuf;
@@ -799,7 +990,7 @@ mod tests {
 
     fn sample_run(n: usize) -> Run {
         let arms: Vec<Arm> = (1..=n).map(|i| Arm { label: format!("arm-{i}"), worker: Seat { account: "claude".into(), ..Default::default() }, ..Default::default() }).collect();
-        super::super::make_run("bench".into(), "repo".into(), PathBuf::from("/r"), "abc1234".into(), "Fix bug".into(), arms, None, Some(JudgeCfg { seat: Seat { account: "codex".into(), ..Default::default() }, rubric: None }), 2)
+        super::super::make_run("bench".into(), "repo".into(), PathBuf::from("/r"), "abc1234".into(), "Fix bug".into(), arms, None, JudgeCfg::from_seats(vec![Seat { account: "codex".into(), ..Default::default() }], super::super::JudgeMode::Auto, None), 2)
     }
 
     #[test]
@@ -898,5 +1089,53 @@ mod tests {
         let (jobs, notes) = plan(&file.runs, &board_with(vec![]), &HashSet::new(), false, NOW + 10);
         assert!(jobs.is_empty());
         assert!(matches!(&notes[0], Note::CompleteRun { recommended: Some(id), .. } if id == "t1"));
+    }
+
+    #[test]
+    fn plan_runs_3_arm_panel_all_at_once_in_parallel_across_providers() {
+        let mut run = sample_run(3);
+        run.judge = JudgeCfg::from_seats(
+            vec![
+                Seat { account: "claude".into(), ..Default::default() },
+                Seat { account: "codex".into(), ..Default::default() },
+                Seat { account: "antigravity".into(), ..Default::default() },
+            ],
+            super::super::JudgeMode::Auto,
+            None,
+        );
+        for t in &mut run.trials {
+            t.stage = TrialStage::Ready;
+            t.diff_bytes = 250;
+            t.times = PhaseTimes { queued_at: NOW - 1000, finished_at: Some(NOW), ..Default::default() };
+        }
+        // Auto mode picks all-at-once ranking for 3 survivors.
+        let (_, notes) = plan(&[run.clone()], &board_with(vec![]), &HashSet::new(), false, NOW);
+        assert!(matches!(&notes[0], Note::BeginRanking { rankings, .. } if rankings.len() == 3));
+
+        let mut file = StoreFile { runs: vec![run] };
+        apply_notes(&mut file, &notes);
+        assert_eq!(file.runs[0].stage, RunStage::Judging);
+
+        // All 3 different-provider judges launch in parallel on one tick.
+        let (jobs, _) = plan(&file.runs, &board_with(vec![]), &HashSet::new(), false, NOW);
+        assert_eq!(
+            jobs,
+            vec![
+                Job::StartRankJudge { run_id: file.runs[0].id.clone(), rank_idx: 0 },
+                Job::StartRankJudge { run_id: file.runs[0].id.clone(), rank_idx: 1 },
+                Job::StartRankJudge { run_id: file.runs[0].id.clone(), rank_idx: 2 },
+            ]
+        );
+
+        // Once all 3 rank judges finish, CompleteRun recommends the Borda leader.
+        file.runs[0].rankings[0].ranking = vec![vec!["t2".into()], vec!["t1".into()], vec!["t3".into()]];
+        file.runs[0].rankings[1].ranking = vec![vec!["t2".into()], vec!["t3".into()], vec!["t1".into()]];
+        file.runs[0].rankings[2].ranking = vec![vec!["t1".into()], vec!["t2".into()], vec!["t3".into()]];
+        for r in &mut file.runs[0].rankings {
+            r.done = true;
+        }
+        let (jobs, notes) = plan(&file.runs, &board_with(vec![]), &HashSet::new(), false, NOW + 10);
+        assert!(jobs.is_empty());
+        assert!(matches!(&notes[0], Note::CompleteRun { recommended: Some(id), .. } if id == "t2"));
     }
 }
