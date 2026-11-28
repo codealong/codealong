@@ -16,6 +16,7 @@ mod cache;
 mod draw;
 mod kept_mode;
 mod processes;
+mod records;
 mod rename;
 mod side;
 
@@ -304,7 +305,7 @@ pub fn read_conversations(folder: &Folder, since_ms: i64, keep: &HashSet<String>
     read_conversations_in(folder, since_ms, keep, false)
 }
 
-fn read_conversations_in(folder: &Folder, since_ms: i64, keep: &HashSet<String>, nested: bool) -> Vec<Conversation> {
+pub(super) fn read_conversations_in(folder: &Folder, since_ms: i64, keep: &HashSet<String>, nested: bool) -> Vec<Conversation> {
     let Some(db) = crate::harness::open_database(&folder.path.join(SUMMARIES)) else { return Vec::new() };
     let mut rows = read_from_in(&db, &file_name(&folder.path), since_ms, keep, nested).unwrap_or_default();
     for c in &mut rows {
@@ -1684,22 +1685,19 @@ pub struct Reader {
     looked_at: Option<Instant>,
     /// The commands conversations' turns left running in the background (`watch_background`).
     background: procs::LeftRunning,
-}
-
-struct Reread {
-    added: bool,
-    changed: bool,
+    /// Transcript paths (including subagents) and their last-read byte offsets (`records.rs`).
+    log_tracker: records::LogTracker,
 }
 
 impl Reader {
     /// Reads an account's summary tables again, and for the conversations that changed or that
     /// a process has open, the end of their records. Reports whether a new conversation appeared
     /// and whether the account's conversations or processes changed at all.
-    fn reread(&mut self, a: &AccountCfg, look: &Look) -> Reread {
+    fn reread(&mut self, a: &AccountCfg, look: &Look) -> Applied {
         self.reread_at(a, look, SystemTime::now())
     }
 
-    fn reread_at(&mut self, a: &AccountCfg, look: &Look, now_sys: SystemTime) -> Reread {
+    fn reread_at(&mut self, a: &AccountCfg, look: &Look, now_sys: SystemTime) -> Applied {
         let dirs = folders(&a.home_path());
         // A change in the command line's folder is often a process that came or went, which the
         // processes the engine last listed may show (`Look::ps`: as of its last tick).
@@ -1714,7 +1712,8 @@ impl Reader {
         keep.extend(self.processes.iter().filter_map(|p| p.conversation.clone()));
         let prev = self.conversations.remove(&a.name).unwrap_or_default();
         let before: HashMap<&str, &Conversation> = prev.iter().map(|c| (c.id.as_str(), c)).collect();
-        let mut rows = once_each(dirs.iter().flat_map(|f| read_conversations(f, look.since, &keep)).collect(), |c| keeps_record(&c.dir, &c.id));
+        let (all_top, nested) = records::read_split(&dirs, look.since, &keep);
+        let mut rows = once_each(all_top, |c| keeps_record(&c.dir, &c.id));
         rows.retain(|c| !side::is_hidden(&c.id));
         let listed: HashSet<String> = rows.iter().map(|c| c.id.clone()).collect();
         rows.extend(self.processes.iter().filter(|p| p.conversation.as_ref().is_some_and(|id| !listed.contains(id))).filter_map(|p| started(&dirs, p)));
@@ -1777,11 +1776,12 @@ impl Reader {
             // An idle row after Escape is the UI's own, whatever its time and count.
             c.idled_by_another = held && idled_by_another(before.get(c.id.as_str()).copied(), c) && !c.said.stopped_last();
         }
-        let changed = procs_changed || prev != rows;
+        let (lines, found) = self.log_tracker.record_and_prune(&a.name, &rows, &nested, &self.conversations);
+        let dirty = procs_changed || prev != rows;
         self.conversations.insert(a.name.clone(), rows);
         let live_keys: HashSet<(PathBuf, String)> = self.conversations.values().flatten().map(|c| (c.dir.clone(), c.id.clone())).collect();
         self.cache.retain_keys(&live_keys);
-        Reread { added, changed }
+        Applied { dirty, added, lines, found }
     }
 
     /// Looks at the processes again, and finds the log of each that has a conversation open.
@@ -1819,6 +1819,7 @@ impl crate::harness::Reader for Reader {
     fn scan(&mut self, accounts: &[AccountCfg], look: &Look) {
         self.conversations.clear();
         self.cache.clear();
+        self.log_tracker.clear();
         if !accounts.is_empty() {
             self.look_at_processes(look);
         }
@@ -1841,8 +1842,7 @@ impl crate::harness::Reader for Reader {
         if !paths.iter().any(|p| file_name(p).contains(".db") && dirs.iter().any(|f| p.parent() == Some(f.path.as_path()))) {
             return Applied::default();
         }
-        let r = self.reread(account, look);
-        Applied { dirty: r.changed, added: r.added, ..Applied::default() }
+        self.reread(account, look)
     }
 
     /// Keeps the list of models a start can ask for at hand (`models`).
@@ -1860,7 +1860,7 @@ impl crate::harness::Reader for Reader {
         if !accounts.is_empty() && self.look_at_processes(look) {
             out.dirty = true;
             for a in accounts {
-                out.added |= self.reread(a, look).added;
+                out.and(self.reread(a, look));
             }
         }
         self.watch_background(look);
@@ -1881,14 +1881,14 @@ impl crate::harness::Reader for Reader {
                 changed |= told.iter().any(|log| log.starts_with(&f.path));
             }
             let held = |c: &&Conversation| self.processes.iter().any(|p| p.conversation.as_deref() == Some(c.id.as_str()));
-            let under_way: Vec<PathBuf> = self.conversations.get(&a.name).into_iter().flatten().filter(|c| c.running() || held(c)).map(|c| c.dir.join("conversations").join(format!("{}.db", c.id))).collect();
-            for db in under_way {
+            let active: Vec<&Conversation> = self.conversations.get(&a.name).into_iter().flatten().filter(|c| c.running() || held(c)).collect();
+            changed |= self.log_tracker.changed_for(&a.name, &active);
+            for c in &active {
+                let db = c.dir.join("conversations").join(format!("{}.db", c.id));
                 changed |= self.marks.changed(&db.to_string_lossy(), &db);
             }
             if changed {
-                let r = self.reread(a, look);
-                out.added |= r.added;
-                out.dirty |= r.changed;
+                out.and(self.reread(a, look));
             }
         }
         out
@@ -1910,6 +1910,10 @@ impl crate::harness::Reader for Reader {
 
     fn cwds(&self) -> Vec<String> {
         self.conversations.values().flatten().filter_map(|c| c.cwd.clone()).collect()
+    }
+
+    fn logs(&self) -> Vec<(PathBuf, String)> {
+        self.log_tracker.logs(&self.conversations)
     }
 }
 
@@ -2459,6 +2463,26 @@ impl crate::harness::Adapter for Antigravity {
 
     fn rename(&self, ctx: &Ctx, s: &Session, name: &str) -> anyhow::Result<Vec<PathBuf>> {
         rename::rename(&folder_of(ctx.account, s), &s.id, &s.title, name)
+    }
+
+    fn output_marks(&self) -> &'static [&'static str] {
+        records::OUTPUT_MARKS
+    }
+
+    fn folder_marks(&self) -> &'static [&'static str] {
+        records::FOLDER_MARKS
+    }
+
+    fn pr_needles(&self) -> &'static [&'static str] {
+        records::PR_NEEDLES
+    }
+
+    fn pr_made(&self, line: &str) -> Option<(String, i64)> {
+        records::pr_made(line)
+    }
+
+    fn pushed(&self, line: &str) -> Option<(String, i64)> {
+        records::pushed(line)
     }
 
     fn reader(&self, _wake: crate::harness::Wake) -> Box<dyn crate::harness::Reader> {
@@ -4120,7 +4144,7 @@ mod tests {
         // First read after files have settled populates the cache.
         let settled = SystemTime::now() + cache::SETTLE_AGE + Duration::from_secs(5);
         let r1 = reader.reread_at(&account, &look, settled);
-        assert!(r1.added && r1.changed);
+        assert!(r1.added && r1.dirty);
         assert_eq!((reader.cache.transcript_hits, reader.cache.db_hits), (0, 0));
         let c = &reader.conversations.get(&account.name).unwrap()[0];
         assert_eq!(c.tail.last_text.as_deref(), Some("hello"));
@@ -4129,7 +4153,7 @@ mod tests {
 
         // Second reread with nothing changed hits both caches and reports unchanged (`dirty = false`).
         let r2 = reader.reread_at(&account, &look, settled);
-        assert!(!r2.added && !r2.changed);
+        assert!(!r2.added && !r2.dirty);
         assert_eq!((reader.cache.transcript_hits, reader.cache.db_hits), (1, 1));
 
         // Writing a new waiting step invalidates the DB cache and reports changed (`dirty = true`).
@@ -4137,7 +4161,7 @@ mod tests {
         conv_db.execute("INSERT INTO steps VALUES (2, 20, ?1, ?2)", rusqlite::params![STEP_WAITING, ts(1_700_000_009)]).unwrap();
         drop(conv_db);
         let r3 = reader.reread_at(&account, &look, SystemTime::now());
-        assert!(!r3.added && r3.changed);
+        assert!(!r3.added && r3.dirty);
         let c = &reader.conversations.get(&account.name).unwrap()[0];
         assert!(c.waiting && c.step_under_way && !c.turn_ended);
         assert_eq!(reader.cache.db_hits, 1, "modified DB was re-read rather than served from cache");
@@ -4146,11 +4170,11 @@ mod tests {
         let backup = dir.join("conversations/c1.db.bak");
         std::fs::rename(&conv_db_path, &backup).unwrap();
         let r4 = reader.reread_at(&account, &look, settled);
-        assert!(r4.changed);
+        assert!(r4.dirty);
         assert!(reader.conversations.get(&account.name).unwrap()[0].read_again);
         std::fs::rename(&backup, &conv_db_path).unwrap();
         let r5 = reader.reread_at(&account, &look, settled);
-        assert!(r5.changed);
+        assert!(r5.dirty);
         assert!(reader.conversations.get(&account.name).unwrap()[0].waiting);
         assert_eq!(reader.cache.db_hits, 1, "behind read was not cached");
     }

@@ -119,7 +119,11 @@ runs on this Mac (2026-10-01). Paths are under `src-tauri/src/`.
   `media` array (`{mime_type, uri}`), read by `user_media` into `Item::images` so `transcript::shown`
   keeps and renders them in place.
 - Tool arguments (`toolAction`, `toolSummary`, `CommandLine`, `Cwd`, `AbsolutePath`,
-  `TargetFile`): `antigravity.rs` (`call`).
+  `TargetFile`): `antigravity.rs` (`call`). `run_command` runs in a PTY and writes its result in a
+  separate `GENERIC` line (or `SYSTEM_MESSAGE` on background task completion) under
+  `Command exited with code …` / `Command output:` (older `agy`: `The command exited with code …` /
+  `Output:`), which `antigravity/records.rs` parses for `gh pr create` PR marks and `git push`
+  branch pushes alongside `Reader::logs()` and incremental `Applied::lines` / `Applied::found`.
 - `agy` opens its terminal UI: `-i <prompt>`, `--conversation <id>`, `--model` with what `agy
   models` lists, and `--add-dir` are in `antigravity.rs` (`Antigravity::start_in_terminal`,
   `Antigravity::resume`, `models`, `listed_models`, `cli_args`). `agy models` asks Google and

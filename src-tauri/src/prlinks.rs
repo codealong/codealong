@@ -314,18 +314,21 @@ mod tests {
         let codex = r#"{"timestamp":"1970-01-01T00:00:02.000Z","type":"event_msg","payload":{"type":"item_completed","item":{"type":"CommandExecution","command":["/bin/zsh","-c","gh pr create --draft --title x"],"stdout":"Warning: 1 uncommitted change\nhttps://github.com/o/infra/pull/59\n"}}}"#;
         let codex_view = r#"{"type":"event_msg","payload":{"type":"item_completed","item":{"type":"CommandExecution","command":["/bin/zsh","-c","gh pr view 58 --json url"],"stdout":"https://github.com/o/infra/pull/58\n"}}}"#;
         let attach = r#"{"type":"event_msg","payload":{"type":"item_completed","item":{"type":"McpToolCall","server":"codex_app","tool":"attach_artifact","arguments":{"artifact_type":"pull_request","url":"https://github.com/o/infra/pull/60"}}}}"#;
+        let antigravity = r#"{"type":"GENERIC","created_at":"1970-01-01T00:00:04Z","content":"Created At: 2026-11-27T15:25:49-08:00\nCommand exited with code 0.\n\nCommand output:\nCreating pull request for feat into main in o/app\r\n\r\r⣾\rhttps://github.com/o/app/pull/61\r\n"}"#;
         let asked = r#"{"type":"event_msg","payload":{"type":"item_completed","item":{"type":"UserMessage","content":[{"type":"text","text":"run gh pr create, CommandExecution"}]}}}"#;
-        let text = [claude, push, codex, codex_view, attach, asked, linked].join("\n");
-        assert_eq!(pr_marks(&text), vec![("sprucehq/spark#1057".to_string(), 1000), ("o/infra#59".to_string(), 2000), ("o/infra#60".to_string(), 0), ("acme/halyard-api#83".to_string(), 3000)]);
+        let text = [claude, push, codex, codex_view, attach, antigravity, asked, linked].join("\n");
+        assert_eq!(pr_marks(&text), vec![("sprucehq/spark#1057".to_string(), 1000), ("o/infra#59".to_string(), 2000), ("o/infra#60".to_string(), 0), ("o/app#61".to_string(), 4000), ("acme/halyard-api#83".to_string(), 3000)]);
     }
 
     #[test]
     fn finds_the_branches_a_session_pushed_to() {
         // `git push origin local-tiers:feature`: the remote's branch.
         let push = r#"{"type":"user","timestamp":"1970-01-01T00:00:04.000Z","toolUseResult":{"stdout":"   5f94b35..f87a4f1  local-tiers -> feature","gitOperation":{"push":{"branch":"feature"}}}}"#;
+        let agy_push = r#"{"type":"GENERIC","created_at":"1970-01-01T00:00:05Z","content":"Created At: 2026-11-27T15:25:49-08:00\nCommand exited with code 0.\n\nCommand output:\nTo github.com:o/r.git\r\n * [new branch]        local -> fix-readme\r\n"}"#;
         let edit = r#"{"type":"user","timestamp":"1970-01-01T00:00:01.000Z","toolUseResult":{"gitOperation":{"pr":{"number":3,"url":"https://github.com/o/r/pull/3","action":"edited"}}}}"#;
         let said = r#"{"type":"user","toolUseResult":{"stdout":"{\"gitOperation\":{\"push\":{\"branch\":\"other\"}}}"}}"#;
         assert_eq!(line_push(push), Some(("feature".to_string(), 4000)));
+        assert_eq!(line_push(agy_push), Some(("fix-readme".to_string(), 5000)));
         assert_eq!(line_push(edit), None);
         assert_eq!(line_push(said), None, "a command's output that only prints a push");
         // Once each: a log read again doesn't count its pushes twice.
@@ -341,8 +344,21 @@ mod tests {
     fn decodes_only_lines_with_a_harnesss_mark() {
         let mut needles: Vec<&str> = needles().collect();
         needles.sort();
-        assert_eq!(needles, ["\"attach_artifact\"", "\"gitOperation\"", "\"pr-link\"", "gh pr create"]);
-
+        assert_eq!(
+            needles,
+            [
+                "\"attach_artifact\"",
+                "\"gitOperation\"",
+                "\"pr-link\"",
+                "Creating draft pull request for ",
+                "Creating pull request for ",
+                "To git@",
+                "To github.com:",
+                "To https://",
+                "To ssh://",
+                "gh pr create",
+            ]
+        );
     }
 
     #[test]
