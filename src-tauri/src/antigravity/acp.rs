@@ -3,17 +3,48 @@
 //! Kept beside `antigravity.rs` so the main adapter stays within its file-length budget.
 
 use std::path::Path;
+use std::time::{Duration, SystemTime};
 
 use serde_json::Value;
 
 use crate::config::AccountCfg;
 
+/// How long a worker's log stays after its last line. Each session's worker writes a log of its
+/// own, `<log-file>.<pid>`, which nothing else removes: 196 of them in five days here
+/// (2026-11-28).
+const WORKER_LOGS_KEPT: Duration = Duration::from_secs(7 * 24 * 60 * 60);
+
 /// `agy acp` is built in; `--process-per-session` gives each session its own worker process so
 /// workspace roots, rules and `.agents/hooks.json` don't bleed across sessions, and its log goes
-/// into Codealong's logs folder rather than `~/.gemini/antigravity-cli/log`.
+/// into Codealong's logs folder rather than `~/.gemini/antigravity-cli/log`. Its workers' logs
+/// from more than a week ago go as it starts.
 pub(super) fn command(account: &AccountCfg) -> std::result::Result<(String, Vec<(String, String)>), String> {
     let log = crate::config::logs_dir().join(format!("agy-acp-{}.log", account.name));
+    // Tests run in your home: the command they build leaves your logs alone.
+    if !cfg!(test) {
+        prune_worker_logs(&log, SystemTime::now());
+    }
     Ok((format!("{} acp --process-per-session --log-file {}", super::cli_command(account), crate::util::sh_quote(&log.to_string_lossy())), Vec::new()))
+}
+
+/// Removes the workers' logs beside `log` (`<log>.<pid>`) that nothing has written to for
+/// `WORKER_LOGS_KEPT`. The front's own log, and any other file, stay.
+fn prune_worker_logs(log: &Path, now: SystemTime) {
+    let (Some(dir), Some(name)) = (log.parent(), log.file_name().and_then(|n| n.to_str())) else { return };
+    let Ok(entries) = std::fs::read_dir(dir) else { return };
+    let prefix = format!("{name}.");
+    for entry in entries.flatten() {
+        let file = entry.file_name();
+        let Some(pid) = file.to_str().and_then(|f| f.strip_prefix(&prefix)) else { continue };
+        if pid.is_empty() || !pid.bytes().all(|b| b.is_ascii_digit()) {
+            continue;
+        }
+        let stale = entry.metadata().and_then(|m| m.modified()).is_ok_and(|at| now.duration_since(at).is_ok_and(|age| age > WORKER_LOGS_KEPT));
+        if stale {
+            // One that can't be removed is tried again at the next start: it's only a log.
+            let _ = std::fs::remove_file(entry.path());
+        }
+    }
 }
 
 /// The command line's `settings.json`, when there's one that reads.
@@ -54,6 +85,31 @@ pub(super) fn start_mode(home: &Path) -> Option<String> {
 mod tests {
     use super::super::{Antigravity, APP_DIR, CLI_DIR};
     use crate::harness::Adapter;
+
+    /// Each session's worker leaves a log beside the front's; those a week old go as `agy acp`
+    /// starts, and the front's own log, newer workers' and other files stay.
+    #[test]
+    fn worker_logs_from_more_than_a_week_ago_are_removed() {
+        use std::time::{Duration, SystemTime};
+        let dir = crate::fixtures::scratch("agy-acp-worker-logs");
+        let log = dir.join("agy-acp-antigravity.log");
+        let names = ["agy-acp-antigravity.log", "agy-acp-antigravity.log.111", "agy-acp-antigravity.log.222", "agy-acp-antigravity.log.old", "agy-acp-other.log.333", "acp-claude.log"];
+        for name in names {
+            std::fs::write(dir.join(name), "I1128 08:00:00.000000 1 router.go:352] front: session/prompt\n").unwrap();
+        }
+        // Every file was written just now: a week and a day on, all but the worker 222 wrote in
+        // the meantime are old.
+        let later = SystemTime::now() + Duration::from_secs(8 * 24 * 60 * 60);
+        let recent = std::fs::File::options().append(true).open(dir.join("agy-acp-antigravity.log.222")).unwrap();
+        recent.set_modified(later - Duration::from_secs(60)).unwrap();
+        super::prune_worker_logs(&log, later);
+        let mut left: Vec<String> = std::fs::read_dir(&dir).unwrap().map(|e| e.unwrap().file_name().to_string_lossy().into_owned()).collect();
+        left.sort();
+        assert_eq!(left, ["acp-claude.log", "agy-acp-antigravity.log", "agy-acp-antigravity.log.222", "agy-acp-antigravity.log.old", "agy-acp-other.log.333"]);
+        // Today, none of what's left is a week old.
+        super::prune_worker_logs(&log, SystemTime::now());
+        assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 5);
+    }
 
     #[test]
     fn acp_auto_allows_matches_terminal_always_proceed_in_default_mode() {

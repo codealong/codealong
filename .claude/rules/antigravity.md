@@ -306,7 +306,8 @@ runs on this Mac (2026-10-01). Paths are under `src-tauri/src/`.
   additionalDirectories}` (no `fork`). Without `--process-per-session`, one server process
   accumulates workspace roots across sessions, leaking one repo's `AGENTS.md` and
   `.agents/hooks.json` into another session's turns; with `--process-per-session`, the front
-  process spawns one `agy acp --worker` per session (each writing `<log-file>.<pid>`, and exiting
+  process spawns one `agy acp --worker` per session (each writing `<log-file>.<pid>`, which `agy`
+  never removes, so Codealong removes those a week old as it starts `agy acp`, and exiting
   on `session/close` and when the front's stdin closes). It writes the usual `antigravity-cli`
   records (`conversation_summaries.db` once a prompt runs, `conversations/<id>.db`,
   `brain/<id>/.system_generated/logs/transcript_full.jsonl`), holds no `presence/<id>.lock`, and
