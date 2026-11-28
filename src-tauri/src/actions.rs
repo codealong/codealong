@@ -1614,40 +1614,14 @@ fn handoff_session(engine: &Handle, c: &Call) -> Result<Value, String> {
 }
 
 /// The copy a session moved into takes its place: the todos it was on, as their primary session
-/// where it was theirs, its labels, its place among the pinned sessions, and the schedules whose
-/// runs went to it. The session itself is archived. Resumes that go on as a copy (schedules, PR
-/// nudges, agent wakes, send resumes, automatic reviews) hand over the same way. The board is read
-/// now, not before the move or resume, which takes seconds: a pin or a todo changed meanwhile isn't
-/// undone.
+/// where it was theirs, its labels, pin slot, quiet/own/talking/snooze marks, side conversations,
+/// Kanban/Canvas cards, held outbox messages, terminals, and schedules. The session itself is
+/// archived. Resumes that go on as a copy (schedules, PR nudges, agent wakes, send resumes,
+/// automatic reviews) hand over the same way through `Handle::hand_over` (`engine/handover.rs`).
 pub(crate) fn hand_over(engine: &Handle, key: &str, copy: &str) {
-    let board = engine.board();
-    for t in board.todos.iter().filter(|t| t.sessions.iter().any(|s| s == key)) {
-        // The session stays on it too, as one that worked on it.
-        let link = match t.primary.as_ref().is_some_and(|p| p.session == key) {
-            true => crate::todos::TodoOp::Primary { id: t.id.clone(), session: Some(copy.to_string()) },
-            false => crate::todos::TodoOp::Link { id: t.id.clone(), worktree: None, session: Some(copy.to_string()), linked: true },
-        };
-        if let Err(e) = engine.todo(link) {
-            eprintln!("Moved {key}, but couldn't put {copy} on todo {}: {e}", t.id);
-        }
+    if let Err(e) = engine.hand_over(key, copy) {
+        eprintln!("Moved {key}, but couldn't hand it over to {copy}: {e:#}");
     }
-    labels_follow(engine, &board, key, copy);
-    // Before it's archived, which unpins it and closes its terminals: those go with the copy.
-    if board.pinned.iter().any(|k| k == key) {
-        engine.set_pinned(board.pinned.iter().map(|k| if k == key { copy.to_string() } else { k.clone() }).collect());
-    }
-    crate::terminals::follow(key, copy);
-    // Before it's archived too, which would end a thread kept on it (runner.rs `target`).
-    #[cfg(test)]
-    let touch_schedules = !engine.is_in_memory();
-    #[cfg(not(test))]
-    let touch_schedules = true;
-    if touch_schedules {
-        if let Err(e) = crate::schedules::runner::copy_takes_place(&board, key, copy) {
-            eprintln!("Moved {key}, but couldn't send its schedules' runs to {copy}: {e:#}");
-        }
-    }
-    archive_moved(engine, key);
 }
 
 pub(crate) fn archive_moved(engine: &Handle, key: &str) {

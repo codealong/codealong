@@ -706,6 +706,12 @@ impl Floating {
         let hosted = board.lanes.iter().flat_map(|l| &l.sessions).filter(|s| s.hosted && s.live).count();
         menubar::publish(app, &feed, hosted);
         bar::publish(app, feed);
+        for s in board.lanes.iter().flat_map(|l| &l.sessions).filter(|s| s.visitor.is_none()) {
+            if let Some(copy) = s.moved_to.as_deref().filter(|copy| board.session(copy).is_some()) {
+                desktop::follow(app, &s.key, copy);
+                kept::follow(app, &s.key, copy);
+            }
+        }
         desktop::publish(app, shown);
         lineage::publish(app, shown);
     }

@@ -8,6 +8,7 @@
 // the cards at their sides: the sides that face each other when there's room between them, else
 // both on one side, bowing out past the cards.
 
+import { shortOf } from './devices';
 import { sideTitle, type Placed } from './lanes';
 import type { Board, Session, SessionOrigin, SideGlance, Starting } from './types';
 
@@ -208,27 +209,18 @@ export function cameOf<T extends { session: Session }>(key: string, sessions: It
   return out;
 }
 
-/** For every session on the board that moved to another account (a fork onto a different account),
- *  maps its key to the latest destination copy still on the board, following any chain of moves.
- *  Copies of the same source share its first transcript timestamp once closed, so ties break by
- *  unarchived, live, lastActivity, then start time. */
+/** For every session on the board that the engine marked moved (`Session.movedTo`), maps its key
+ *  to the destination copy still on the board, following any chain of `movedTo` links. Kept
+ *  handoffs (`keep: true`) have no `movedTo` from the engine and are not included. */
 export function movedTargets(homes: Map<string, Placed>): Map<string, Placed> {
-  const started = (s: Session) => s.startedAt ?? s.lastPromptAt;
-  const better = (a: Session, b: Session): boolean => {
-    if (a.archived !== b.archived) return !a.archived;
-    if (a.live !== b.live) return a.live;
-    if (a.lastActivity !== b.lastActivity) return a.lastActivity > b.lastActivity;
-    if (started(a) !== started(b)) return started(a) > started(b);
-    return a.key > b.key;
-  };
   const direct = new Map<string, Placed>();
   for (const p of homes.values()) {
-    const origin = p.session.origin;
-    if (!origin || p.session.headless) continue;
-    const from = homes.get(origin.key);
-    if (!from || kinHow(origin.how, from.session, p.session) !== 'moved') continue;
-    const prev = direct.get(origin.key);
-    if (!prev || better(p.session, prev.session)) direct.set(origin.key, p);
+    if (p.session.headless || !p.session.movedTo) continue;
+    const away = shortOf(p.session.key);
+    const raw = p.session.movedTo;
+    const full = raw.startsWith('@') ? raw : away ? `@${away}:${raw}` : raw;
+    const target = homes.get(full);
+    if (target && target.session.key !== p.session.key) direct.set(p.session.key, target);
   }
   const out = new Map<string, Placed>();
   for (const [key, first] of direct) {

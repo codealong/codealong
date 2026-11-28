@@ -86,41 +86,19 @@ impl Engine {
 
     /// Completes ownership handover once an async-ID move's target session appears on the board.
     fn finish_pending_handover(&mut self, board: &Board, lanes: &todos::LaneIndex, h: &origins::ResolvedHandover) {
-        let mut todos_changed = false;
-        let matching: Vec<(String, bool)> = self
-            .todos
-            .todos
-            .iter()
-            .filter(|t| t.sessions.iter().any(|s| s == &h.from))
-            .map(|t| (t.id.clone(), t.primary.as_ref().is_some_and(|p| p.session == h.from)))
-            .collect();
-        for (id, is_primary) in matching {
-            let op = if is_primary {
-                todos::TodoOp::Primary { id, session: Some(h.copy.clone()) }
-            } else {
-                todos::TodoOp::Link { id, worktree: None, session: Some(h.copy.clone()), linked: true }
-            };
-            if self.todos.apply(op, lanes, now_ms()).unwrap_or(false) {
-                todos_changed = true;
-            }
-        }
-        if todos_changed {
-            self.save_todos();
-        }
-        let mut state_changed = false;
-        let label_ids: Vec<String> = self.seen.labels_of(&h.from).to_vec();
-        if !label_ids.is_empty() {
-            state_changed |= self.seen.label(&h.copy, &label_ids, &[]);
-        }
-        if h.was_pinned {
-            state_changed |= self.seen.pin(&h.copy, true);
-        }
-        if state_changed {
-            self.save_state();
-        }
-        crate::terminals::follow(&h.from, &h.copy);
-        if let Err(e) = crate::schedules::runner::copy_takes_place(board, &h.from, &h.copy) {
-            eprintln!("Moved {}, but couldn't send its schedules' runs to {}: {e:#}", h.from, h.copy);
+        self.hand_over_session(board, lanes, &h.from, &h.copy, h.was_pinned, true);
+        #[cfg(not(test))]
+        {
+            let tx = self.tx.clone();
+            let from = h.from.clone();
+            std::thread::spawn(move || match handle::archive_in_harness(&from, true) {
+                Ok(None) => {
+                    let (rtx, _rrx) = channel();
+                    let _ = tx.send(Msg::SetArchived(vec![from], true, HashSet::new(), rtx));
+                }
+                Ok(Some(_)) => {}
+                Err(e) => eprintln!("Moved {from}, but couldn't archive it in its harness: {e:#}"),
+            });
         }
     }
 

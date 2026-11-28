@@ -63,9 +63,34 @@ pub struct Store {
     pub kept: std::collections::BTreeSet<String>,
     /// Pending handoffs whose target harness picks its own session ID (keyed by `Pending::at`):
     /// once `resolve` matches the new session, either marks it kept or returns a `ResolvedHandover`
-    /// so the engine transfers todos, labels, pins and schedules from `from` to the new session.
+    /// so the engine transfers ownership from `from` to the new session.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub handovers: BTreeMap<i64, PendingHandover>,
+    /// Ordered leg chains of moved sessions (borrowed from Orca's `providerHandleChain` / T3
+    /// Code's `ProviderThread`): each chain's last leg is the active head, move-backs (`A → B → A`)
+    /// append cleanly without cycles, same-account moves are represented directly, and an expired
+    /// intermediate leg never breaks resolution to a live tail leg.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub chains: Vec<MoveChain>,
+}
+
+/// One leg in a session's move chain: a session key that carried the conversation, with when it
+/// took over and the source's last activity watermark when the conversation moved off it.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct MoveLeg {
+    pub key: String,
+    pub at: i64,
+    /// Source session `last_activity` (ms) at the moment the conversation left this leg.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub seen_through: Option<i64>,
+}
+
+/// Ordered legs of one logical conversation moved across accounts, harnesses, or worktrees.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct MoveChain {
+    pub legs: Vec<MoveLeg>,
 }
 
 /// Extra state carried by a pending cross-provider handoff while waiting for its session ID.
@@ -76,6 +101,9 @@ pub struct PendingHandover {
     pub keep: bool,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub was_pinned: bool,
+    /// Source session `last_activity` (ms) when the handoff began.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub seen_through: Option<i64>,
 }
 
 /// A pending move that just matched its target session, for the engine to finish handing over
@@ -224,12 +252,91 @@ impl Store {
         e.how == OriginHow::Fork && !self.kept.contains(key) && is_move(&e.from, key)
     }
 
-    /// The session `key` moved to (start.rs `move_to`, handoff.rs): a move of it into another
-    /// account or harness that `exists` says is still there, followed on where that one moved too.
-    /// A copy closed before it was sent anything is still there, made again when it's next sent
-    /// something (`claude::Reader::closed_copies`); one whose conversation is gone from this Mac
-    /// isn't, and the session stays where it was.
+    /// Records a destructive move `from -> to` in the explicit ordered leg chain (`chains`),
+    /// stamping `seen_through` on the outgoing leg. Works for cross-account, cross-provider,
+    /// same-account worktree/resume copies, and move-backs (`A -> B -> A`) without creating cycles.
+    pub fn record_move(&mut self, from: &str, to: &str, at: i64, seen_through: Option<i64>) -> bool {
+        if from.is_empty() || to.is_empty() || from == to {
+            return false;
+        }
+        // Idempotent when the latest chain already ends with `from -> to`.
+        if let Some(chain) = self.chains.iter_mut().rev().find(|c| {
+            c.legs.len() >= 2 && c.legs[c.legs.len() - 2].key == from && c.legs[c.legs.len() - 1].key == to
+        }) {
+            let prev_idx = chain.legs.len() - 2;
+            let prev = &mut chain.legs[prev_idx];
+            if prev.seen_through.is_none() && seen_through.is_some() {
+                prev.seen_through = seen_through;
+                return true;
+            }
+            return false;
+        }
+        if let Some(chain) = self.chains.iter_mut().rev().find(|c| c.legs.last().is_some_and(|l| l.key == from)) {
+            if let Some(last) = chain.legs.last_mut() {
+                if seen_through.is_some() {
+                    last.seen_through = seen_through;
+                }
+            }
+            chain.legs.push(MoveLeg { key: to.to_string(), at, seen_through: None });
+        } else {
+            self.chains.push(MoveChain {
+                legs: vec![
+                    MoveLeg { key: from.to_string(), at, seen_through },
+                    MoveLeg { key: to.to_string(), at, seen_through: None },
+                ],
+            });
+        }
+        true
+    }
+
+    /// The latest explicit move chain containing `key` (by its active head's timestamp).
+    fn latest_chain_for(&self, key: &str) -> Option<&MoveChain> {
+        self.chains
+            .iter()
+            .filter(|c| c.legs.iter().any(|l| l.key == key))
+            .max_by_key(|c| c.legs.last().map_or(0, |l| l.at))
+    }
+
+    /// Most recent prior leg on `account` in `key`'s move chain that still satisfies `exists`
+    /// (with its `seen_through` watermark), for returning to an earlier provider/account leg.
+    #[cfg(test)]
+    pub fn prior_leg_for_account(&self, key: &str, account: &str, exists: impl Fn(&str) -> bool) -> Option<&MoveLeg> {
+        let chain = self.latest_chain_for(key)?;
+        let idx = chain.legs.iter().rposition(|l| l.key == key)?;
+        chain.legs[..idx]
+            .iter()
+            .rev()
+            .find(|l| l.key != key && l.key.split(':').nth(1) == Some(account) && exists(&l.key))
+    }
+
+    /// Resolves `key` through explicit `chains` when `key` belongs to one: `Some(Some(dest))` when
+    /// a later live leg exists, `Some(None)` when `key` is already the active head (or no later
+    /// leg exists), and `None` when `key` isn't in any explicit chain.
+    fn chain_moved_to(&self, key: &str, exists: &impl Fn(&str) -> bool) -> Option<Option<String>> {
+        let chain = self.latest_chain_for(key)?;
+        let idx = chain.legs.iter().rposition(|l| l.key == key)?;
+        let dest = chain.legs[idx + 1..]
+            .iter()
+            .rev()
+            .find(|l| l.key != key && exists(&l.key))
+            .map(|l| l.key.clone());
+        Some(dest)
+    }
+
+    /// The session `key` moved to (start.rs `move_to`, handoff.rs): checked against explicit
+    /// ordered `chains` first (surviving expired intermediate hops and move-backs without cycles),
+    /// then falling back to legacy `sessions` fork-move entries.
     pub fn moved_to(&self, key: &str, exists: impl Fn(&str) -> bool) -> Option<String> {
+        if let Some(resolved) = self.chain_moved_to(key, &exists) {
+            return match resolved {
+                Some(dest) => Some(self.legacy_moved_to(&dest, &exists).unwrap_or(dest)),
+                None => None,
+            };
+        }
+        self.legacy_moved_to(key, &exists)
+    }
+
+    fn legacy_moved_to(&self, key: &str, exists: &impl Fn(&str) -> bool) -> Option<String> {
         let mut at = key.to_string();
         // Moved back again, a key comes round a second time.
         let mut seen = HashSet::from([at.clone()]);
@@ -258,16 +365,29 @@ impl Store {
         }
     }
 
-    /// Every move to another account or harness (`moved_to`), as the session it moved from and
-    /// its copy, the oldest first, so one moved on again comes after the move that made it.
+    /// Every move (`chains` and legacy `is_moved_entry`), as the session it moved from and its
+    /// copy, the oldest first, so one moved on again comes after the move that made it.
     pub fn moves(&self) -> Vec<(String, String)> {
-        let mut moves: Vec<(i64, &String, &String)> = self.sessions.iter().filter(|(k, e)| self.is_moved_entry(k, e)).map(|(k, e)| (e.at, &e.from, k)).collect();
+        let mut moves: Vec<(i64, String, String)> = Vec::new();
+        let mut seen: HashSet<(String, String)> = HashSet::new();
+        for c in &self.chains {
+            for pair in c.legs.windows(2) {
+                if seen.insert((pair[0].key.clone(), pair[1].key.clone())) {
+                    moves.push((pair[1].at, pair[0].key.clone(), pair[1].key.clone()));
+                }
+            }
+        }
+        for (k, e) in &self.sessions {
+            if self.is_moved_entry(k, e) && seen.insert((e.from.clone(), k.clone())) {
+                moves.push((e.at, e.from.clone(), k.clone()));
+            }
+        }
         moves.sort();
-        moves.into_iter().map(|(_, from, to)| (from.clone(), to.clone())).collect()
+        moves.into_iter().map(|(_, from, to)| (from, to)).collect()
     }
 
-    /// Indexes every move (`is_moved_entry`) by the session it moved from, so callers that follow
-    /// many keys against one store don't scan `sessions` on every lookup.
+    /// Indexes every move (`chains` and legacy `is_moved_entry`), so callers that follow many keys
+    /// against one store don't scan `sessions` or `chains` on every lookup.
     pub fn move_index(&self) -> MoveIndex<'_> {
         let mut by_from: HashMap<&str, Vec<(&str, i64)>> = HashMap::new();
         for (k, e) in &self.sessions {
@@ -275,7 +395,17 @@ impl Store {
                 by_from.entry(e.from.as_str()).or_default().push((k.as_str(), e.at));
             }
         }
-        MoveIndex { by_from }
+        let mut chain_by_key: HashMap<&str, (usize, i64)> = HashMap::new();
+        for (i, c) in self.chains.iter().enumerate() {
+            let head_at = c.legs.last().map_or(0, |l| l.at);
+            for l in &c.legs {
+                let replace = chain_by_key.get(l.key.as_str()).is_none_or(|&(_, at)| head_at >= at);
+                if replace {
+                    chain_by_key.insert(l.key.as_str(), (i, head_at));
+                }
+            }
+        }
+        MoveIndex { by_from, chains: &self.chains, chain_by_key }
     }
 
     /// Notes where each headless run came from (`ended_runs`), unless something noted it
@@ -308,21 +438,41 @@ impl Store {
         self.kept.retain(|k| sessions.contains_key(k));
         let pending_at: HashSet<i64> = self.pending.iter().map(|p| p.at).collect();
         self.handovers.retain(|at, _| pending_at.contains(at));
+        self.chains.retain(|c| c.legs.len() >= 2 && c.legs.last().is_some_and(|l| now - l.at < KEEP_MS));
     }
 }
 
-/// Moves out of each session (`Store::moved_to`), indexed by source key.
+/// Moves out of each session (`Store::moved_to`), indexed by source key and explicit leg chain.
 pub struct MoveIndex<'a> {
     by_from: HashMap<&'a str, Vec<(&'a str, i64)>>,
+    chains: &'a [MoveChain],
+    chain_by_key: HashMap<&'a str, (usize, i64)>,
 }
 
 impl<'a> MoveIndex<'a> {
     pub fn is_empty(&self) -> bool {
-        self.by_from.is_empty()
+        self.by_from.is_empty() && self.chains.is_empty()
     }
 
     /// Same result as `Store::moved_to`, without scanning every origin on each lookup.
     pub fn moved_to(&self, key: &str, exists: impl Fn(&str) -> bool) -> Option<String> {
+        if let Some(&(ci, _)) = self.chain_by_key.get(key) {
+            let legs = &self.chains[ci].legs;
+            let idx = legs.iter().rposition(|l| l.key == key)?;
+            let dest = legs[idx + 1..]
+                .iter()
+                .rev()
+                .find(|l| l.key != key && exists(&l.key))
+                .map(|l| l.key.as_str());
+            return match dest {
+                Some(d) => Some(self.legacy_moved_to(d, &exists).unwrap_or_else(|| d.to_string())),
+                None => None,
+            };
+        }
+        self.legacy_moved_to(key, &exists)
+    }
+
+    fn legacy_moved_to(&self, key: &str, exists: &impl Fn(&str) -> bool) -> Option<String> {
         let first = self.by_from.get(key)?;
         let mut at = key;
         let mut seen: Option<HashSet<&str>> = None;
@@ -446,6 +596,7 @@ pub fn resolve_with_handovers(store: &mut Store, sessions: &[Candidate], lanes: 
                         if h.keep {
                             store.kept.insert(s.key.to_string());
                         } else {
+                            store.record_move(&from, s.key, p.at, h.seen_through);
                             handovers.push(ResolvedHandover { from, copy: s.key.to_string(), was_pinned: h.was_pinned });
                         }
                     }
@@ -499,10 +650,11 @@ pub fn record(key: &str, from: &str, how: OriginHow) {
     }
 }
 
-/// Notes a handoff from `from` to `key`: when `moved` is true, `key` takes `from`'s place as a
-/// move (`moved_to`); when false (`keep: true`), `key` is kept out of `moved_to` so `from` stays
-/// open and sendable while staying linked in lineage.
-pub fn write_handoff(key: &str, from: &str, moved: bool) -> Result<()> {
+/// Notes a handoff from `from` to `key`: when `moved` is true, `key` takes `from`'s place in the
+/// explicit move chain (`chains`, `moved_to`) with `seen_through` (source `last_activity` in ms)
+/// stamped on the outgoing leg; when false (`keep: true`), `key` is kept out of `moved_to` so
+/// `from` stays open and sendable while staying linked in lineage.
+pub fn write_handoff(key: &str, from: &str, moved: bool, seen_through: Option<i64>) -> Result<()> {
     if key == from || key.is_empty() || from.is_empty() {
         return Ok(());
     }
@@ -512,6 +664,7 @@ pub fn write_handoff(key: &str, from: &str, moved: bool) -> Result<()> {
         let mut changed = s.sessions.insert(key.to_string(), entry).is_none_or(|old| old.from != from || old.how != OriginHow::Fork || !old.known);
         if moved {
             changed |= s.kept.remove(key);
+            changed |= s.record_move(from, key, now, seen_through);
         } else {
             changed |= s.kept.insert(key.to_string());
         }
@@ -519,10 +672,23 @@ pub fn write_handoff(key: &str, from: &str, moved: bool) -> Result<()> {
     })
 }
 
+/// Notes an explicit destructive move `from -> to` in `chains` (for same-account worktree moves,
+/// resume copies, or any handover not already recorded by `write_handoff`).
+pub fn record_move(from: &str, to: &str, seen_through: Option<i64>) {
+    if from.is_empty() || to.is_empty() || from == to {
+        return;
+    }
+    let now = crate::util::now_ms();
+    if let Err(e) = change(|s| s.record_move(from, to, now, seen_through)) {
+        eprintln!("Couldn't note move from {from} to {to}: {e:#}");
+    }
+}
+
 /// Notes a pending handoff whose target harness picks its own session ID (Codex, Antigravity,
 /// OpenCode in a terminal, or Claude app): once matched by `resolve_pending_handovers`, its
-/// origin and ownership handover complete automatically.
-pub fn pending_handoff(from: &str, lane: &str, account: &str, opens: Option<String>, terminal: bool, keep: bool, was_pinned: bool) {
+/// origin, move chain leg, and ownership handover settle atomically.
+#[allow(clippy::too_many_arguments)]
+pub fn pending_handoff(from: &str, lane: &str, account: &str, opens: Option<String>, terminal: bool, keep: bool, was_pinned: bool, seen_through: Option<i64>) {
     if from.is_empty() || account.is_empty() {
         return;
     }
@@ -532,7 +698,7 @@ pub fn pending_handoff(from: &str, lane: &str, account: &str, opens: Option<Stri
             at += 1;
         }
         s.pending.push(Pending { from: from.to_string(), how: OriginHow::Fork, lane: lane.to_string(), account: account.to_string(), at, helper: false, report: false, opens, terminal });
-        s.handovers.insert(at, PendingHandover { keep, was_pinned });
+        s.handovers.insert(at, PendingHandover { keep, was_pinned, seen_through });
         true
     }) {
         eprintln!("Couldn't note pending handoff from {from} to {account}: {e:#}");
@@ -589,7 +755,21 @@ pub fn record_runs(runs: &[(String, String)]) {
 
 /// Takes back the note of where `key` came from: a move whose copy didn't start.
 pub fn forget(key: &str) -> Result<()> {
-    change(|s| s.sessions.remove(key).is_some())
+    change(|s| {
+        let mut changed = s.sessions.remove(key).is_some();
+        changed |= s.kept.remove(key);
+        for c in &mut s.chains {
+            if c.legs.last().is_some_and(|l| l.key == key) {
+                c.legs.pop();
+                if let Some(prev) = c.legs.last_mut() {
+                    prev.seen_through = None;
+                }
+                changed = true;
+            }
+        }
+        s.chains.retain(|c| c.legs.len() >= 2);
+        changed
+    })
 }
 
 /// Stops waiting for the session of the start made `at`: it was stopped before it made one
@@ -598,7 +778,8 @@ pub fn forget_start(at: i64) -> Result<()> {
     change(|s| {
         let before = s.pending.len();
         s.pending.retain(|p| p.at != at);
-        s.pending.len() != before
+        let removed_handover = s.handovers.remove(&at).is_some();
+        s.pending.len() != before || removed_handover
     })
 }
 
@@ -842,9 +1023,9 @@ mod tests {
     fn pending_handoffs_resolve_to_moved_handover_or_kept_copy() {
         let mut store = Store::default();
         store.pending.push(Pending { how: OriginHow::Fork, opens: opening("# Handoff from \"Fix\""), terminal: true, ..pending("claude:claude:src", "/r/app", "codex", 1_000) });
-        store.handovers.insert(1_000, PendingHandover { keep: false, was_pinned: true });
+        store.handovers.insert(1_000, PendingHandover { keep: false, was_pinned: true, seen_through: Some(900) });
         store.pending.push(Pending { how: OriginHow::Fork, opens: opening("# Handoff from \"Keep\""), terminal: true, ..pending("claude:claude:src2", "/r/app", "antigravity", 1_001) });
-        store.handovers.insert(1_001, PendingHandover { keep: true, was_pinned: false });
+        store.handovers.insert(1_001, PendingHandover { keep: true, was_pinned: false, seen_through: None });
 
         let c1 = Candidate { key: "codex:codex:new1", lane: "/r/app", account: "codex", started: 1_500, created: Some(1_500), prompt: Some("# Handoff from \"Fix\""), launched: Some(1_200) };
         let c2 = Candidate { key: "antigravity:antigravity:new2", lane: "/r/app", account: "antigravity", started: 1_600, created: Some(1_600), prompt: Some("# Handoff from \"Keep\""), launched: Some(1_300) };
@@ -852,6 +1033,7 @@ mod tests {
         assert!(changed);
         assert_eq!(handovers, vec![ResolvedHandover { from: "claude:claude:src".into(), copy: "codex:codex:new1".into(), was_pinned: true }]);
         assert_eq!(store.moved_to("claude:claude:src", |_| true).as_deref(), Some("codex:codex:new1"));
+        assert_eq!(store.prior_leg_for_account("codex:codex:new1", "claude", |_| true).and_then(|l| l.seen_through), Some(900));
         assert_eq!(store.moved_to("claude:claude:src2", |_| true), None, "kept copy does not mark source moved");
         assert!(store.origin_of("antigravity:antigravity:new2").is_some(), "kept copy still links to source in lineage");
     }
@@ -1219,5 +1401,47 @@ mod tests {
         assert_eq!(index.follow("claude:one:none", exists), "claude:one:none");
         assert_eq!(store.follow_move("claude:one:a", exists), "claude:three:c");
         assert_eq!(store.follow_move("claude:one:none", exists), "claude:one:none");
+    }
+
+    #[test]
+    fn explicit_move_chains_survive_expired_hops_move_backs_and_same_account_moves() {
+        let mut store = Store::default();
+        // Multi-hop move: Claude -> Codex -> Claude2, recording seen_through on each outgoing leg.
+        assert!(store.record_move("claude:one:a", "codex:codex:b", 100, Some(95)));
+        // Idempotent repeat does not add a duplicate leg or overwrite seen_through.
+        assert!(!store.record_move("claude:one:a", "codex:codex:b", 105, Some(99)));
+        assert!(store.record_move("codex:codex:b", "claude:two:c", 200, Some(190)));
+
+        // Even when the middle leg `b` has aged off the board, `a` still resolves to `c`.
+        let without_middle = |k: &str| k != "codex:codex:b";
+        assert_eq!(store.moved_to("claude:one:a", without_middle).as_deref(), Some("claude:two:c"));
+        assert_eq!(store.move_index().moved_to("claude:one:a", without_middle).as_deref(), Some("claude:two:c"));
+        assert_eq!(store.moved_to("claude:two:c", without_middle), None);
+
+        // Prior leg lookup finds `a` with its `seen_through` watermark when moving back to `one`.
+        let prior = store.prior_leg_for_account("claude:two:c", "one", |_| true).unwrap();
+        assert_eq!((prior.key.as_str(), prior.seen_through), ("claude:one:a", Some(95)));
+
+        // Move back to `a` (A -> B -> C -> A): `a` is now the active head (no cycle!), while `b`
+        // and `c` both resolve to `a`.
+        assert!(store.record_move("claude:two:c", "claude:one:a", 300, Some(280)));
+        let all_here = |_: &str| true;
+        assert_eq!(store.moved_to("claude:one:a", all_here), None);
+        assert_eq!(store.moved_to("codex:codex:b", all_here).as_deref(), Some("claude:one:a"));
+        assert_eq!(store.moved_to("claude:two:c", all_here).as_deref(), Some("claude:one:a"));
+        let idx = store.move_index();
+        for key in ["claude:one:a", "codex:codex:b", "claude:two:c"] {
+            assert_eq!(idx.moved_to(key, all_here), store.moved_to(key, all_here), "index mismatch for {key}");
+        }
+
+        // Same-account worktree/resume copy is also tracked explicitly.
+        assert!(store.record_move("claude:one:work1", "claude:one:work2", 400, Some(390)));
+        assert_eq!(store.moved_to("claude:one:work1", all_here).as_deref(), Some("claude:one:work2"));
+        assert_eq!(store.move_index().moved_to("claude:one:work1", all_here).as_deref(), Some("claude:one:work2"));
+
+        // JSON round-trip preserves explicit chains cleanly.
+        let json = serde_json::to_string(&store).unwrap();
+        let back: Store = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.chains, store.chains);
     }
 }

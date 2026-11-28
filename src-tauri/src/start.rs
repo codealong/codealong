@@ -1616,7 +1616,7 @@ pub fn move_to_with(board: &Board, cfg: &Config, key: &str, to: &str, place: Pla
     // Until the copy's first message the note is all there is of it, and it keeps the copy on the
     // board to go on with however its terminal ends (`claude::Reader::closed_copies`), so the
     // session is closed only once it's written.
-    let note = |copy: &str| crate::origins::write_handoff(copy, key, !keep);
+    let note = |copy: &str| crate::origins::write_handoff(copy, key, !keep, Some(s.last_activity));
     // Keep automatic wakes (PR nudges, agent messages) from resuming the old session before the
     // caller archives it, or the copy while `closed_copies` shows it stopped before its process
     // registers.
