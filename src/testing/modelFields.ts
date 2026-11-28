@@ -1301,8 +1301,7 @@ export type Pending = Holds<Same<
   | "noOnce"
   | "plan"
   | "questions"
-  | "terminal"
-  | "unwritten",
+  | "terminal",
   Names<Types.Pending>
 >>;
 

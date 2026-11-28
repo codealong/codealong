@@ -32,7 +32,6 @@
       },
       { question: 'Anything to add before it goes? Write it as it should read in the email, and say which paragraph it goes after; leave it empty for none.', options: [] },
     ],
-    unwritten: true,
   };
   var real = window.__TAURI_INTERNALS__.invoke;
   window.__TAURI_INTERNALS__.invoke = function (cmd, args, options) {

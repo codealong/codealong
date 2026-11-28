@@ -299,18 +299,7 @@ impl crate::harness::Adapter for ClaudeCode {
         // A request the plugin's hook handed the app is answered through the hook, wherever the
         // session runs (asks.rs).
         if let Some(a) = asks::of_session(&s.id) {
-            let mut p = asks::asked_pending(&a);
-            // Claude Code often writes the message a question comes in only once it's answered, so
-            // what the agent wrote with it is in its terminal but not yet in the conversation. The
-            // plugin's `MessageDisplay` hook hands it over as it's shown (live.rs), where
-            // `[sessions] live_replies` put the hook in; without it, the panel says where to read
-            // it. Only questions: another call's line is written while its prompt is up, maybe a
-            // moment after the hook asks.
-            if a.tool == asks::QUESTIONS && live::stream(&s.key).is_none() {
-                let page = record(self, ctx, s).ok().and_then(|path| crate::transcript::file_page(&path, conversation_items, None, 40).ok());
-                p.unwritten = page.is_some_and(|page| !asks::written_in(&page.items, &a));
-            }
-            return Some(p);
+            return Some(asks::asked_pending(&a));
         }
         // Questions the hook didn't hand over (the plugin isn't in the account, the app started
         // after they were asked, or the hook went before it was answered) still show here: a
@@ -334,7 +323,6 @@ impl crate::harness::Adapter for ClaudeCode {
                 from_key: None,
                 always_rule: None,
                 questions: call.questions,
-                unwritten: false,
                 terminal: None,
                 exiting: false,
                 dialog: false,
@@ -360,7 +348,7 @@ impl crate::harness::Adapter for ClaudeCode {
         // Not every prompt has "Yes, and always allow" as its second choice, and a 2 pressed at
         // one without it is something else, so Always isn't offered in a terminal.
         let plan = call.text == PLAN;
-        Some(crate::harness::Pending { id: call.id.clone().unwrap_or_default(), label: call.text, input: call.input, cannot, always: false, no_once: false, plan, message: false, from_key: None, always_rule: None, questions: Vec::new(), unwritten: false, terminal: None, exiting: false, dialog: false })
+        Some(crate::harness::Pending { id: call.id.clone().unwrap_or_default(), label: call.text, input: call.input, cannot, always: false, no_once: false, plan, message: false, from_key: None, always_rule: None, questions: Vec::new(), terminal: None, exiting: false, dialog: false })
     }
 
     /// A held message denied is dropped while the turn goes on (held.rs), an exit's question
@@ -1991,7 +1979,6 @@ fn app_pending(ctx: &crate::harness::Ctx, s: &crate::model::Session) -> Option<c
         from_key: None,
         always_rule: None,
         questions: Vec::new(),
-        unwritten: false,
         terminal: None,
         exiting: false,
         dialog: false,
@@ -2046,7 +2033,6 @@ fn held_pending(ctx: &crate::harness::Ctx, s: &crate::model::Session, held: &Hel
         from_key,
         always_rule: None,
         questions: Vec::new(),
-        unwritten: false,
         terminal: None,
         exiting: false,
         dialog: false,
@@ -2173,9 +2159,6 @@ fn job_pending(a: &ClaudeCode, ctx: &crate::harness::Ctx, s: &crate::model::Sess
         message: false,
         from_key: None,
         always_rule: None,
-        // What it wrote with them comes with the call, which its transcript has once they're
-        // answered (Opus 5.5 holds it back every time).
-        unwritten: written.is_none() && live::stream(&s.key).is_none(),
         questions,
         terminal: None,
         exiting: false,
@@ -2498,7 +2481,7 @@ mod tests {
         // question shows all the same, and with no service running it's answered where it runs.
         let p = ClaudeCode.pending(&ctx, &session).unwrap();
         assert!(p.id.starts_with(JOB_ASKS_ID));
-        assert_eq!((p.label.as_str(), p.questions.len(), p.questions[0].header.as_deref(), p.unwritten), ("Asks you · Which fruit?", 1, None, true));
+        assert_eq!((p.label.as_str(), p.questions.len(), p.questions[0].header.as_deref()), ("Asks you · Which fruit?", 1, None));
         // The record doesn't say whether it takes several, so it's offered as one that takes one.
         assert!(!p.questions[0].multi_select);
         assert_eq!(p.cannot.as_deref(), Some("Its account's background service isn't running."));
@@ -2553,7 +2536,7 @@ mod tests {
         // words, as the job takes them.
         std::fs::write(dir.join(format!("{id}.jsonl")), format!("{prompt}\n{ask}\n")).unwrap();
         let p = ClaudeCode.pending(&ctx, &session).unwrap();
-        assert_eq!((p.questions[0].header.as_deref(), p.questions[0].multi_select, p.unwritten), (Some("Fruit"), true, false));
+        assert_eq!((p.questions[0].header.as_deref(), p.questions[0].multi_select), (Some("Fruit"), true));
         ClaudeCode.answer_questions(&ctx, &session, &p.id, &answers(serde_json::json!(["Apple", "Pear"]))).unwrap();
         assert_eq!(heard().0["text"].as_str(), Some("Apple, Pear"));
 
