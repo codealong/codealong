@@ -22,7 +22,7 @@
 use super::{claim_state, clean, has_checkout, origin, parse_reply, short, verdict_of, Part, Round, Store, Tracked, NOTHING_TO_RAISE};
 use crate::config::{OwnReviewsCfg, ReviewsCfg};
 use crate::github::Verdict;
-use crate::model::{Harness, Lane, PartState, PrItem, ReviewStage};
+use crate::model::{Harness, Lane, PartState, PrItem, PrState, ReviewStage, Session};
 use crate::shared::{Machine, Machines};
 use codealong_peer::pr::{AutoReview, ClaimState, HandedReview, SharedReview};
 
@@ -84,6 +84,47 @@ pub(super) fn not_sent_note(review: &str, cfg: &OwnReviewsCfg) -> Option<String>
     } else {
         None
     }
+}
+
+/// Whether a PR's state allows finishing and sending an in-flight own-PR review or starting a
+/// review by hand (`codealong pr review` / Review with…): open (including draft) or merged, never
+/// closed without merging. Automatic reviews still start only while open (`wants_own`).
+pub(super) fn reviewable_state(state: PrState) -> bool {
+    state.is_open() || state == PrState::Merged
+}
+
+/// The note keeping a finished review from being sent or posted because the PR ended, or None when
+/// `post` should go on as usual: an own-PR review started while the PR was open still finishes and
+/// is handed back after the PR merges (not when closed without merging); a manual review of
+/// someone else's merged PR is kept here rather than posted on GitHub.
+pub(super) fn closed_note(pr: &PrItem, by_hand: bool) -> Option<String> {
+    if pr.state.is_open() || (pr.mine && pr.state == PrState::Merged) {
+        return None;
+    }
+    if !pr.mine && by_hand && pr.state == PrState::Merged {
+        return Some("Not posted: the PR is merged, so the review is kept here.".into());
+    }
+    let not = if pr.mine { "Not sent" } else { "Not posted" };
+    Some(format!("{not}: the PR was closed before the review was done."))
+}
+
+/// The top-level session a review of a PR of yours nests under (`nest_own`): `start` itself when
+/// it has no helper parent, else walking up `Helper::parent` through local, non-visitor,
+/// unarchived sessions so a review of a worker helper's PR sits beside the helper under its
+/// top-level session rather than two levels down. Stops at the last reachable ancestor or a cycle.
+pub(super) fn nest_parent<'a>(lanes: &'a [Lane], start: &'a Session) -> &'a str {
+    let find = |k: &str| lanes.iter().filter(|l| l.device.is_none()).flat_map(|l| &l.sessions).find(|s| s.key == k && s.visitor.is_none() && !s.archived);
+    let mut cur = start;
+    let mut seen: Vec<&str> = vec![cur.key.as_str()];
+    while let Some(parent_key) = cur.helper.as_ref().and_then(|h| h.parent.as_deref()) {
+        if seen.contains(&parent_key) {
+            break;
+        }
+        let Some(parent) = find(parent_key) else { break };
+        seen.push(parent.key.as_str());
+        cur = parent;
+    }
+    cur.key.as_str()
 }
 
 /// Whether automatic own-PR review rounds for a PR have hit `max_rounds` (0 = unlimited).
@@ -241,5 +282,97 @@ mod tests {
         t.rounds.push(Round::new("444", ReviewStage::Kept, 4));
         assert!(round_capped(Some(&t), 2), "2 completed automatic rounds hit cap");
         assert!(!round_capped(Some(&t), 0), "0 means unlimited");
+    }
+
+    #[test]
+    fn merged_prs_finish_own_reviews_and_keep_manual_ones_while_closed_ones_stop() {
+        assert!(reviewable_state(PrState::Open));
+        assert!(reviewable_state(PrState::Draft));
+        assert!(reviewable_state(PrState::Merged));
+        assert!(!reviewable_state(PrState::Closed));
+
+        let pr_with = |mine: bool, state: PrState| PrItem {
+            key: "northwind/app#7".into(),
+            repo_slug: "northwind/app".into(),
+            repo: "app".into(),
+            project: "Northwind".into(),
+            number: 7,
+            title: "Fix queue".into(),
+            url: "https://github.com/northwind/app/pull/7".into(),
+            state,
+            author: Some("gwen".into()),
+            mine,
+            review_requested: !mine,
+            requested_by: None,
+            requested_at: None,
+            reviewers_asked: Vec::new(),
+            snoozed_until: None,
+            nudge: false,
+            nudge_by_default: false,
+            watched: false,
+            review_first: false,
+            waits_to_merge: false,
+            taken_over: false,
+            primary: None,
+            primary_by: None,
+            head: "fix-queue".into(),
+            base: Some("main".into()),
+            checks: Default::default(),
+            merge: Default::default(),
+            additions: 1,
+            deletions: 0,
+            changed_files: 1,
+            created_at: 0,
+            updated_at: 0,
+            merged_at: None,
+            closed_at: None,
+            lanes: Vec::new(),
+            sessions: Vec::new(),
+            head_oid: Some("1111111aaaa".into()),
+            authored_by: None,
+            labels: Vec::new(),
+            auto_review: None,
+            last_review: None,
+            stale_approval: None,
+            turn: None,
+            shared_review: Default::default(),
+        };
+
+        assert_eq!(closed_note(&pr_with(true, PrState::Open), false), None);
+        assert_eq!(closed_note(&pr_with(true, PrState::Merged), false), None, "own PR merged: still kept and sent");
+        assert_eq!(closed_note(&pr_with(true, PrState::Merged), true), None, "own PR merged by hand: still kept and sent");
+        assert_eq!(closed_note(&pr_with(true, PrState::Closed), false).as_deref(), Some("Not sent: the PR was closed before the review was done."));
+        assert_eq!(closed_note(&pr_with(false, PrState::Merged), false).as_deref(), Some("Not posted: the PR was closed before the review was done."));
+        assert_eq!(closed_note(&pr_with(false, PrState::Merged), true).as_deref(), Some("Not posted: the PR is merged, so the review is kept here."));
+        assert_eq!(closed_note(&pr_with(false, PrState::Closed), true).as_deref(), Some("Not posted: the PR was closed before the review was done."));
+    }
+
+    #[test]
+    fn nest_parent_walks_to_top_level_session_and_handles_archived_or_cycles() {
+        use crate::fixtures;
+        use crate::model::Helper;
+
+        let helper = |key: &str, parent: &str| Session {
+            helper: Some(Helper { parent: Some(parent.into()), ..Default::default() }),
+            ..fixtures::session(key)
+        };
+        let lead = fixtures::session("claude:claude:lead");
+        let worker = helper("claude:claude:worker", "claude:claude:lead");
+        let sub = helper("codex:codex:sub", "claude:claude:worker");
+        let lanes = vec![fixtures::lane("/r", vec![lead.clone(), worker.clone(), sub.clone()])];
+        assert_eq!(nest_parent(&lanes, &lead), "claude:claude:lead");
+        assert_eq!(nest_parent(&lanes, &worker), "claude:claude:lead");
+        assert_eq!(nest_parent(&lanes, &sub), "claude:claude:lead");
+
+        // An archived parent is not a target: the helper itself is top-level then.
+        let archived_lead = Session { archived: true, ..lead };
+        let lanes_archived = vec![fixtures::lane("/r", vec![archived_lead, worker.clone()])];
+        assert_eq!(nest_parent(&lanes_archived, &worker), "claude:claude:worker");
+
+        // A parent cycle terminates without looping forever.
+        let a = helper("claude:claude:a", "claude:claude:b");
+        let b = helper("claude:claude:b", "claude:claude:a");
+        let lanes_cycle = vec![fixtures::lane("/r", vec![a.clone(), b])];
+        assert_eq!(nest_parent(&lanes_cycle, &a), "claude:claude:b");
     }
 }

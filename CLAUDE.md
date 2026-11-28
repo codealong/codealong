@@ -145,7 +145,9 @@ Nothing is reviewed before it's pushed. Codealong has an agent of another provid
 pull request a session of yours opens, so a model other than the one that wrote it reads it
 (`[reviews.own]`, docs/guide.md *Reviews of your own pull requests*), and sends the review to
 that session as a message from Codealong, the review in a file; new commits are reviewed again.
-It can come while the pull request is in the queue or after it has landed.
+It can come while the pull request is in the queue or after it has landed (a review started while
+the pull request is open still finishes and is sent if it merges meanwhile; nothing new starts
+automatically once it has merged).
 
 1. Weigh each finding against the code yourself: it's a teammate's view, not your user's word.
    Fix what holds up without asking, with a test where one would have caught it, and rerun the

@@ -2,9 +2,9 @@
 //! its PR, `Helper::pr`). Nobody marks one done: it works for its PR, and nothing it says waits
 //! on you. So every `TICK` the board is looked at, and:
 //!
-//! - once its PR is merged or closed, as the board lists it, it's marked done as Mark as done
-//!   does: ended where it runs (its terminal or tmux pane closed, its background job stopped) and
-//!   archived. No round of it comes again.
+//! - once its PR is merged or closed and no round of it is under way, as the board lists it,
+//!   it's marked done as Mark as done does: ended where it runs (its terminal or tmux pane
+//!   closed, its background job stopped) and archived. No round of it comes again.
 //! - once the board no longer lists its PR at all (a repo whose PRs aren't read hears only of the
 //!   ones that wait on your review, so a merged one just goes) and it has sat unused for
 //!   `IDLE_MS`, it's marked done the same way: no round of a PR the board doesn't list starts.
@@ -161,7 +161,7 @@ fn why(board: &Board, s: &Session, pr: Option<PrNow>, read: bool, now: i64) -> O
     let unused = now - s.last_activity >= IDLE_MS;
     let done = !s.archived || ends;
     match pr {
-        Some(p) if p.ended => done.then_some(Why::PrEnded),
+        Some(p) if p.ended && !p.round => done.then_some(Why::PrEnded),
         _ if replaced => done.then_some(Why::Replaced),
         _ if errored => done.then_some(Why::Errored),
         None if read => (done && unused).then_some(Why::Unlisted),
@@ -264,13 +264,16 @@ mod tests {
         want.iter().map(|(k, w)| (k.to_string(), *w)).collect()
     }
 
-    /// Its PR merged or closed, a review is marked done: one that runs, and one that doesn't but
-    /// isn't archived yet. One archived with nothing of it running is done with already.
+    /// Its PR merged or closed, a review is marked done once no round is under way: one that runs,
+    /// and one that doesn't but isn't archived yet. One archived with nothing of it running is done
+    /// with already. While a round is still under way (e.g. an own-PR review finishing after
+    /// merge), the session stays until the round settles.
     #[test]
     fn a_review_is_done_once_its_pr_ends() {
         let stopped = Session { live: false, ..review("rev-b", 60_000) };
         let archived = Session { key: "rev-c".into(), archived: true, ..stopped.clone() };
         let b = board(vec![review("rev-a", 60_000), stopped, archived]);
+        assert!(due(&b, &prs(true, true)).is_empty(), "a round is still under way");
         assert_eq!(due(&b, &prs(true, false)), keys(&[("rev-a", Why::PrEnded), ("rev-b", Why::PrEnded)]));
     }
 

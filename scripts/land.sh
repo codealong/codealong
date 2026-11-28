@@ -396,6 +396,14 @@ open_pull_request() {
   echo "${url##*/}"
 }
 
+# Links the pull request to this session in Codealong, so the link survives once the worktree
+# is removed (push_branch pushes quietly and gh pr create runs inside this script, so harnesses
+# leave no mark of their own). Skipped without codealong or a session, and never fails the landing.
+link_pull_request() {
+  command -v codealong >/dev/null 2>&1 || return 0
+  codealong pr link "$1" --session me >/dev/null 2>&1 || true
+}
+
 # Where a pull request stands, as seven words: its state (OPEN, MERGED, CLOSED), its place in
 # the merge queue (QUEUED, AWAITING_CHECKS, MERGEABLE, UNMERGEABLE, LOCKED, or - when it isn't
 # in it), the commit it merged as (or -), GitHub's id for it, whether someone has GitHub set to
@@ -1049,6 +1057,7 @@ main() {
     number="$(open_pull_request)" || exit 1
   fi
   pr_url="https://github.com/$repo/pull/$number"
+  link_pull_request "$pr_url"
   since="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   # Noted before it's queued, so a landing that reached GitHub is always one this can take up
   # again; taken back when it turns out not to have been queued.
