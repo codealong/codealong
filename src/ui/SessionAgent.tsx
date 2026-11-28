@@ -75,12 +75,6 @@ export function parseMovePick(id: string): { account: string; model: string | nu
   return at < 0 ? { account: rest, model: null } : { account: rest.slice(0, at), model: rest.slice(at + 1) || null };
 }
 
-/** The account a line of the chip's menu moves the session to, or null for a line of its own
- *  account's (`<account>|<model>`, whatever the account is named). */
-export function moveTarget(id: string): string | null {
-  return parseMovePick(id)?.account ?? null;
-}
-
 /** A phrase as a sentence of its own: `once its turn ends` as `Once its turn ends`. */
 function sentence(phrase: string): string {
   return phrase.charAt(0).toUpperCase() + phrase.slice(1);
