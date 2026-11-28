@@ -213,12 +213,6 @@ export function facetsOn(f: Facets, view: string): FacetId[] {
   return facetsIn(view).filter((id) => (f[id]?.length ?? 0) > 0);
 }
 
-/** Whether anything beyond the age filter narrows Sessions: search, statuses, or a Sessions facet
- *  (agents, labels). Pinned groups with no matching session hide while this holds. */
-export function sessionsNarrowed(query: string, filter: readonly Filter[], facets: Facets): boolean {
-  return !!query || filter.length > 0 || facetsOn(facets, 'sessions').length > 0;
-}
-
 /** A facet's pick as a chip on the strip over the list (ListBar.tsx `FilterChips`). */
 export interface FacetChip {
   facet: FacetId;

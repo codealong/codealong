@@ -59,7 +59,6 @@ import {
   prInFacets,
   sessionInFacets,
   sessionLabelOptions,
-  sessionsNarrowed,
   todoInFacets,
   todoLabelOptions,
   togglePick,
@@ -292,12 +291,6 @@ describe('the sidebar’s facets', () => {
     expect(facetsIn('worktrees')).toEqual([]);
     expect(facetsOn({ agents: ['codex'], repos: [], labels: ['l1'] }, 'sessions')).toEqual(['agents']);
     expect(facetsOn({ agents: ['codex'], repos: [] }, 'prs')).toEqual([]);
-    expect(sessionsNarrowed('', [], {})).toBe(false);
-    expect(sessionsNarrowed('', [], { labels: ['l1'] })).toBe(false);
-    expect(sessionsNarrowed('', [], { sessionLabels: ['bug'] })).toBe(true);
-    expect(sessionsNarrowed('', [], { agents: ['codex'] })).toBe(true);
-    expect(sessionsNarrowed('q', [], {})).toBe(true);
-    expect(sessionsNarrowed('', ['needs'], {})).toBe(true);
   });
 
   it('lets a row through with any of a facet’s picks, when every facet holds', () => {
