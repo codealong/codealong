@@ -967,12 +967,13 @@ pub fn reviewer_of<'a>(pr: &PrItem, mine: &SharedReview, machines: &'a Machines,
         key: &'a str,
         rank: Rank,
         around: bool,
+        merged: bool,
         said: &'s SharedReview,
     }
-    let mut seats = vec![Seat { machine: None, key: me.key.as_str(), rank: me.rank, around: true, said: mine }];
+    let mut seats = vec![Seat { machine: None, key: me.key.as_str(), rank: me.rank, around: true, merged: pr.state == PrState::Merged, said: mine }];
     for m in &machines.others {
-        if let Some(said) = m.pr(&pr.key).and_then(|c| c.shared_review.as_ref()) {
-            seats.push(Seat { machine: Some(m), key: m.key.as_str(), rank: m.rank, around: m.around(now), said });
+        if let Some((c, said)) = m.pr(&pr.key).and_then(|c| Some((c, c.shared_review.as_ref()?))) {
+            seats.push(Seat { machine: Some(m), key: m.key.as_str(), rank: m.rank, around: m.around(now), merged: c.state == PrState::Merged, said });
         }
     }
     let at_head = |s: &SharedReview| s.round.as_ref().filter(|c| c.head == head).map(|c| (c.state, c.at));
@@ -982,7 +983,7 @@ pub fn reviewer_of<'a>(pr: &PrItem, mine: &SharedReview, machines: &'a Machines,
         .iter()
         .filter_map(|x| match at_head(x.said)? {
             (ClaimState::Done, at) => Some(((false, at, x.key), x.machine)),
-            (ClaimState::UnderWay, at) if x.around && (x.said.would || (pr.mine && pr.state == PrState::Merged)) => Some(((true, at, x.key), x.machine)),
+            (ClaimState::UnderWay, at) if x.around && (x.said.would || (pr.mine && x.merged)) => Some(((true, at, x.key), x.machine)),
             _ => None,
         })
         .min_by(|a, b| a.0.cmp(&b.0));
@@ -6026,11 +6027,46 @@ mod tests {
             first_prompt: Some("Review pull request #7 in o/r (https://github.com/o/r/pull/7)".into()),
             ..fixtures::session(S)
         };
-        let mut peer_late_board = board(vec![merged_p], vec![late]);
+        let mut peer_late_board = board(vec![merged_p.clone()], vec![late]);
         peer_late_board.lanes[0].repo_slug = Some("o/r".into());
         peer_late_board.machines = std::sync::Arc::new(machines(Rank::First, vec![merged_owner_card]));
         assert!(peer_recover.due(&peer_late_board, &own(), NOW + SHOW_MS + 2_000).is_empty());
         assert_eq!(peer_recover.store.prs["o/r#7"].rounds[0].stage, ReviewStage::Reviewing, "peer recovered late session after merge");
+
+        // 4. Mixed-state races between owner and peer:
+        // (a) Reviewer saw merge first (`merged`, `would: false`, `UnderWay`), owner still sees
+        //     `open`: owner respects the peer's merged `UnderWay` claim and starts no duplicate.
+        let peer_merged_underway = studio(Rank::First, vec![(merged_p.clone(), false, round("reviewing", HEAD, NOW))]);
+        let mut owner_still_open = board(vec![p.clone()], vec![maker.clone()]);
+        owner_still_open.lanes[0].repo_slug = Some("o/r".into());
+        owner_still_open.machines = std::sync::Arc::new(machines(Rank::Backup, vec![peer_merged_underway]));
+        apply(&mut owner_still_open.prs, &Store::default(), &own(), &Default::default(), &Default::default(), &owner_still_open.lanes, &owner_still_open.machines, NOW + 10_000);
+        assert_eq!(owner_still_open.prs[0].auto_review.as_ref().and_then(|a| a.machine.as_deref()), Some("Studio"));
+        assert!(Reviewer::default().due(&owner_still_open, &own(), NOW + 10_000).is_empty(), "owner does not start duplicate review");
+
+        // (b) Merged observer ignores an older `UnderWay` claim from a peer whose card still says
+        //     `open` with `would: false` (its reviews were turned off), so the active round stays.
+        let peer_open_off = studio(Rank::First, vec![(p.clone(), false, round("reviewing", HEAD, NOW - 10_000))]);
+        let mut owner_active = Reviewer::default();
+        let mut owner_open = board(vec![p.clone()], vec![maker.clone()]);
+        owner_open.lanes[0].repo_slug = Some("o/r".into());
+        let own_job = owner_active.due(&owner_open, &own(), NOW).pop().unwrap();
+        owner_active.told(&own_job, Went::Started(vec![started(AUTO, S, NOW)]), NOW).unwrap();
+        let mut owner_merged_active = board(vec![merged_p.clone()], vec![maker, session(Status::Working, NOW + 10_000)]);
+        owner_merged_active.lanes[0].repo_slug = Some("o/r".into());
+        owner_merged_active.machines = std::sync::Arc::new(machines(Rank::Backup, vec![peer_open_off]));
+        apply(&mut owner_merged_active.prs, &owner_active.store, &own(), &Default::default(), &Default::default(), &owner_merged_active.lanes, &owner_merged_active.machines, NOW + 10_000);
+        assert_eq!(owner_merged_active.prs[0].auto_review.as_ref().and_then(|a| a.machine.as_deref()), None, "open peer with reviews off cannot preempt merged active round");
+
+        // (c) Owner saw merge first (`merged`, `owner: true`), peer still sees `open` with empty
+        //     review store: peer does NOT start a new review after merge.
+        let mut merged_owner = studio(Rank::Backup, vec![(merged_p, false, None)]);
+        merged_owner.prs[0].shared_review.as_mut().unwrap().owner = true;
+        let mut peer_still_open = board(vec![p], vec![]);
+        peer_still_open.lanes[0].repo_slug = Some("o/r".into());
+        peer_still_open.machines = std::sync::Arc::new(machines(Rank::First, vec![merged_owner]));
+        apply(&mut peer_still_open.prs, &Store::default(), &own(), &Default::default(), &Default::default(), &peer_still_open.lanes, &peer_still_open.machines, NOW + 10_000);
+        assert!(Reviewer::default().due(&peer_still_open, &own(), NOW + 10_000).is_empty(), "peer must not start a new review once owner's card says merged");
     }
 
     /// What sharing your PRs' reviews must keep track of (from PR #33's review, 2026-11-21): a

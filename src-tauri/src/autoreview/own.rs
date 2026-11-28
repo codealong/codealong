@@ -213,9 +213,11 @@ pub(super) fn would_for(cfg: &ReviewsCfg, lanes: &[Lane], pr: &PrItem) -> bool {
 }
 
 /// Whether this machine reviews PR `pr` of yours for the machine that owns it now, as the other
-/// machines' cards and its own (`PrItem::shared_review`) say.
+/// machines' cards and its own (`PrItem::shared_review`) say. Nothing new starts once the owner's
+/// card already shows the PR ended (even if this machine's local poll still sees it open).
 pub(super) fn reviews_here(pr: &PrItem, lanes: &[Lane], machines: &Machines, now: i64) -> bool {
-    pr.mine && origin(lanes, pr).is_none() && reviewer(pr, &pr.shared_review, false, machines, now) == Reviewer::Here
+    let owner_open = owner(pr, machines).is_some_and(|m| m.pr(&pr.key).is_some_and(|c| c.state.is_open()));
+    pr.mine && origin(lanes, pr).is_none() && owner_open && reviewer(pr, &pr.shared_review, false, machines, now) == Reviewer::Here
 }
 
 /// The harness that wrote PR `pr` of yours, by the primary session the machine that owns it names
