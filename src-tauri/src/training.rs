@@ -4,7 +4,7 @@
 //! privacy settings (claude/training.rs), and so on for the others. The engine reads every
 //! account's as accountpoll.rs says (`TrainingPoll`), and once more right after Codealong turns
 //! one off, to see that it took. The usage bar
-//! flags an account whose provider may train on it (src/ui/UsageBar.tsx), and Settings ›
+//! flags an account whose provider may train on it (src/ui/StatusBar.tsx), and Settings ›
 //! Accounts says where each one stands.
 
 use anyhow::{anyhow, Result};
