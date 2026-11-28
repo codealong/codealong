@@ -47,7 +47,11 @@ export function applyPush(prev: Board | null, push: BoardPush): Board | null {
   const schedules = listOf(prev.schedules, push.scheduleOrder, push.schedules, (s) => s.id);
   const todos = listOf(prev.todos, push.todoOrder, push.todos, (t) => t.id);
   if (!lanes || prs === null || schedules === null || todos === null) return null;
-  const next = { ...prev, ...push.fields, rev: push.rev, lanes, prs, schedules, todos };
+  const next = { ...prev, ...push.fields, rev: push.rev, lanes };
+  // A list the board doesn't have stays missing, not written in as undefined.
+  if (prs) next.prs = prs;
+  if (schedules) next.schedules = schedules;
+  if (todos) next.todos = todos;
   for (const name of push.gone ?? []) delete (next as Record<string, unknown>)[name];
   return next;
 }
@@ -90,14 +94,19 @@ function sessionsOf(prev: Session[], keys: string[] | undefined, changed: Sessio
 
 /** One of the board's lists sent an item at a time: `prev` with the items that `changed` in
  *  place of its own, in the new `order` when there is one; null when the order names an item
- *  neither has. A list `prev` doesn't have stays missing until a push sends it. */
+ *  neither has, or an item comes without an order that `prev` doesn't have (the engine sends the
+ *  order whenever its keys change, so `prev` isn't the list the push changes). A list `prev`
+ *  doesn't have stays missing until a push sends it. */
 function listOf<T>(prev: T[], order: string[] | undefined, changed: T[] | undefined, keyOf: (item: T) => string): T[] | null;
 function listOf<T>(prev: T[] | undefined, order: string[] | undefined, changed: T[] | undefined, keyOf: (item: T) => string): T[] | undefined | null;
 function listOf<T>(prev: T[] | undefined, order: string[] | undefined, changed: T[] | undefined, keyOf: (item: T) => string): T[] | undefined | null {
-  if (!order && !changed) return prev;
+  if (!order && !changed?.length) return prev;
   const fresh = new Map((changed ?? []).map((item) => [keyOf(item), item]));
-  if (!order) return (prev ?? []).map((item) => fresh.get(keyOf(item)) ?? item);
   const had = new Map((prev ?? []).map((item) => [keyOf(item), item]));
+  if (!order) {
+    for (const key of fresh.keys()) if (!had.has(key)) return null;
+    return (prev ?? []).map((item) => fresh.get(keyOf(item)) ?? item);
+  }
   const out: T[] = [];
   for (const key of order) {
     const item = fresh.get(key) ?? had.get(key);
