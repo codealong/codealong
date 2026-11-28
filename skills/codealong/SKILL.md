@@ -584,8 +584,9 @@ user's sessions with nothing tying them to yours.
   goes. Don't pass `--in background` for a harness with no background service of its own (Codex,
   OpenCode, Antigravity, Cursor): for those it means a terminal behind your user's windows, where
   its terminal UI can stop on a screen of its own before it starts (an update offer, a repo's
-  hooks to review) and your helper waits unseen. Left out, it runs in Codealong wherever
-  Codealong can run its harness (Claude Code, Codex, OpenCode and Antigravity), with no terminal to stop in.
+  hooks to review) and your helper waits unseen. Left out, it runs out of sight: a Claude Code
+  helper under its background service, and a Codex, OpenCode or Antigravity one in Codealong
+  where Codealong can run it, with no terminal to stop in.
 - Started in a terminal on a harness that names its own sessions (Codex, OpenCode, Antigravity,
   Cursor), it has no key until it starts (`key` is null), so there's nothing to wait on: use `--report`.
   It's listed under your session as starting until it makes one. You're told too if it hasn't

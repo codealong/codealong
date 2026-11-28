@@ -18,7 +18,6 @@ it is, how to install it and how to get going. The settings file is annotated in
 - [For agents](#for-agents)
 - [Codealong's server](#codealongs-server)
 - [Files Codealong keeps](#files-codealong-keeps)
-- [What's next](#whats-next)
 
 ## The main window
 
@@ -2736,8 +2735,9 @@ so the two read as one toolbar across the window. What
 sits on the glass (a field, a button's well, a selected or hovered row in the sidebar, a keycap, a
 line) is a shade of whatever is behind it rather than a gray of its own, as macOS's own sidebars
 draw it, so it suits whatever color the wallpaper gives the glass. The title bar's buttons, the
-search pill, the filter chips and the usage bar's controls sit on thin glass platters, as macOS 26's
-toolbars have them, and secondary text and usage meters are a see-through black or white rather
+bar-placement capsule, the search pill and the quick panel's footer chips sit on thin glass
+platters, as macOS 26's toolbars have them; the sidebar's filter chips and the usage bar's chips
+and buttons stay flat, with a see-through tint on hover; and secondary text and usage meters are a see-through black or white rather
 than a gray, so they keep their contrast over any wallpaper. The rows, the cards and the panel
 on the right keep their own ground, so what you read is as legible as before. The quick panel's bar, along its foot, shows the glass too,
 while the rest of the panel keeps its ground. The floating bar's pill sits on macOS's glass too,
@@ -5891,8 +5891,8 @@ agent's messages held for a
 session that waits on you, until they go, in `held-messages.json`; the messages sessions sent each
 other in the last day, for the warning about two going back and forth, in `chatter.json`; the
 experiments' runs in `experiments.json`, and each run's task, diffs, reviews, its command's output
-and its judges' folders in `experiments/<run>/`; the second pass over each automatic review, by PR
-and commit, in `pr-verify/`; the full copy of the conversation a session moved to another agent
+and its judges' folders in `experiments/<run>/`; while an automatic review's second pass runs, the
+PR's description and diff it reads in `pr-verify/`, taken away once it's done; the full copy of the conversation a session moved to another agent
 takes with it in `files/handoffs/`, for 30 days; what every
 model call used, and Claude's extra usage as it was read, in `ledger.sqlite` (the Analytics window's,
 which with `[experimental] analytics` on also keeps who began each turn and how the sessions you
