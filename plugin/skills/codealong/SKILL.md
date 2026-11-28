@@ -229,8 +229,8 @@ or Cursor.
   handing one you started more of its work rather than starting another. Its user may have
   turned that off, for all sessions or all but those linked by `codealong start`; the error
   says why when nothing went. A new session is `codealong start`, with your user's say-so.
-- A session moved to another account (Move to, in Codealong) goes on there as a new session
-  with a key of its own. A message to the old key is turned away with the new one named, and
+- A session moved to another account or agent (Move to, in Codealong, or `codealong session
+  handoff me --to <account>` for your own) goes on there as a new session with a key of its own. A message to the old key is turned away with the new one named, and
   `codealong session show` gives it as `movedTo`: send there, and use that key from then on.
 - When your user asks, `codealong session stop <key>` stops the turn a session is taking,
   `session rename <key> "<name>"` names it, and `session fork <key> ["<prompt>"]` forks it into
@@ -544,8 +544,8 @@ each account reaches (*Services on other accounts*).
 ## Starting sessions
 
 `codealong start --todo <id>` starts a session on the todo (its title and description as the
-prompt, then a line naming the todo) in the current worktree, on the account Auto picks (an account with room, or from Auto's routing group, the one whose week resets soonest), in a new terminal
-(a tab or window, as config.toml's `new_terminal` says), and links the session to the todo. Give `--todo` more than once to
+prompt, then a line naming the todo) in the current worktree, on the account Auto picks (an account with room, or from Auto's routing group, the one whose week resets soonest), where the account's `start` says
+(by default in Codealong for Claude Code, Codex, OpenCode and Antigravity accounts, and in a new terminal for Cursor, a tab or window as config.toml's `new_terminal` says), and links the session to the todo. Give `--todo` more than once to
 start several todos in one session: the prompt numbers them, and the session is linked to each. Leave `--account` out to let `auto` pick from the project's default routing group (respecting usage caps, active limit refusals, boundaries and model fallback), or pass a routing group name (`--account reviewers`); name a specific account only when the user or an MCP service requires it (`--dry-run` shows what would be picked). Codealong refuses agent starts and wakes on an account currently at a usage limit and says when it resets. `--account`, `--worktree`, `--new-worktree`, `--chat`,
 `--in terminal|background|claude-app|codex-app|codealong` (background: nothing comes forward; Claude Code's `--bg` with no terminal, any other agent in Codealong's tmux with no window), `--model` and `--effort` change that. `--device <name> --prompt "…"` starts it on
 another of your user's machines (`codealong devices` lists them; it needs remote control on there),
@@ -585,7 +585,7 @@ user's sessions with nothing tying them to yours.
   OpenCode, Antigravity, Cursor): for those it means a terminal behind your user's windows, where
   its terminal UI can stop on a screen of its own before it starts (an update offer, a repo's
   hooks to review) and your helper waits unseen. Left out, it runs in Codealong wherever
-  Codealong can run its harness (it can run Codex), with no terminal to stop in.
+  Codealong can run its harness (Claude Code, Codex, OpenCode and Antigravity), with no terminal to stop in.
 - Started in a terminal on a harness that names its own sessions (Codex, OpenCode, Antigravity,
   Cursor), it has no key until it starts (`key` is null), so there's nothing to wait on: use `--report`.
   It's listed under your session as starting until it makes one. You're told too if it hasn't
@@ -675,7 +675,8 @@ both-orders for 2 arms), and an optional `--eval` command.
   3. Report the queued run id and arms so the user can watch with `codealong exp show <id>`.
 - **Presets in `config.toml`:** `[experiments.<name>]` sets `arms` (at least 2), optional `judge`
   or `judges = [...]` (panel), optional `judge_mode` (`"auto"`, `"rank"`, `"pairwise"`), optional
-  `rubric`, optional `eval`, and optional `max_parallel`. No `eval` is required when relying on
+  `rubric`, optional `eval` (with `eval_timeout` in seconds and `skip_base_check`), and optional
+  `max_parallel`. No `eval` is required when relying on
   the judge(s) for code quality.
 - **Ad-hoc runs:** pass `--arm "<worker>[+<reviewer>]"` at least twice, repeatable `--judge "<seat>"`,
   optional `--judge-mode auto|rank|pairwise`, optional `--rubric "<criteria>"`, and `--dry-run`
