@@ -857,11 +857,24 @@ pub trait Adapter: Sync {
         None
     }
 
+    /// All PRs a line of its records says the session made or changed, by URL and time, with the
+    /// log it came from (`source`) for harnesses whose command and output live on separate lines.
+    fn pr_marks_on(&self, line: &str, _source: &crate::prlinks::Source<'_>) -> Vec<(String, i64)> {
+        self.pr_made(line).into_iter().collect()
+    }
+
     /// The branch a line of its records says the session pushed to, as the remote names it, with
     /// the line's time (prlinks.rs `line_push`): how often a session pushed to a PR's branch says
     /// whether it took the PR over (board.rs `pr_primary`).
     fn pushed(&self, _line: &str) -> Option<(String, i64)> {
         None
+    }
+
+    /// All branches a line of its records says the session pushed to, by remote branch name and
+    /// time, with the log it came from (`source`) for harnesses whose command and output live on
+    /// separate lines.
+    fn pushes_on(&self, line: &str, _source: &crate::prlinks::Source<'_>) -> Vec<(String, i64)> {
+        self.pushed(line).into_iter().collect()
     }
 
     /// Text a line of its records has when it may say the session made or showed you a page on

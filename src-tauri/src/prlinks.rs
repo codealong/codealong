@@ -7,7 +7,7 @@
 //! the sessions picked by hand as their PR's primary (`PrLink::primary`).
 
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
@@ -161,12 +161,29 @@ pub fn from_url(url: &str) -> Option<String> {
     (pull == "pull" && !owner.is_empty() && !name.is_empty() && !number.is_empty()).then(|| format!("{owner}/{name}#{number}"))
 }
 
+/// Where a log line being scanned for PR marks or pushes came from, so harnesses whose tool call
+/// and output live on separate lines (Antigravity) can verify the command that produced an output
+/// line.
+pub enum Source<'a> {
+    File(&'a Path),
+    Text(&'a str),
+}
+
 /// The PRs a log's lines show the session made or changed, each with when (the line's time).
-/// Each harness knows the marks its own records leave (`Adapter::pr_made`): Claude Code's on a
-/// command's result, Codex's on the command or on its app's `attach_artifact` tool. Only lines
-/// with one of those marks are parsed.
+/// Each harness knows the marks its own records leave (`Adapter::pr_made` / `pr_marks_on`):
+/// Claude Code's on a command's result, Codex's on the command or on its app's `attach_artifact`
+/// tool, Antigravity's on a verified `gh pr create` command's result. Only lines with one of those
+/// marks are parsed.
 pub fn pr_marks(text: &str) -> Vec<(String, i64)> {
-    text.lines().filter_map(line_mark).collect()
+    let source = Source::Text(text);
+    text.lines().flat_map(|line| line_marks(line, &source)).collect()
+}
+
+pub fn line_marks(line: &str, source: &Source<'_>) -> Vec<(String, i64)> {
+    crate::harness::all()
+        .flat_map(|a| a.pr_marks_on(line, source))
+        .filter_map(|(url, at)| Some((pr_key(&from_url(&url)?), at)))
+        .collect()
 }
 
 pub fn line_mark(line: &str) -> Option<(String, i64)> {
@@ -211,10 +228,23 @@ pub fn mark_order(at: i64) -> (bool, i64) {
 /// how often each of its sessions pushed to its branch (board.rs `pr_primary`).
 pub type Pushes = HashMap<String, Vec<(String, i64)>>;
 
+/// The branches a log line says its session pushed to, with when, from whichever harness's
+/// records the line is (`Adapter::pushes_on`), read from the lines `needles` finds.
+pub fn line_pushes(line: &str, source: &Source<'_>) -> Vec<(String, i64)> {
+    crate::harness::all().flat_map(|a| a.pushes_on(line, source)).collect()
+}
+
 /// The branch a log line says its session pushed to, with when, from whichever harness's
 /// records the line is (`Adapter::pushed`), read from the lines `needles` finds.
 pub fn line_push(line: &str) -> Option<(String, i64)> {
     crate::harness::all().find_map(|a| a.pushed(line))
+}
+
+/// All pushes across a log's lines (`line_pushes` over `Source::Text`).
+#[cfg(test)]
+pub fn pushes(text: &str) -> Vec<(String, i64)> {
+    let source = Source::Text(text);
+    text.lines().flat_map(|line| line_pushes(line, &source)).collect()
 }
 
 /// Adds a push to a session's, once: the same log is read again whole when the readers scan
@@ -314,9 +344,12 @@ mod tests {
         let codex = r#"{"timestamp":"1970-01-01T00:00:02.000Z","type":"event_msg","payload":{"type":"item_completed","item":{"type":"CommandExecution","command":["/bin/zsh","-c","gh pr create --draft --title x"],"stdout":"Warning: 1 uncommitted change\nhttps://github.com/o/infra/pull/59\n"}}}"#;
         let codex_view = r#"{"type":"event_msg","payload":{"type":"item_completed","item":{"type":"CommandExecution","command":["/bin/zsh","-c","gh pr view 58 --json url"],"stdout":"https://github.com/o/infra/pull/58\n"}}}"#;
         let attach = r#"{"type":"event_msg","payload":{"type":"item_completed","item":{"type":"McpToolCall","server":"codex_app","tool":"attach_artifact","arguments":{"artifact_type":"pull_request","url":"https://github.com/o/infra/pull/60"}}}}"#;
-        let antigravity = r#"{"type":"GENERIC","created_at":"1970-01-01T00:00:04Z","content":"Created At: 2026-11-27T15:25:49-08:00\nCommand exited with code 0.\n\nCommand output:\nCreating pull request for feat into main in o/app\r\n\r\r⣾\rhttps://github.com/o/app/pull/61\r\n"}"#;
+        let agy_call = r#"{"step_index":10,"source":"MODEL","type":"PLANNER_RESPONSE","status":"DONE","created_at":"1970-01-01T00:00:03Z","tool_calls":[{"name":"run_command","args":{"CommandLine":"gh pr create --title x"}}]}"#;
+        let antigravity = r#"{"step_index":11,"source":"MODEL","type":"GENERIC","status":"DONE","created_at":"1970-01-01T00:00:04Z","content":"Created At: 2026-11-27T15:25:49-08:00\nCommand exited with code 0.\n\nCommand output:\nCreating pull request for feat into main in o/app\r\n\r\r⣾\rhttps://github.com/o/app/pull/61\r\n"}"#;
+        let agy_debug_call = r#"{"step_index":20,"source":"MODEL","type":"PLANNER_RESPONSE","status":"DONE","created_at":"1970-01-01T00:00:05Z","tool_calls":[{"name":"run_command","args":{"CommandLine":"python3 -c 'print(open(\"log\").read())'"}}]}"#;
+        let agy_debug_out = r#"{"step_index":21,"source":"MODEL","type":"GENERIC","status":"DONE","created_at":"1970-01-01T00:00:06Z","content":"Created At: 2026-11-27T15:25:49-08:00\nCommand exited with code 0.\n\nCommand output:\nCreating pull request for other into main in o/app\r\nhttps://github.com/o/app/pull/99\r\n"}"#;
         let asked = r#"{"type":"event_msg","payload":{"type":"item_completed","item":{"type":"UserMessage","content":[{"type":"text","text":"run gh pr create, CommandExecution"}]}}}"#;
-        let text = [claude, push, codex, codex_view, attach, antigravity, asked, linked].join("\n");
+        let text = [claude, push, codex, codex_view, attach, agy_call, antigravity, agy_debug_call, agy_debug_out, asked, linked].join("\n");
         assert_eq!(pr_marks(&text), vec![("sprucehq/spark#1057".to_string(), 1000), ("o/infra#59".to_string(), 2000), ("o/infra#60".to_string(), 0), ("o/app#61".to_string(), 4000), ("acme/halyard-api#83".to_string(), 3000)]);
     }
 
@@ -324,11 +357,13 @@ mod tests {
     fn finds_the_branches_a_session_pushed_to() {
         // `git push origin local-tiers:feature`: the remote's branch.
         let push = r#"{"type":"user","timestamp":"1970-01-01T00:00:04.000Z","toolUseResult":{"stdout":"   5f94b35..f87a4f1  local-tiers -> feature","gitOperation":{"push":{"branch":"feature"}}}}"#;
-        let agy_push = r#"{"type":"GENERIC","created_at":"1970-01-01T00:00:05Z","content":"Created At: 2026-11-27T15:25:49-08:00\nCommand exited with code 0.\n\nCommand output:\nTo github.com:o/r.git\r\n * [new branch]        local -> fix-readme\r\n"}"#;
+        let agy_call = r#"{"step_index":1,"source":"MODEL","type":"PLANNER_RESPONSE","status":"DONE","created_at":"1970-01-01T00:00:04Z","tool_calls":[{"name":"run_command","args":{"CommandLine":"git push origin HEAD:fix-readme"}}]}"#;
+        let agy_push = r#"{"step_index":2,"source":"MODEL","type":"GENERIC","status":"DONE","created_at":"1970-01-01T00:00:05Z","content":"Created At: 2026-11-27T15:25:49-08:00\nCommand exited with code 0.\n\nCommand output:\nTo github.com:o/r.git\r\n * [new branch]        local -> fix-readme\r\n"}"#;
         let edit = r#"{"type":"user","timestamp":"1970-01-01T00:00:01.000Z","toolUseResult":{"gitOperation":{"pr":{"number":3,"url":"https://github.com/o/r/pull/3","action":"edited"}}}}"#;
         let said = r#"{"type":"user","toolUseResult":{"stdout":"{\"gitOperation\":{\"push\":{\"branch\":\"other\"}}}"}}"#;
         assert_eq!(line_push(push), Some(("feature".to_string(), 4000)));
-        assert_eq!(line_push(agy_push), Some(("fix-readme".to_string(), 5000)));
+        assert_eq!(pushes(&format!("{agy_call}\n{agy_push}")), vec![("fix-readme".to_string(), 5000)]);
+        assert_eq!(line_push(agy_push), None, "antigravity output without its paired command is ignored");
         assert_eq!(line_push(edit), None);
         assert_eq!(line_push(said), None, "a command's output that only prints a push");
         // Once each: a log read again doesn't count its pushes twice.
