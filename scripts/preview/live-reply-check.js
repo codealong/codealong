@@ -21,7 +21,6 @@
     input: null,
     cannot: null,
     questions: [{ question: 'Which plans do you approve?', header: 'Plans', options: [{ label: 'Cloud SQL proxy 2.26.2' }, { label: 'Qdrant v1.19.2 rebuild' }], multiSelect: true }],
-    unwritten: false,
   };
   var real = window.__TAURI_INTERNALS__.invoke;
   window.__TAURI_INTERNALS__.invoke = function (cmd, args, options) {

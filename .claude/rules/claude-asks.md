@@ -157,8 +157,9 @@ under `src-tauri/src/`.
   either way, and nothing is slower but a paragraph's start in the terminal; the transcript got
   the whole reply 4.5 s after the hook had its first paragraph. Hence a setting, off by default
   (the user chose it on for their accounts, 2026-10-16). Without it what a question came with
-  shows in the conversation once it's answered (`Pending.unwritten`, set by `asks::written_in`,
-  which the panel no longer says in words: asked 2026-11-18).
+  shows in the conversation once it's answered, and the panel says nothing of it meanwhile
+  (asked 2026-11-18; the `Pending.unwritten` that once said so went once the phone stopped
+  reading it too).
 
 ## A session's worktree
 
