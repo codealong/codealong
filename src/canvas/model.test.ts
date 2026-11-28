@@ -355,6 +355,9 @@ describe('readDoc and links', () => {
       ['session:boss', 'session:fork'],
       ['session:boss', 'session:sent'],
     ]);
+    // A helper whose parent moved ties to its current helper.parent rather than the archived original.
+    const moved = ents([lane('a', [session('boss', { archived: true }), session('copy', { origin: { key: 'boss', how: 'fork' } }), session('h', { origin: { key: 'boss', how: 'started' }, helper: { parent: 'copy' } })])], []);
+    expect(originLinks(moved, new Set(['copy', 'h'].map((k) => refId('session', k))))).toEqual([['session:copy', 'session:h']]);
   });
 });
 

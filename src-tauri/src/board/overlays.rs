@@ -192,7 +192,10 @@ pub fn helper_of(parent: Option<(&str, bool)>, on_board: impl Fn(&str) -> bool, 
 /// session you made your own (`own`) stays yours. `owner_of` names a folder's session by its
 /// harness and ID.
 pub fn scratch_helpers(sessions: &mut [Session], owner_of: impl Fn(&Path) -> Option<(Harness, String)>, own: impl Fn(&str) -> bool) {
-    let keys: HashMap<(Harness, String), String> = sessions.iter().map(|s| ((s.harness, s.id.clone()), s.key.clone())).collect();
+    let keys: HashMap<(Harness, String), String> = sessions
+        .iter()
+        .map(|s| ((s.harness, s.id.clone()), s.moved_to.clone().unwrap_or_else(|| s.key.clone())))
+        .collect();
     for s in sessions.iter_mut().filter(|s| s.helper.is_none() && s.origin.is_none() && !s.headless && !own(&s.key)) {
         let Some(parent) = owner_of(Path::new(&s.cwd)).and_then(|o| keys.get(&o)).filter(|k| **k != s.key) else { continue };
         s.helper = Some(Helper { parent: Some(parent.clone()), pr: None, report: false, yours: false });
@@ -1724,6 +1727,14 @@ mod tests {
         let mut alone = vec![at("test-chat", &format!("{JOB}/tmp/efftest"))];
         scratch_helpers(&mut alone, owner_of, |_| false);
         assert_eq!(alone[0].helper, None);
+        // When the scratch owner moved to another session, its scratch helper follows the move.
+        let mut moved = vec![
+            Session { moved_to: Some("claude:claude2:copy".into()), ..at("54a9a7a0-b633", "/r/codealong") },
+            Session::new(Harness::Claude, "claude2", "copy"),
+            at("test-chat", &format!("{JOB}/tmp/efftest")),
+        ];
+        scratch_helpers(&mut moved, owner_of, |_| false);
+        assert_eq!(moved[2].helper.as_ref().and_then(|h| h.parent.as_deref()), Some("claude:claude2:copy"));
     }
 
     #[test]

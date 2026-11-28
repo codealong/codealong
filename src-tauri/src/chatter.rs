@@ -219,7 +219,7 @@ impl Log {
 pub fn is_helper_pair(a: &Session, b: &Session, origins: &origins::Store) -> bool {
     let helps = |child: &Session, parent: &Session| {
         child.helper.as_ref().is_some_and(|h| h.parent.as_deref() == Some(parent.key.as_str()) || h.pr.is_some())
-            || origins.helper_of(&child.key).is_some_and(|(p, _)| p == parent.key.as_str())
+            || origins.helper_of(&child.key).is_some_and(|(p, _)| p == parent.key.as_str() || origins.moved_to(p, |_| true).as_deref() == Some(parent.key.as_str()))
     };
     helps(a, b) || helps(b, a)
 }
@@ -335,6 +335,24 @@ mod tests {
         origins.sessions.insert(helper.into(), crate::origins::Entry { from: boss.into(), how: OriginHow::Started, at: NOW, helper: true, report: true, known: true });
         let plain = vec![sess(boss, "Boss"), sess(helper, "Review helper")];
         assert!(log.peers_for(&plain, &origins, NOW).is_empty());
+
+        // Excluded too once the boss moves to another account/harness (both with and without board helper).
+        let moved = "claude:claude2:boss-moved";
+        let kept = "codex:codex:boss-kept";
+        origins.sessions.insert(moved.into(), crate::origins::Entry { from: boss.into(), how: OriginHow::Fork, at: NOW + 1, helper: false, report: false, known: true });
+        origins.sessions.insert(kept.into(), crate::origins::Entry { from: boss.into(), how: OriginHow::Fork, at: NOW + 2, helper: false, report: false, known: true });
+        origins.kept.insert(kept.into());
+        let mut moved_log = Log::default();
+        for i in 0..6 {
+            let (f, t) = if i % 2 == 0 { (moved, helper) } else { (helper, moved) };
+            moved_log.record(f, t, NOW - (6 - i) * 1000);
+            let (kf, kt) = if i % 2 == 0 { (kept, helper) } else { (helper, kept) };
+            moved_log.record(kf, kt, NOW - (6 - i) * 1000);
+        }
+        let moved_sessions = vec![Session { archived: true, ..sess(boss, "Boss") }, sess(moved, "Boss moved"), sess(kept, "Boss kept"), sess(helper, "Review helper")];
+        let peers = moved_log.peers_for(&moved_sessions, &origins, NOW);
+        assert!(!peers.contains_key(moved), "moved parent talking to its helper isn't peer chatter: {peers:?}");
+        assert!(peers.contains_key(kept), "kept fork is not the helper's parent: {peers:?}");
 
         // Messages older than WINDOW_MS fall out of stats.
         let mut old = Log::default();

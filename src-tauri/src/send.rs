@@ -421,12 +421,14 @@ impl<'a> Message<'a> {
 }
 
 /// Whether `helper` is still a helper of `parent` on the board and was started as one by a start
-/// that said which session it made (`origins::Store::known_helper_of`). One found only by matching
-/// its start to the next session in its worktree (`origins::resolve`) isn't, nor one you made your
-/// own (`Session::helper` gone, state.rs `own`).
+/// that said which session it made (`origins::Store::known_helper_of`), following any move of the
+/// session that started it (`origins::Store::follow_move`). One found only by matching its start to
+/// the next session in its worktree (`origins::resolve`) isn't, nor one you made your own
+/// (`Session::helper` gone, state.rs `own`).
 fn is_known_helper(board: &Board, origins: &crate::origins::Store, helper: &str, parent: &str) -> bool {
     let helps = board.session(helper).is_some_and(|(_, s)| s.helper.as_ref().and_then(|h| h.parent.as_deref()) == Some(parent));
-    helps && origins.known_helper_of(helper) == Some(parent)
+    let exists = |k: &str| board.session(k).is_some();
+    helps && origins.known_helper_of(helper).is_some_and(|p| origins.follow_move(p, exists) == parent)
 }
 
 /// Whether an agent's message comes from a helper the session it goes to started
@@ -897,7 +899,7 @@ fn deliver(engine: Option<&crate::engine::Handle>, board: &Board, cfg: &Config, 
         let ctx = crate::harness::Ctx { account };
         let holds = || adapter.would_hold_messages(&ctx, session);
         let out_of_sight = || crate::start::resume_out_of_sight(account, &crate::util::home());
-        if let Some(woken) = wakes(cfg, &origins, &msg, session, &routes, holds, out_of_sight)? {
+        if let Some(woken) = wakes(cfg, &origins, |k| board.session(k).is_some(), &msg, session, &routes, holds, out_of_sight)? {
             return wake(engine, board, cfg, session, woken, &msg);
         }
         routes = agent_routes(session, routes)?;
@@ -1059,15 +1061,16 @@ enum Link {
 /// and as a resume's prompt it would act on it unasked. None for
 /// a message from no session, which goes no further than an agent's does (`agent_routes`); an
 /// error says why one from a session isn't resumed.
-fn wakes(cfg: &Config, origins: &crate::origins::Store, msg: &Message, session: &Session, routes: &[Route], holds: impl FnOnce() -> bool, place: impl FnOnce() -> Option<Place>) -> Result<Option<(Place, Link)>> {
+fn wakes(cfg: &Config, origins: &crate::origins::Store, exists: impl Fn(&str) -> bool, msg: &Message, session: &Session, routes: &[Route], holds: impl FnOnce() -> bool, place: impl FnOnce() -> Option<Place>) -> Result<Option<(Place, Link)>> {
     let Some(from) = msg.sender.agent_key() else { return Ok(None) };
     let resumes = routes.iter().any(|r| matches!(r, Route::Resume));
     if session.live || !resumes {
         return Ok(None);
     }
-    let link = if origins.known_starter_of(from) == Some(session.key.as_str()) {
+    let starter = |k: &str| origins.known_starter_of(k).map(|p| origins.follow_move(p, &exists));
+    let link = if starter(from).as_deref() == Some(session.key.as_str()) {
         Link::StartedYours
-    } else if origins.known_starter_of(&session.key) == Some(from) {
+    } else if starter(&session.key).as_deref() == Some(from) {
         Link::YoursStarted
     } else {
         Link::Neither
@@ -1881,6 +1884,30 @@ mod tests {
         talking.helper.as_mut().unwrap().yours = true;
         let taken = Board { lanes: vec![crate::fixtures::lane("/r", vec![of("antigravity:antigravity:boss", None), talking])], ..Board::default() };
         assert!(!to_its_helper(&taken, &origins, &from("antigravity:antigravity:boss"), "claude:claude2:rev"));
+
+        // When the parent moves to another account/harness, auto-trust follows it in both directions,
+        // while the moved-away original and any kept fork copy do not hold it.
+        origins.sessions.insert("claude:claude:boss2".into(), Entry { from: "antigravity:antigravity:boss".into(), how: OriginHow::Fork, at: 2, helper: false, report: false, known: true });
+        origins.sessions.insert("codex:codex:kept".into(), Entry { from: "antigravity:antigravity:boss".into(), how: OriginHow::Fork, at: 3, helper: false, report: false, known: true });
+        origins.kept.insert("codex:codex:kept".into());
+        let moved_board = Board {
+            lanes: vec![crate::fixtures::lane(
+                "/r",
+                vec![
+                    Session { archived: true, ..of("antigravity:antigravity:boss", None) },
+                    of("claude:claude:boss2", None),
+                    of("codex:codex:kept", None),
+                    of("claude:claude2:rev", Some("claude:claude:boss2")),
+                ],
+            )],
+            ..Board::default()
+        };
+        let cfg = Config::default();
+        assert!(to_its_helper(&moved_board, &origins, &from("claude:claude:boss2"), "claude:claude2:rev"));
+        assert!(from_its_helper(&moved_board, &cfg, &origins, &from("claude:claude2:rev"), "claude:claude:boss2"));
+        assert!(!to_its_helper(&moved_board, &origins, &from("antigravity:antigravity:boss"), "claude:claude2:rev"));
+        assert!(!to_its_helper(&moved_board, &origins, &from("codex:codex:kept"), "claude:claude2:rev"));
+        assert!(!from_its_helper(&moved_board, &cfg, &origins, &from("claude:claude2:rev"), "codex:codex:kept"));
     }
 
     /// One of a harness's own ways in is sent by the harness, with whose the message is and
@@ -2042,7 +2069,7 @@ mod tests {
         let wakes_for = |cfg: &Config, sender: &Sender, s: &Session, routes: &[Route], bypasses: bool, holds: bool| {
             let mut msg = Message::new(&board, cfg, "PR #1199 is open.", sender, false);
             msg.bypasses = bypasses;
-            wakes(cfg, &origins, &msg, s, routes, || holds, || Some(Place::Background)).map_err(|e| e.to_string())
+            wakes(cfg, &origins, |k| board.session(k).is_some(), &msg, s, routes, || holds, || Some(Place::Background)).map_err(|e| e.to_string())
         };
         let woken = |link| Ok(Some((Place::Background, link)));
         assert_eq!(wakes_for(&cfg, &senders[0], &boss, &resumes, false, false), woken(Link::StartedYours));
@@ -2067,7 +2094,7 @@ mod tests {
         assert_eq!(wakes_for(&cfg, &senders[3], &boss, &resumes, true, true), woken(Link::Neither));
         let mut msg = Message::new(&board, &cfg, "hi", &senders[3], false);
         msg.bypasses = true;
-        assert!(wakes(&cfg, &origins, &msg, &boss, &resumes, || false, || None).unwrap_err().to_string().contains("can't resume it out of sight"));
+        assert!(wakes(&cfg, &origins, |k| board.session(k).is_some(), &msg, &boss, &resumes, || false, || None).unwrap_err().to_string().contains("can't resume it out of sight"));
 
         // With any session's turned off, only along a start, either way.
         let mut starts = Config::default();
@@ -2080,6 +2107,18 @@ mod tests {
         let from_boss = Sender::Agent(Some("claude:claude2:boss".into()));
         assert_eq!(wakes_for(&starts, &from_boss, &child, &resumes, false, false), woken(Link::YoursStarted));
         assert_eq!(wakes_for(&cfg, &from_boss, &child, &resumes, false, false), woken(Link::YoursStarted));
+        // If boss moved to another account, the moved copy keeps the start link in both directions.
+        let mut moved_origins = origins.clone();
+        moved_origins.sessions.insert("claude:claude:boss2".into(), entry("claude:claude2:boss", OriginHow::Fork, true));
+        let boss2 = Session { key: "claude:claude:boss2".into(), account: "claude".into(), ..boss.clone() };
+        let moved_board = Board { lanes: vec![crate::fixtures::lane("/w", vec![Session { archived: true, ..boss.clone() }, boss2.clone(), child.clone()])], ..Board::default() };
+        let wakes_moved = |sender: &Sender, s: &Session| {
+            let msg = Message::new(&moved_board, &starts, "Update.", sender, false);
+            wakes(&starts, &moved_origins, |k| moved_board.session(k).is_some(), &msg, s, &resumes, || false, || Some(Place::Background)).map_err(|e| e.to_string())
+        };
+        assert_eq!(wakes_moved(&senders[0], &boss2), woken(Link::StartedYours));
+        assert_eq!(wakes_moved(&Sender::Agent(Some("claude:claude:boss2".into())), &child), woken(Link::YoursStarted));
+        assert!(wakes_moved(&from_boss, &child).is_err(), "archived original no longer holds the start link");
         // Not one only matched to its start afterwards, a fork of it, one another started, nor
         // another session the same one started.
         for key in ["codex:codex:matched", "claude:claude2:copy", "claude:claude2:other"] {

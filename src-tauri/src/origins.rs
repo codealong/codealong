@@ -242,6 +242,11 @@ impl Store {
         (at != key).then_some(at)
     }
 
+    /// `key` followed to the copy it moved to when one satisfying `exists` is there, else `key`.
+    pub fn follow_move(&self, key: &str, exists: impl Fn(&str) -> bool) -> String {
+        self.moved_to(key, exists).unwrap_or_else(|| key.to_string())
+    }
+
     /// Marks each of `sessions` that moved with the copy it goes on as among them
     /// (`Session::moved_to`), so the windows treat it as the engine does: neither sent to nor
     /// resumed, nor moved again.
@@ -335,6 +340,11 @@ impl<'a> MoveIndex<'a> {
             }
         }
         (at != key).then(|| at.to_string())
+    }
+
+    /// `key` followed to the copy it moved to when one satisfying `exists` is there, else `key`.
+    pub fn follow(&self, key: &str, exists: impl Fn(&str) -> bool) -> String {
+        self.moved_to(key, exists).unwrap_or_else(|| key.to_string())
     }
 }
 
@@ -698,7 +708,16 @@ pub fn waiting_for(board: &crate::model::Board, now: i64) -> Vec<Pending> {
     let mut store = (*current).clone();
     let sessions = candidates(board, &store.pending);
     resolve(&mut store, &sessions, &crate::todos::LaneIndex::of(&board.lanes), now);
-    store.pending
+    let mut pending = std::mem::take(&mut store.pending);
+    let moves = store.move_index();
+    if !moves.is_empty() {
+        for p in &mut pending {
+            if !p.from.is_empty() {
+                p.from = moves.follow(&p.from, |k| board.session(k).is_some());
+            }
+        }
+    }
+    pending
 }
 
 /// Matches pending starts to the sessions on the board, writes down what matched, and returns
@@ -1202,5 +1221,9 @@ mod tests {
         assert_eq!(index.moved_to("claude:one:a", |k| k == "claude:two:b").as_deref(), Some("claude:two:b"));
         assert_eq!(index.moved_to("claude:one:a", |_| false), None);
         assert_eq!(index.moved_to("claude:one:t", exists).as_deref(), Some("claude:two:tie2"));
+        assert_eq!(index.follow("claude:one:a", exists), "claude:three:c");
+        assert_eq!(index.follow("claude:one:none", exists), "claude:one:none");
+        assert_eq!(store.follow_move("claude:one:a", exists), "claude:three:c");
+        assert_eq!(store.follow_move("claude:one:none", exists), "claude:one:none");
     }
 }

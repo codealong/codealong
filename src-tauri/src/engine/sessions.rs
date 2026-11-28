@@ -52,7 +52,24 @@ impl Engine {
         if store.pending.is_empty() {
             return sessions;
         }
-        let waits = crate::starting::waiting(&store.pending, &self.screens, |account| self.harness_word(account), &launch::terminal_name(&self.cfg.apps.terminal), now);
+        let moves = store.move_index();
+        let pending: Vec<origins::Pending> = if moves.is_empty() {
+            store.pending.clone()
+        } else {
+            let keys: HashSet<&str> = sessions.iter().map(|s| s.key.as_str()).collect();
+            store
+                .pending
+                .iter()
+                .map(|p| {
+                    if p.from.is_empty() {
+                        p.clone()
+                    } else {
+                        origins::Pending { from: moves.follow(&p.from, |k| keys.contains(k)), ..p.clone() }
+                    }
+                })
+                .collect()
+        };
+        let waits = crate::starting::waiting(&pending, &self.screens, |account| self.harness_word(account), &launch::terminal_name(&self.cfg.apps.terminal), now);
         for s in &mut sessions {
             crate::starting::overlay(s, waits.get(&s.key));
         }
@@ -145,17 +162,30 @@ impl Engine {
     /// scratch folder it runs in (`board::scratch_helpers`), unless you made it your own
     /// (`SeenState::own`); whether you're talking to it (`SeenState::talking`); and the copy a
     /// session that moved goes on as (`Session::moved_to`).
-    fn with_origins(&self, mut sessions: Vec<Session>) -> Vec<Session> {
+    fn with_origins(&self, sessions: Vec<Session>) -> Vec<Session> {
         let store = origins::current();
+        self.apply_origins(sessions, &store)
+    }
+
+    fn apply_origins(&self, mut sessions: Vec<Session>, store: &origins::Store) -> Vec<Session> {
         let reviewers = autoreview::reviewers(&self.reviews, &sessions);
         if !store.sessions.is_empty() || !reviewers.is_empty() {
             let keys: HashSet<String> = sessions.iter().map(|s| s.key.clone()).collect();
+            let moves = store.move_index();
             for s in sessions.iter_mut() {
                 if s.origin.is_none() {
                     s.origin = store.origin_of(&s.key);
                 }
                 if !self.seen.is_own(&s.key) {
-                    s.helper = board::helper_of(store.helper_of(&s.key), |k| keys.contains(k), reviewers.get(s.key.as_str()).copied());
+                    let parent = store.helper_of(&s.key).and_then(|(p, report)| {
+                        let resolved = moves.follow(p, |k| keys.contains(k));
+                        (resolved != s.key).then_some((resolved, report))
+                    });
+                    s.helper = board::helper_of(
+                        parent.as_ref().map(|(p, r)| (p.as_str(), *r)),
+                        |k| keys.contains(k),
+                        reviewers.get(s.key.as_str()).copied(),
+                    );
                 }
             }
         }
@@ -477,5 +507,61 @@ mod tests {
         let as_read = laid(&engine);
         assert_eq!((as_read.status, as_read.need, as_read.stalled_since), (Status::Working, None, None));
         assert!(as_read.steerable, "worked out after Jev's read of it, not before");
+    }
+
+    #[test]
+    fn helpers_follow_their_parent_across_moves_but_not_kept_forks() {
+        use super::*;
+        use crate::model::OriginHow;
+        let (tx, _rx) = channel();
+        let e = Engine::new(Box::new(|_| {}), tx, Arc::new(RwLock::new(Board::default())));
+        let mut store = origins::Store::default();
+        let entry = |from: &str, how: OriginHow, helper: bool, report: bool, at: i64| origins::Entry { from: from.into(), how, at, helper, report, known: true };
+        // boss (claude2) spawned helper, then moved to handoff (claude) and kept_fork (codex, keep=true).
+        store.sessions.insert("claude:claude:h1".into(), entry("claude:claude2:boss", OriginHow::Started, true, true, 1));
+        store.sessions.insert("claude:claude:handoff".into(), entry("claude:claude2:boss", OriginHow::Fork, false, false, 2));
+        store.sessions.insert("codex:codex:kept".into(), entry("claude:claude2:boss", OriginHow::Fork, false, false, 3));
+        store.kept.insert("codex:codex:kept".into());
+        // A second move chains handoff -> latest.
+        store.sessions.insert("codex:codex:latest".into(), entry("claude:claude:handoff", OriginHow::Fork, false, false, 4));
+
+        let sess = |harness, account, id, archived| Session { archived, ..Session::new(harness, account, id) };
+        let out = e.apply_origins(
+            vec![
+                sess(Harness::Claude, "claude2", "boss", true),
+                sess(Harness::Claude, "claude", "handoff", true),
+                sess(Harness::Codex, "codex", "kept", false),
+                sess(Harness::Codex, "codex", "latest", false),
+                sess(Harness::Claude, "claude", "h1", false),
+            ],
+            &store,
+        );
+        let h1 = out.iter().find(|s| s.key == "claude:claude:h1").unwrap();
+        assert_eq!(h1.helper, Some(crate::model::Helper { parent: Some("codex:codex:latest".into()), pr: None, report: true, yours: false }));
+        assert_eq!(h1.origin, Some(crate::model::SessionOrigin { key: "claude:claude2:boss".into(), how: OriginHow::Started }));
+
+        // Even once the original archived boss ages off the board, h1 still resolves through handoff to latest.
+        let without_boss = e.apply_origins(
+            vec![
+                sess(Harness::Claude, "claude", "handoff", true),
+                sess(Harness::Codex, "codex", "latest", false),
+                sess(Harness::Claude, "claude", "h1", false),
+            ],
+            &store,
+        );
+        let h1 = without_boss.iter().find(|s| s.key == "claude:claude:h1").unwrap();
+        assert_eq!(h1.helper.as_ref().and_then(|h| h.parent.as_deref()), Some("codex:codex:latest"));
+
+        // A kept fork alone does not adopt the original boss's helpers.
+        let only_kept = e.apply_origins(
+            vec![
+                sess(Harness::Claude, "claude2", "boss", false),
+                sess(Harness::Codex, "codex", "kept", false),
+                sess(Harness::Claude, "claude", "h1", false),
+            ],
+            &store,
+        );
+        let h1 = only_kept.iter().find(|s| s.key == "claude:claude:h1").unwrap();
+        assert_eq!(h1.helper.as_ref().and_then(|h| h.parent.as_deref()), Some("claude:claude2:boss"));
     }
 }

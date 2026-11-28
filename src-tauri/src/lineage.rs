@@ -83,7 +83,15 @@ pub fn publish(app: &AppHandle, shown: Shown) {
         .lanes()
         .flat_map(|l| l.sessions.iter())
         .filter(|s| s.visitor.is_none())
-        .filter_map(|s| s.origin.as_ref().map(|o| (o.key.clone(), s.key.clone())))
+        .filter_map(|s| {
+            let parent = s
+                .helper
+                .as_ref()
+                .filter(|h| h.pr.is_none())
+                .and_then(|h| h.parent.as_ref())
+                .or_else(|| s.origin.as_ref().map(|o| &o.key));
+            parent.map(|from| (from.clone(), s.key.clone()))
+        })
         .collect();
     let cards: HashSet<String> = desktop::session_cards(app).into_iter().map(|(_, k)| k).collect();
     let tied = pairs.iter().any(|(a, b)| cards.contains(a) && cards.contains(b));

@@ -40,7 +40,9 @@ use std::sync::{Arc, Mutex};
 
 use crate::engine::{Handle, Trouble};
 use crate::model::{Board, OriginHow, Session, Status};
-use crate::origins::{Entry, Pending, Store};
+use crate::origins::{Entry, Store};
+#[cfg(test)]
+use crate::origins::Pending;
 
 /// How many times a send is tried before it's given up on, and how long after a failed one it's
 /// tried again: the first wait, doubled each time.
@@ -202,34 +204,41 @@ impl Reporter {
     pub fn due(&mut self, starts: &Store, board: &Board, now: i64) -> Vec<Job> {
         let pending = &starts.pending[..];
         self.rev = self.rev.max(board.rev);
+        let moves = starts.move_index();
+        let on_board = |k: &str| board.session(k).is_some();
+        let parent_of = |from: &str| moves.follow(from, on_board);
         // A session Codealong runs stays open here when a server restart ends its adapter process:
         // sending to it picks it up again in a new one (acp.rs `send`, reconnect.rs `open_where_it_stopped`).
         let runs_here = |k: &str| board.session(k).is_some_and(|(lane, s)| lane.device.is_none() && (s.live || s.hosted) && !s.archived);
-        let screen_of = |p: &Pending| board.starting.get(&p.from).and_then(|starts| starts.iter().find(|s| s.at == p.at)).and_then(|s| s.screen.clone());
-        self.told_stuck.retain(|(from, at)| pending.iter().any(|p| &p.from == from && p.at == *at));
-        self.stuck_seen.retain(|(from, at), _| pending.iter().any(|p| &p.from == from && p.at == *at));
+        let screen_of = |from: &str, at: i64| board.starting.get(from).and_then(|starts| starts.iter().find(|s| s.at == at)).and_then(|s| s.screen.clone());
+        self.told_stuck.retain(|(from, at)| pending.iter().any(|p| parent_of(&p.from) == *from && p.at == *at));
+        self.stuck_seen.retain(|(from, at), _| pending.iter().any(|p| parent_of(&p.from) == *from && p.at == *at));
         // One not told yet whose start found its session (or stopped waiting) has nothing to say:
         // its session was waiting on you, say, while the helper started and ran. One still stuck
         // says what its terminal shows now.
         for (from, o) in self.owed.iter_mut() {
-            o.notes.retain(|_, n| !matches!(n.news, News::Unstarted { .. }) || pending.iter().any(|p| &p.from == from && n.helper == format!("start@{}", p.at) && p.stuck(now)));
+            o.notes.retain(|_, n| !matches!(n.news, News::Unstarted { .. }) || pending.iter().any(|p| parent_of(&p.from) == *from && n.helper == format!("start@{}", p.at) && p.stuck(now)));
             for n in o.notes.values_mut() {
-                let Some(p) = pending.iter().find(|p| &p.from == from && n.helper == format!("start@{}", p.at)) else { continue };
-                if let (News::Unstarted { screen, .. }, Some(read)) = (&mut n.news, screen_of(p)) {
+                let Some(p) = pending.iter().find(|p| parent_of(&p.from) == *from && n.helper == format!("start@{}", p.at)) else { continue };
+                if let (News::Unstarted { screen, .. }, Some(read)) = (&mut n.news, screen_of(from, p.at)) {
                     *screen = Some(read);
                 }
             }
         }
-        for p in pending.iter().filter(|p| p.report && p.stuck(now) && runs_here(&p.from)) {
-            let screen = screen_of(p);
+        for p in pending.iter().filter(|p| p.report && p.stuck(now)) {
+            let from = parent_of(&p.from);
+            if !runs_here(&from) {
+                continue;
+            }
+            let screen = screen_of(&from, p.at);
             // Without its screen yet, it waits a little for one from when it was first found stuck.
-            let seen = *self.stuck_seen.entry((p.from.clone(), p.at)).or_insert(now);
-            if (screen.is_none() && now - seen < SCREEN_WAIT_MS) || !self.told_stuck.insert((p.from.clone(), p.at)) {
+            let seen = *self.stuck_seen.entry((from.clone(), p.at)).or_insert(now);
+            if (screen.is_none() && now - seen < SCREEN_WAIT_MS) || !self.told_stuck.insert((from.clone(), p.at)) {
                 continue;
             }
             let place = crate::origins::place_of(board, &p.lane);
             let news = News::Unstarted { account: p.account.clone(), place, terminal: board.apps.terminal.clone(), minutes: p.minutes(now), screen };
-            self.owed.entry(p.from.clone()).or_default().owe(Note { helper: format!("start@{}", p.at), title: String::new(), news }, now);
+            self.owed.entry(from).or_default().owe(Note { helper: format!("start@{}", p.at), title: String::new(), news }, now);
         }
         // A start that knew its session's key, whose session hasn't shown up: one this Mac's
         // board would have by now, the helper of a session that runs here.
@@ -247,13 +256,14 @@ impl Reporter {
                 unseen_due = Some(unseen_due.map_or(e.at + UNSEEN_MS, |d: i64| d.min(e.at + UNSEEN_MS)));
                 continue;
             }
-            if !runs_here(&e.from) {
+            let from = parent_of(&e.from);
+            if !runs_here(&from) {
                 continue;
             }
             self.settled_starts.insert(key.clone());
             let account = key.split(':').nth(1).unwrap_or_default().to_string();
             let news = News::Unseen { account, minutes: (now - e.at) / 60_000 };
-            self.owed.entry(e.from.clone()).or_default().owe(Note { helper: key.clone(), title: String::new(), news }, now);
+            self.owed.entry(from).or_default().owe(Note { helper: key.clone(), title: String::new(), news }, now);
         }
         let mut seen_now = HashMap::new();
         // What a helper in a boundary group says isn't told to a parent outside it (boundary.rs):
@@ -969,5 +979,39 @@ mod tests {
         let jobs2 = r2.due(&starts(&[]), &board(vec![boss(Status::Idle), helper(Status::Error, Some(lim2))]), NOW);
         let msg2 = words(&jobs2[0].notes);
         assert!(msg2.contains("stopped at claude-work's usage limit. Tell your user rather than retrying"), "{msg2}");
+    }
+
+    #[test]
+    fn stuck_and_unseen_starts_report_to_a_moved_parent() {
+        let moved = "claude:claude2:boss-moved";
+        let mut store = Store::default();
+        store.sessions.insert(moved.into(), Entry { from: BOSS.into(), how: OriginHow::Fork, at: NOW - 1000, helper: false, report: false, known: true });
+        store.sessions.insert("claude:claude2:gone".into(), Entry { from: BOSS.into(), how: OriginHow::Started, at: NOW, helper: true, report: true, known: true });
+        let start = Pending {
+            from: BOSS.into(),
+            how: OriginHow::Started,
+            lane: "/r/app".into(),
+            account: "codex".into(),
+            at: NOW - 4 * 60_000,
+            helper: true,
+            report: true,
+            opens: Some("Review the branch".into()),
+            terminal: true,
+        };
+        store.pending.push(start.clone());
+        let moved_boss = Session { key: moved.into(), account: "claude2".into(), ..boss(Status::Idle) };
+        let archived_boss = Session { archived: true, ..boss(Status::Idle) };
+        let mut b = board(vec![archived_boss, moved_boss]);
+        b.apps.terminal = "Ghostty".into();
+        let mut r = Reporter::default();
+        assert!(r.due(&store, &b, NOW - SCREEN_WAIT_MS).is_empty());
+        let jobs = r.due(&store, &b, NOW);
+        assert_eq!(jobs.len(), 1);
+        assert_eq!(jobs[0].session, moved);
+        assert!(matches!(jobs[0].notes[0].news, News::Unstarted { .. }));
+
+        let mut r2 = Reporter::default();
+        let unseen = r2.due(&store, &b, NOW + UNSEEN_MS);
+        assert!(unseen.iter().any(|j| j.session == moved && j.notes.iter().any(|n| n.helper == "claude:claude2:gone" && matches!(n.news, News::Unseen { .. }))), "{unseen:?}");
     }
 }

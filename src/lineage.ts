@@ -127,9 +127,15 @@ export interface Lineage {
 /** A session's lineage, looked up among the board's sessions where they live (`sessionHomes`),
  *  and its side conversations and the starts still on their way among the board's. */
 export function lineageOf(session: Session, homes: Map<string, Placed>, board?: Pick<Board, 'sides' | 'starting'> | null): Lineage {
-  const from = session.origin ? homes.get(session.origin.key) : undefined;
+  const helperParent = session.helper?.parent && !session.helper.pr ? homes.get(session.helper.parent) : undefined;
+  const originFrom = session.origin ? homes.get(session.origin.key) : undefined;
+  const from = helperParent
+    ? { ...helperParent, how: 'helper' as const }
+    : originFrom && session.origin
+      ? { ...originFrom, how: kinHow(session.origin.how, originFrom.session, session) }
+      : null;
   return {
-    from: from && session.origin ? { ...from, how: kinHow(session.origin.how, from.session, session) } : null,
+    from,
     to: cameOf(session.key, homes.values()).map((p) => ({ ...p, how: kinHow(p.session.origin?.how ?? 'started', session, p.session) })),
     runs: [...homes.values()].filter((p) => p.session.headless && p.session.origin?.key === session.key && p.session.helper?.parent !== session.key).map((p) => ({ ...p, how: 'started' as const })),
     sides: board?.sides?.[session.key] ?? [],
