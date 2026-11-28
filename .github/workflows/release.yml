@@ -65,7 +65,9 @@ jobs:
         with:
           version: 0.17.0
           use-cache: false
-      # Writes the crates' licenses that go in the app (src-tauri/about.toml).
+      # Writes the crates' licenses that go in the app (src-tauri/about.toml). 0.9.2, as the Macs
+      # that release have: 0.9.3's workaround for ring writes pieces of ring's source code in
+      # among its license texts (2026-11-28).
       - run: cargo install cargo-about --version 0.9.2 --locked --features cli
       # dmgbuild, which draws the disk image's window, needs Python 3.10 or later.
       - uses: actions/setup-python@v7
@@ -160,7 +162,8 @@ jobs:
         with:
           version: 0.17.0
           use-cache: false
-      # Writes the crates' licenses that go in the app (src-tauri/about.toml).
+      # Writes the crates' licenses that go in the app (src-tauri/about.toml), with the
+      # cargo-about the release's own build has (above).
       - run: cargo install cargo-about --version 0.9.2 --locked --features cli
       - name: Build the installers
         env:
