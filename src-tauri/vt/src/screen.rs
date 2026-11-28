@@ -12,15 +12,20 @@ use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
+use libghostty_vt::color::{Palette, Rgb};
+use libghostty_vt::effect::ClipboardMime;
 use libghostty_vt::fmt::{Extras, Format, Formatter};
 use libghostty_vt::key::{self, Mods};
+use libghostty_vt::mode::Mode;
 use libghostty_vt::mouse;
 use libghostty_vt::paste;
-use libghostty_vt::render::{CellIterator, CursorVisualStyle, Dirty, RenderState, RowIterator};
+use libghostty_vt::point::{Coordinate, Point};
+use libghostty_vt::render::{CellIterator, Dirty, RenderState, RowIterator};
+use libghostty_vt::report::{ColorScheme, SizeReportSize};
 use libghostty_vt::screen::CellWide;
 use libghostty_vt::selection::gesture::{Autoscroll, AutoscrollTickEvent, DragEvent, Geometry, Gesture, PressEvent, ReleaseEvent};
-use libghostty_vt::style::{Palette, RgbColor, StyleColor, Underline};
-use libghostty_vt::terminal::{ClipboardMime, ColorScheme, Mode, Point, PointCoordinate, ScrollViewport, SizeReportSize, Terminal};
+use libghostty_vt::style::{StyleColor, Underline};
+use libghostty_vt::terminal::{CursorStyle, ScrollViewport, Terminal};
 use serde::{Deserialize, Serialize};
 
 use crate::keys;
@@ -471,7 +476,8 @@ impl Screen {
             }
             Input::Scroll { to } => {
                 let rows = isize::try_from(self.size.get().rows).unwrap_or(1).max(1);
-                self.term.scroll_viewport(match to {
+                // Scrolling is best effort: one the terminal turns down leaves the view where it was.
+                let _ = self.term.scroll_viewport(match to {
                     ScrollTo::Top => ScrollViewport::Top,
                     ScrollTo::Bottom => ScrollViewport::Bottom,
                     ScrollTo::PageUp => ScrollViewport::Delta(-rows),
@@ -485,7 +491,7 @@ impl Screen {
                 self.gesture.reset(&self.term);
                 if *all {
                     if let Ok(Some(sel)) = self.term.select_all() {
-                        let _ = self.term.set_selection(Some(&sel));
+                        let _ = self.term.set_selection(Some(sel));
                     }
                 } else {
                     let _ = self.term.set_selection(None);
@@ -512,8 +518,9 @@ impl Screen {
 
     /// The selection's text, as copying it gives it.
     pub fn selection_text(&self) -> Option<String> {
-        let mut f = Formatter::new_selection(&self.term).ok().flatten()?;
-        f.set_format(Format::Plain).ok()?.set_unwrap(true).ok()?.set_trim(true).ok()?;
+        let selection = self.term.selection().ok().flatten()?;
+        let mut f = Formatter::new(&self.term).ok()?;
+        f.set_selection(Some(selection)).ok()?.set_format(Format::Plain).ok()?.set_unwrap(true).ok()?.set_trim(true).ok()?;
         let text = f.format_alloc(None).ok()?;
         Some(String::from_utf8_lossy(&text).into_owned()).filter(|t| !t.is_empty())
     }
@@ -565,7 +572,7 @@ impl Screen {
         let mut out = String::new();
         let mut buf = ['\0'; 16];
         for cx in 0..x {
-            let Ok(at) = self.term.grid_ref(Point::Active(PointCoordinate { x: cx, y: u32::from(y) })) else { continue };
+            let Ok(at) = self.term.grid_ref(Point::Active(Coordinate { x: cx, y: u32::from(y) })) else { continue };
             if matches!(at.cell().and_then(|c| c.wide()), Ok(CellWide::SpacerTail | CellWide::SpacerHead)) {
                 continue;
             }
@@ -580,7 +587,7 @@ impl Screen {
     /// Something was typed: the view goes back to the bottom and the selection goes, as in
     /// Ghostty, and so does where it began: a Shift-click after starts afresh.
     pub fn typed(&mut self) {
-        self.term.scroll_viewport(ScrollViewport::Bottom);
+        let _ = self.term.scroll_viewport(ScrollViewport::Bottom);
         self.forget_selection();
     }
 
@@ -652,11 +659,11 @@ impl Screen {
     }
 
     /// The cell of the view at a pointer's position, the nearest one when it's outside.
-    fn cell(&self, x: f64, y: f64) -> PointCoordinate {
+    fn cell(&self, x: f64, y: f64) -> Coordinate {
         let s = self.size.get();
         let col = (x / f64::from(s.cell_width.max(1))).floor().clamp(0.0, f64::from(s.cols.saturating_sub(1)));
         let row = (y / f64::from(s.cell_height.max(1))).floor().clamp(0.0, f64::from(s.rows.saturating_sub(1)));
-        PointCoordinate { x: col as u16, y: row as u32 }
+        Coordinate { x: col as u16, y: row as u32 }
     }
 
     /// The screen as a selection's drag measures it: past its height, the drag scrolls.
@@ -690,7 +697,7 @@ impl Screen {
             let Ok(tick) = self.tick.set_rectangle(rectangle).and_then(|t| t.set_position(x, y)) else { return };
             match tick.apply(&mut self.gesture, &self.term, at, geometry) {
                 Ok(Some(sel)) => {
-                    let _ = self.term.set_selection(Some(&sel));
+                    let _ = self.term.set_selection(Some(sel));
                 }
                 // Nothing to scroll toward any more, or the row the drag began on has gone from
                 // the screen (a program cleared it): the selection stays as it was.
@@ -722,7 +729,7 @@ impl Screen {
         if let Ok(grid) = self.term.grid_ref(self.point(x, y)) {
             if let Ok(drag) = self.drag.set_rectangle(rectangle).and_then(|d| d.set_position(x, y)) {
                 if let Ok(sel) = drag.apply(&mut self.gesture, &self.term, grid, geometry) {
-                    let _ = self.term.set_selection(sel.as_ref());
+                    let _ = self.term.set_selection(sel);
                 }
             }
         }
@@ -758,7 +765,7 @@ impl Screen {
                     if let Ok(grid) = self.term.grid_ref(point) {
                         if let Ok(press) = self.press.set_repeat_distance(f64::from(s.cell_width)).and_then(|p| p.set_time(since)).and_then(|p| p.set_position(x, y)) {
                             if let Ok(sel) = press.apply(&mut self.gesture, &self.term, grid) {
-                                let _ = self.term.set_selection(sel.as_ref());
+                                let _ = self.term.set_selection(sel);
                             }
                         }
                     }
@@ -848,7 +855,7 @@ impl Screen {
             }
             return;
         }
-        self.term.scroll_viewport(ScrollViewport::Delta(steps));
+        let _ = self.term.scroll_viewport(ScrollViewport::Delta(steps));
     }
 
     /// Whether the program holds the screen still at `now`, halfway through a redraw it marked as
@@ -883,9 +890,9 @@ impl Screen {
                 x: at.x,
                 y: at.y,
                 shape: match c.visual_style {
-                    CursorVisualStyle::Bar => "bar",
-                    CursorVisualStyle::Underline => "underline",
-                    CursorVisualStyle::BlockHollow => "hollow",
+                    CursorStyle::Bar => "bar",
+                    CursorStyle::Underline => "underline",
+                    CursorStyle::BlockHollow => "hollow",
                     _ => "block",
                 },
                 blink: c.blinking,
@@ -1048,12 +1055,12 @@ fn look_of(cell: &libghostty_vt::render::CellIteration<'_, '_>, colors: &libghos
     look
 }
 
-fn hex_of(c: RgbColor) -> u32 {
+fn hex_of(c: Rgb) -> u32 {
     (u32::from(c.r) << 16) | (u32::from(c.g) << 8) | u32::from(c.b)
 }
 
-fn rgb_of(hex: u32) -> RgbColor {
-    RgbColor { r: (hex >> 16) as u8, g: (hex >> 8) as u8, b: hex as u8 }
+fn rgb_of(hex: u32) -> Rgb {
+    Rgb { r: (hex >> 16) as u8, g: (hex >> 8) as u8, b: hex as u8 }
 }
 
 #[cfg(test)]

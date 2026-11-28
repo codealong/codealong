@@ -9,17 +9,20 @@ paths:
 # libghostty and Codealong's own terminals
 
 What Ghostty's terminal library does that `terminals.rs` and `src/ui/terminal/` rely on, from the
-`libghostty-vt` crate at the revision `src-tauri/vt/Cargo.toml` pins (libghostty-vt 1.0.0, Ghostty's
-`vt-1.0.0` tag, 0fa3d577, which needs Zig 0.17.0; the crate needs Rust 1.96) and its example
-terminal (`example/ghostling_rs`, the best map of the API), checked by `cargo test -p codealong-vt`
-and `cargo test terminals` (2026-11-08). How to take a newer revision: `docs/development.md` (*Ghostty's terminal library*).
+`libghostty-vt` crate at the revision `src-tauri/vt/Cargo.toml` pins (libghostty-vt 1.0.2, Ghostty's
+`vt-1.0.2` tag, 573c4a21, which needs Zig 0.17.0; the crate needs Rust 1.96), its examples
+(`example/`) and its book (`book-src/`, the best map of the API), checked by `cargo test -p codealong-vt`
+and `cargo test terminals` (2026-11-28). How to take a newer revision: `docs/development.md` (*Ghostty's terminal library*).
 
 - 1.0's C API is opaque handles read and written through getters and setters, and the crate
   follows it: a formatter is made from its terminal and set up with `set_*` calls, each a
   `Result` (no options struct). A call into a feature the build compiled out is
   `Error::Unsupported`, as is a value the crate has no variant for (from a newer library). The mouse encoder's `set_size` refuses a cell with no width or height
   (`Error::InvalidValue`) and keeps the size it had. Text the C API takes (a terminfo name, a
-  clipboard MIME type, a color to parse) goes in as bytes.
+  clipboard MIME type, a color to parse) goes in as bytes. Since the crate's revision on vt-1.0.2
+  (4466c0f) its types sit in modules named as Ghostty's headers are: `color` (`Rgb`, `Palette`),
+  `mode`, `point` (`Point`, `Coordinate`), `report` (`ColorScheme`, `SizeReportSize`) and
+  `effect` (`ClipboardMime`), and `scroll_viewport` is a `Result`.
 
 - Nothing in the library is thread-safe and every type is `!Send`: a terminal's emulator, render
   state, iterators and encoders are made and used on its own thread (`terminals.rs` `run`), and
@@ -48,9 +51,10 @@ and `cargo test terminals` (2026-11-08). How to take a newer revision: `docs/dev
   `Error::Rejected` unless `with_allow_unsafe`.
 - Selection lives in the terminal: the gesture API (`PressEvent`, `DragEvent`, `ReleaseEvent`)
   counts clicks for words and lines, `set_selection` sets it, the render state marks selected
-  cells, and a formatter made with `Formatter::new_selection` (None while nothing's selected)
-  gives its text (`vt/src/screen.rs` `selection_text`). The formatter's own `set_selection`, for a
-  selection from elsewhere, is `unsafe`: nothing checks it came from that terminal's active screen.
+  cells, and a formatter given the terminal's selection (`Terminal::selection`, None while
+  nothing's selected, then the formatter's `set_selection`) gives its text (`vt/src/screen.rs`
+  `selection_text`). A selection is a snapshot, passed by value, and a formatter refuses one from
+  another terminal (`Error::InvalidValue`).
 - A drag whose position is within a pixel of the top of the screen, or past it, or past the
   bottom (the `Geometry`'s `screen_height`), sets `Gesture::autoscroll` to Up or Down. The library
   has no timer: each `AutoscrollTickEvent` scrolls exactly one row that way and goes on with the

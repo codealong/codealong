@@ -353,7 +353,7 @@ pins and builds it with Zig, so a first build takes a few minutes and needs the 
 compiles once into the shared build directory after that. `GHOSTTY_SOURCE_DIR` builds it from a
 checkout of Ghostty instead, for building offline.
 
-The library is at 1.0 (Ghostty's `vt-1.0.0` tag), whose C API keeps its promises across 1.x, but
+The library is at 1.0 (Ghostty's `vt-1.0.2` tag), whose C API keeps its promises across 1.x, but
 the Rust crate has no release on it yet, so it's pinned to a git revision in `src-tauri/vt/Cargo.toml`.
 That revision fixes the Ghostty commit and so the Zig it needs (its `build.zig.zon`'s
 `minimum_zig_version`): 0.17 today, which CI installs too (`.github/workflows/`,
