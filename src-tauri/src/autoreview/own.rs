@@ -160,9 +160,9 @@ pub(super) fn keeps_owner(owned: bool, cfg: &ReviewsCfg, blocked: bool, lanes: &
 
 /// Whether an automatic own-PR round that failed because its session showed up late can still be
 /// taken up after the PR merged (`Reviewer::due` -> `Tracked::take_up`), without starting anything
-/// new.
-pub(super) fn recover_merged(cfg: &ReviewsCfg, lanes: &[Lane], pr: &PrItem) -> bool {
-    pr.mine && pr.state == PrState::Merged && cfg.own.auto && origin(lanes, pr).is_some()
+/// new: both on the machine that owns the PR and on a peer machine reviewing it for the owner.
+pub(super) fn recover_merged(cfg: &ReviewsCfg, lanes: &[Lane], machines: &Machines, pr: &PrItem) -> bool {
+    pr.mine && pr.state == PrState::Merged && cfg.own.auto && (origin(lanes, pr).is_some() || owner(pr, machines).is_some())
 }
 
 /// Whether automatic own-PR review rounds for a PR have hit `max_rounds` (0 = unlimited).
