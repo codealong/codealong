@@ -1805,7 +1805,12 @@ group) and `model`, else on the account Auto would start, preferring another har
 when `[reviews.own] other_harness = true` (the default), so another model reads what one wrote
 (Codex reviews what Claude Code wrote, say); one of the same harness only when no other can start. Drafts wait until they're ready for review unless `[reviews.own] drafts` (Review
 your draft pull requests too) says to review them as well; someone else's draft goes by `[reviews]
-drafts`. Nor is a PR whose session is gone or archived. Its
+drafts`. Nor is a PR whose session is gone or archived; a PR opened by a worker helper session is
+reviewed and handed back to that helper while it isn't archived (and its review nests under the
+helper's top-level session so it stays visible). A review started while the PR is open still
+finishes and is handed back if the PR merges meanwhile (not if it is closed without merging), while
+nothing new starts automatically for a PR that has already merged; Review with… and `codealong pr
+review` work on merged PRs too. Its
 instructions are `[reviews.own] prompt`, else Codealong's own; it's told the review goes back to the
 agent that wrote the PR, and to end on whether it would approve it (see *Your review*). Nothing goes
 on GitHub: the review is kept in Codealong, in the PR's Reviews tab, its comments on lines with the

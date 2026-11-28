@@ -338,6 +338,14 @@ case "$1 $2" in
 esac
 GH
 step chmod +x "$tmp/bin/gh"
+# Stand-in for codealong: records pr link calls without touching the user's real pr-links.json.
+cat >"$tmp/bin/codealong" <<'CA'
+#!/bin/bash
+f="$FAKE"
+echo "$*" >>"$f/linked"
+[ ! -f "$f/codealong-fail" ] || exit 1
+CA
+step chmod +x "$tmp/bin/codealong"
 export FAKE="$tmp" PATH="$tmp/bin:$PATH" CODEALONG_LAND_POLL=0
 onmain() { git -C "$tmp/origin.git" log --format=%s main | tr '\\n' ','; }
 onorigin() { git -C "$tmp/origin.git" for-each-ref --format='%(refname:short)' refs/heads | tr '\\n' ' '; }
@@ -375,6 +383,7 @@ echo "the main checkout: $(git -C "$tmp/main" log --format=%s -1)"
 [ "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)" ] && [ "$(git rev-parse HEAD)" != "$was" ] && echo "this branch is where main is, as the queue wrote it"
 [ "$(git rev-parse keep)" = "$was" ] && echo "and a second branch at the commit it was at is still there"
 echo "its pull request: $(cat "$tmp/title"), $(grep -c 'scripts/land.sh queues this' "$tmp/body") line for CI"
+echo "linked to session: $(cat "$tmp/linked")"
 echo "queued as the commit it pushed, and no other: $(grep -c "head=$(cat "$tmp/at") " "$tmp/asked")"
 echo "origin's branches after: $(onorigin)"
 here
@@ -750,6 +759,18 @@ step git -C "$tmp/main" push -q origin main
 was="$(git rev-parse HEAD)"
 scripts/land.sh >"$tmp/out" 2>&1
 echo "a file git ignores here, where main now keeps a directory: $? $(grep -c '^Landed' "$tmp/out") $(grep -c 'would be overwritten by checkout: docs/dir' "$tmp/out"), still $(cat docs/dir) $([ "$(git rev-parse HEAD)" = "$was" ] && echo and where it was)"
+# A failing codealong pr link (e.g. outside a session) or missing codealong never fails the landing,
+# and taking an existing open pull request links it too.
+echo "taken pull request linked: $(grep -c '^pr link https://github.com/acme/northwind/pull/8 --session me$' "$tmp/linked")"
+touch "$tmp/codealong-fail"
+step git worktree add -q "$tmp/linkfail" -b linkfail origin/main
+step cd "$tmp/linkfail"
+here
+echo lf >docs/lf.md
+step git add -A
+step git commit -q -m "linkfail: one"
+echo "codealong link failing: $(scripts/land.sh 2>&1 | landed)"
+rm -f "$tmp/codealong-fail"
 step cd "$tmp/main"
 scripts/land.sh >"$tmp/out" 2>&1
 echo "from main: $(grep -c 'is on main' "$tmp/out")"
@@ -767,6 +788,7 @@ test('a landing queues its pull request as the commit that was asked for, on a m
     'this branch is where main is, as the queue wrote it',
     'and a second branch at the commit it was at is still there',
     'its pull request: docs: two, 1 line for CI',
+    'linked to session: pr link https://github.com/acme/northwind/pull/7 --session me',
     'queued as the commit it pushed, and no other: 1',
     "origin's branches after: main ",
     // None of these gets as far as a push or a pull request.
@@ -814,8 +836,10 @@ test('a landing queues its pull request as the commit that was asked for, on a m
     "a commit on top of what's queued: Landed: <commit> is in origin/main. Fast-forwarded the main checkout to origin/main (<commit>)., 1 taken out, 0 more pull requests",
     'written again after it was queued: 1 1 (0 taken out, 1 queued)',
     'a file git ignores here, where main now keeps a directory: 0 1 1, still mine and where it was',
+    'taken pull request linked: 2',
+    'codealong link failing: Landed: <commit> is in origin/main. Fast-forwarded the main checkout to origin/main (<commit>).',
     'from main: 1',
-    'main, at the end: ignoring: one,main: keeps a directory,again: fixed,again: one,twin: one,main: once more,early: one,main: meanwhile,shared: one,main: late,main: the same file,main: ab,half: one,main, on the same lines,docs: four,docs: three,a script, fixed,a script,main moved again,docs: two,main moved,first,',
+    'main, at the end: linkfail: one,ignoring: one,main: keeps a directory,again: fixed,again: one,twin: one,main: once more,early: one,main: meanwhile,shared: one,main: late,main: the same file,main: ab,half: one,main, on the same lines,docs: four,docs: three,a script, fixed,a script,main moved again,docs: two,main moved,first,',
     'tags on origin: 0',
   ]);
 });

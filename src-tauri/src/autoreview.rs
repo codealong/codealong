@@ -574,7 +574,7 @@ impl Tracked {
     /// someone else's. True when it was.
     fn take_up(&mut self, board: &Board, pr: &PrItem, wide: bool) -> bool {
         let gave_up_on = |p: &Part| p.state == PartState::Failed && p.note.as_deref() == Some(if p.session.is_none() { NEVER_SHOWED } else { STOPPED });
-        let given_up = |r: &Round| r.stage == ReviewStage::Failed && pr.state.is_open() && pr.head_oid.as_deref() == Some(r.head.as_str()) && !r.parts.is_empty() && r.parts.iter().all(gave_up_on);
+        let given_up = |r: &Round| r.stage == ReviewStage::Failed && own::reviewable_state(pr.state) && pr.head_oid.as_deref() == Some(r.head.as_str()) && !r.parts.is_empty() && r.parts.iter().all(gave_up_on);
         if !self.rounds.last().is_some_and(given_up) {
             return false;
         }
@@ -893,13 +893,14 @@ pub fn wants(cfg: &ReviewsCfg, pr: &PrItem) -> bool {
 }
 
 /// The session a PR of yours goes back to: its primary session (`PrItem::primary`), when it's
-/// on this Mac and isn't a visitor's, a helper (a review's own session, which a PR whose opener
-/// is gone could take for its primary) or archived; nor one that took the PR over from a helper
-/// it started (`PrItem::taken_over`), whose work it isn't, and which is told of a review through
-/// its nudge if at all. The PR's harness is then the one its records say wrote it.
+/// on this Mac and isn't a visitor's, an automatic review (`Helper::pr`) or archived; nor one
+/// that took the PR over from a helper it started (`PrItem::taken_over`), whose work it isn't,
+/// and which is told of a review through its nudge if at all. A worker helper that opened the PR
+/// (`Helper::pr` none) is still its origin while it isn't archived, matching `board::pr_primary`.
+/// The PR's harness is then the one its records say wrote it.
 fn origin<'a>(lanes: &'a [Lane], pr: &PrItem) -> Option<(&'a Lane, &'a Session)> {
     let key = pr.primary.as_deref().filter(|_| !pr.taken_over)?;
-    lanes.iter().filter(|l| l.device.is_none()).find_map(|l| l.sessions.iter().find(|s| s.key == key && s.visitor.is_none() && s.helper.is_none() && !s.archived).map(|s| (l, s)))
+    lanes.iter().filter(|l| l.device.is_none()).find_map(|l| l.sessions.iter().find(|s| s.key == key && s.visitor.is_none() && !s.helper.as_ref().is_some_and(|h| h.pr.is_some()) && !s.archived).map(|s| (l, s)))
 }
 
 /// Whether Codealong reviews a PR of yours (`[reviews.own]`): it's open, not a draft unless
@@ -1535,9 +1536,9 @@ impl Reviewer {
     }
 
     /// The send due for a PR of yours at `head` (`to_send`): to its primary session, once
-    /// that runs here and doesn't wait on you, while sending is on and the PR is open.
+    /// that runs here and doesn't wait on you, while sending is on and the PR is open or merged.
     fn send_due(&self, board: &Board, cfg: &ReviewsCfg, pr: &PrItem, head: &str) -> Option<Job> {
-        if !(pr.mine && cfg.own.send && pr.state.is_open()) {
+        if !(pr.mine && cfg.own.send && own::reviewable_state(pr.state)) {
             return None;
         }
         // A round asked for by hand goes back as an automatic one would.
@@ -1836,13 +1837,14 @@ pub fn to_come(store: &Store, behind: impl Fn(&str) -> Option<String>) -> HashSe
         .collect()
 }
 
-/// Puts each review of a PR of yours under the session it goes back to (`origin`), as a helper
-/// of that session as well as of the PR (`Helper::parent`): Sessions lists it under that session,
-/// whose panel lists it with its other helpers, and Mark as done on that session marks it done
-/// too. A review of a PR that waits on your review has no session of yours to go under, and stays
-/// the PR's alone.
+/// Puts each review of a PR of yours under the top-level session of the session it goes back to
+/// (`origin`, walking up `Helper::parent` via `own::nest_parent`), as a helper of that session as
+/// well as of the PR (`Helper::parent`): Sessions lists it under that session so a worker helper's
+/// review stays visible rather than nested two levels down, whose panel lists it with its other
+/// helpers, and Mark as done on that session marks it done too. A review of a PR that waits on
+/// your review has no session of yours to go under, and stays the PR's alone.
 pub fn nest_own(lanes: &mut [Lane], prs: &[PrItem]) {
-    let back_to: HashMap<String, String> = prs.iter().filter(|p| p.mine).filter_map(|p| origin(lanes, p).map(|(_, s)| (pr_key(&p.key), s.key.clone()))).collect();
+    let back_to: HashMap<String, String> = prs.iter().filter(|p| p.mine).filter_map(|p| origin(lanes, p).map(|(_, s)| (pr_key(&p.key), own::nest_parent(lanes, s).to_string()))).collect();
     if back_to.is_empty() {
         return;
     }
@@ -2746,7 +2748,8 @@ fn ask(engine: &Handle, board: &Board, cfg: &Config, pr: &PrItem, head: &str, si
 }
 
 /// Starts a round: reads the PR, then asks the reviewer (`ask`). One asked for `by_hand` starts
-/// whatever `[reviews] auto` says, while the PR is open, and reviews a commit reviewed already.
+/// whatever `[reviews] auto` says, while the PR is open or merged, and reviews a commit reviewed
+/// already.
 fn review(engine: &Handle, pr: &PrItem, head: &str, since: Option<&str>, seat: &Seat, by_hand: bool) -> Went {
     let board = engine.board();
     let cfg = match crate::config::current() {
@@ -2755,7 +2758,7 @@ fn review(engine: &Handle, pr: &PrItem, head: &str, since: Option<&str>, seat: &
     };
     let Some(pr) = board.prs.iter().find(|p| p.key == pr.key) else { return Went::Later };
     let reviews = board.repo_settings.reviews(&cfg.reviews, pr);
-    let still = if by_hand { pr.state.is_open() } else { wanted_here(&reviews, &board, pr, now_ms()) };
+    let still = if by_hand { own::reviewable_state(pr.state) } else { wanted_here(&reviews, &board, pr, now_ms()) };
     if pr.head_oid.as_deref() != Some(head) || !still {
         return Went::Later;
     }
@@ -2896,9 +2899,8 @@ fn post(engine: &Handle, pr: &PrItem, head: &str, review: &str, agent: &str, rou
         Err(e) => return Went::PostFailed(format!("{e:#}")),
     };
     let pr = board.prs.iter().find(|p| p.key == pr.key).unwrap_or(pr);
-    let not = if pr.mine { "Not sent" } else { "Not posted" };
-    if !pr.state.is_open() {
-        return Went::Kept(Some(format!("{not}: the PR was closed before the review was done.")));
+    if let Some(why) = own::closed_note(pr, by_hand) {
+        return Went::Kept(Some(why));
     }
     let moved = moved_to(pr, head);
     // Another machine of yours came to have the commit's review since this job was due. What it
@@ -3184,13 +3186,13 @@ pub fn submit_now(engine: &Handle, reviewer: &Mutex<Reviewer>, key: &str, verdic
 }
 
 /// Hands a review of a PR of yours to `session`, as a window's send does, while the session can
-/// take it (`can_take`) and, unless asked for by hand (`any_head`), while the PR is open at the
-/// commit reviewed. The review goes as a file the message names.
+/// take it (`can_take`) and, unless asked for by hand (`any_head`), while the PR is open or
+/// merged at the commit reviewed. The review goes as a file the message names.
 fn send(engine: &Handle, job: &Job, any_head: bool) -> Went {
     let Job::Send { pr, head, session, review, agent } = job else { return Went::Later };
     let board = engine.board();
     let pr = board.prs.iter().find(|p| p.key == pr.key).unwrap_or(pr);
-    if !any_head && (!pr.state.is_open() || pr.head_oid.as_deref() != Some(head)) {
+    if !any_head && (!own::reviewable_state(pr.state) || pr.head_oid.as_deref() != Some(head)) {
         return Went::Later;
     }
     if !board.session(session).is_some_and(|(_, s)| can_take(s)) {
@@ -3222,16 +3224,17 @@ fn send(engine: &Handle, job: &Job, any_head: bool) -> Went {
 /// Starts a review of PR `key` now, as Review with… asks: a round of the same reviews `[reviews]
 /// auto` starts (`Job::Review`), the PR written out for it, told what `[reviews] prompt` says, its
 /// review posted where `[reviews] post` says and submitted as `[reviews] submit` does, but
-/// whatever `[reviews] auto` says, and of a commit reviewed already too. It runs on `account`, on
-/// its own model, else on the reviewer config.toml names (`seat_for`: Auto's account for none).
-/// That reviewer's session for the PR is asked again when it has one; else a new one starts out
-/// of sight. Not while a round of the PR is under way. One that doesn't start is said where it
-/// was asked for, and leaves the PR's reviews as they were.
+/// whatever `[reviews] auto` says, and of a commit reviewed already too. Works on open and merged
+/// PRs (never one closed without merging). It runs on `account`, on its own model, else on the
+/// reviewer config.toml names (`seat_for`: Auto's account for none). That reviewer's session for
+/// the PR is asked again when it has one; else a new one starts out of sight. Not while a round of
+/// the PR is under way. One that doesn't start is said where it was asked for, and leaves the PR's
+/// reviews as they were.
 pub fn review_now(engine: &Handle, reviewer: &Mutex<Reviewer>, key: &str, account: Option<&str>) -> Result<(), String> {
     let board = engine.board();
     let cfg = crate::config::current().map_err(|e| format!("{e:#}"))?;
     let pr = board.prs.iter().find(|p| p.key.eq_ignore_ascii_case(key)).ok_or("Codealong reviews only the pull requests it lists, and it doesn't list this one.")?;
-    if !pr.state.is_open() {
+    if !own::reviewable_state(pr.state) {
         return Err("It's closed.".into());
     }
     let head = pr.head_oid.clone().ok_or("GitHub hasn't said which commit it's at yet.")?;
@@ -5587,6 +5590,84 @@ mod tests {
         let mut lanes = lanes_with(Session { archived: true, ..fixtures::session("claude:claude:opener") });
         nest_own(&mut lanes, &prs);
         assert_eq!(parent(&lanes, "codex:codex:own"), None);
+
+        // A worker helper's PR nests its review under the helper's top-level session so it stays
+        // visible rather than two levels down; when that parent is archived, under the helper.
+        let lead = fixtures::session("claude:claude:lead");
+        let worker = Session { helper: Some(crate::model::Helper { parent: Some("claude:claude:lead".into()), ..Default::default() }), ..fixtures::session("claude:claude:worker") };
+        let helper_prs = [PrItem { mine: true, primary: Some("claude:claude:worker".into()), ..pr(7, HEAD) }];
+        let mut lanes = vec![fixtures::lane("/r", vec![lead.clone(), worker.clone(), review("codex:codex:own", "o/r#7")])];
+        nest_own(&mut lanes, &helper_prs);
+        assert_eq!(parent(&lanes, "codex:codex:own").as_deref(), Some("claude:claude:lead"));
+        let mut lanes = vec![fixtures::lane("/r", vec![Session { archived: true, ..lead }, worker, review("codex:codex:own", "o/r#7")])];
+        nest_own(&mut lanes, &helper_prs);
+        assert_eq!(parent(&lanes, "codex:codex:own").as_deref(), Some("claude:claude:worker"));
+    }
+
+    #[test]
+    fn a_worker_helpers_own_pr_is_reviewed_while_review_helpers_and_taken_over_parents_are_not() {
+        let lead = fixtures::session("claude:claude:lead");
+        let worker = Session {
+            status: Status::Idle,
+            helper: Some(crate::model::Helper { parent: Some("claude:claude:lead".into()), ..Default::default() }),
+            ..fixtures::session("claude:claude:worker")
+        };
+        let reviewer = Session {
+            status: Status::Unread,
+            last_activity: NOW + 60_000,
+            helper: Some(crate::model::Helper { pr: Some("o/r#7".into()), ..Default::default() }),
+            ..fixtures::session(S)
+        };
+        let lanes = vec![fixtures::lane("/r", vec![lead.clone(), worker.clone(), reviewer.clone()])];
+        let worker_pr = PrItem { primary: Some(worker.key.clone()), ..mine(7, HEAD) };
+        let review_pr = PrItem { primary: Some(reviewer.key.clone()), ..mine(7, HEAD) };
+        let taken_over = PrItem { primary: Some(lead.key.clone()), taken_over: true, ..mine(7, HEAD) };
+
+        assert!(wants_own(&own(), &lanes, &worker_pr), "worker helper's PR gets own-PR review");
+        assert!(!wants_own(&own(), &lanes, &review_pr), "a review session is never a PR's origin");
+        assert!(!wants_own(&own(), &lanes, &taken_over), "parent that took over a done helper is not origin");
+
+        let b = board(vec![worker_pr], vec![lead, worker.clone(), reviewer]);
+        let mut r = Reviewer::default();
+        let job = r.due(&b, &own(), NOW).pop().unwrap();
+        assert_eq!(kinds(std::slice::from_ref(&job)), ["review 7 1111111 since None by auto"]);
+        r.told(&job, Went::Started(vec![started(AUTO, S, NOW)]), NOW).unwrap();
+        read(&mut r, &b, &own(), NOW + 61_000, "Fix this bug.\n\nVerdict: request changes", "Codex");
+        let post = r.due(&b, &own(), NOW + 62_000).pop().unwrap();
+        r.told(&post, Went::Kept(None), NOW + 63_000).unwrap();
+        let send = r.due(&b, &own(), NOW + 64_000).pop().unwrap();
+        assert!(matches!(send, Job::Send { ref session, .. } if session == &worker.key), "sent to worker helper: {send:?}");
+    }
+
+    #[test]
+    fn an_own_pr_review_started_while_open_finishes_and_sends_after_merge_but_not_after_close() {
+        let maker = Session { status: Status::Idle, ..fixtures::session(MAKER) };
+        let open_pr = mine(7, HEAD);
+        let merged_pr = PrItem { state: PrState::Merged, ..open_pr.clone() };
+        let closed_pr = PrItem { state: PrState::Closed, ..open_pr.clone() };
+        let lanes = vec![fixtures::lane("/r", vec![maker.clone()])];
+
+        // Nothing new starts automatically for a PR that has already merged.
+        assert!(!wants_own(&own(), &lanes, &merged_pr));
+        assert!(Reviewer::default().due(&board(vec![merged_pr.clone()], vec![maker.clone()]), &own(), NOW).is_empty());
+
+        // Started while open, the PR merges before the review finishes: the round still reads,
+        // keeps without a closed note, and sends the findings to its session.
+        let mut r = Reviewer::default();
+        let job = r.due(&board(vec![open_pr], vec![maker.clone()]), &own(), NOW).pop().unwrap();
+        r.told(&job, Went::Started(vec![started(AUTO, S, NOW)]), NOW).unwrap();
+        let merged_board = board(vec![merged_pr.clone()], vec![maker.clone(), session(Status::Unread, NOW + 60_000)]);
+        read(&mut r, &merged_board, &own(), NOW + 61_000, "Bug here.\n\nVerdict: request changes", "Codex");
+        let post = r.due(&merged_board, &own(), NOW + 62_000).pop().unwrap();
+        assert_eq!(own::closed_note(&merged_pr, false), None);
+        r.told(&post, Went::Kept(None), NOW + 63_000).unwrap();
+        let send = r.due(&merged_board, &own(), NOW + 64_000).pop().unwrap();
+        assert!(matches!(send, Job::Send { ref session, .. } if session == MAKER), "sent after merge: {send:?}");
+
+        // Closed without merging: never sent even if a kept round has no note.
+        let closed_board = board(vec![closed_pr.clone()], vec![maker]);
+        assert!(r.due(&closed_board, &own(), NOW + 65_000).is_empty());
+        assert!(own::closed_note(&closed_pr, false).is_some());
     }
 
     #[test]
