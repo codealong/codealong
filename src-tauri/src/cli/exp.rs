@@ -1,6 +1,6 @@
 //! `codealong exp`: running pinned agent combinations side-by-side on the same task and base
-//! commit, optionally with a 1-round local reviewer, a mechanical gate command, and a blind
-//! pairwise judge.
+//! commit, optionally with a 1-round local reviewer, a mechanical gate command, and one blind
+//! judge or a panel of them, ranking the results or comparing them in pairs.
 //!
 //! Gated behind `[experimental] experiments = true` (Settings › Experimental). `exp run` validates
 //! the arms and writes a queued run into `experiments.json` for Codealong's server runner

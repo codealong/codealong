@@ -1,5 +1,6 @@
 //! Experiments: running pinned agent combinations side-by-side on the same task and base commit,
-//! optionally with a 1-round local reviewer, a mechanical gate command, and a blind pairwise judge.
+//! optionally with a 1-round local reviewer, a mechanical gate command, and one blind judge or a
+//! panel of them, ranking the results or comparing them in pairs.
 //!
 //! State lives in `experiments.json` (through `store.rs`), artifacts (spec, blinded diffs, review
 //! notes, gate logs) under `support_dir()/experiments/<run_id>/`, and session costs are priced on
