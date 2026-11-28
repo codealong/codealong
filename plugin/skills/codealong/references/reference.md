@@ -4648,10 +4648,10 @@ Options:
           Chats
 
       --in <PLACE>
-          Where it runs. Without it, where the account's `start` setting says (a start
-          from the quick panel sets it to where that one ran), else in Codealong, or in
-          a terminal for Cursor and where the account's adapter isn't installed (the
-          Codex app for `~/.codex`)
+          Where it runs. Without it, where the account's `start` setting says (Make
+          default in the quick panel sets it), else in Codealong, or in a terminal for
+          Cursor and where the account's adapter isn't installed (the Codex app for
+          `~/.codex`)
 
           Possible values:
           - terminal
