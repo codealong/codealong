@@ -61,7 +61,23 @@ pub use worktrees::*;
 // (a name that a `*` brings in gives way to one that's named).
 pub use overlays::ASKS_YOU;
 
+/// How many of each kind of session a lane lists (`cap_kind`), besides the archived, running and
+/// pinned ones. A session its lane cuts is gone from the board: no window, search or command
+/// finds it.
 const MAX_SESSIONS_PER_LANE: usize = 30;
+
+/// Which part of a lane's room a session takes: your own, which a helper or a headless run that
+/// needs you is too, a helper that doesn't, or a headless run that doesn't
+/// (`Session::unattended`). An eval's runs come by the hundred, and a busy repo's reviews by the
+/// dozen, so neither crowds out the other or your own.
+fn cap_kind(s: &Session) -> usize {
+    match (s.unattended(), s.headless) {
+        (false, _) => 0,
+        (true, false) => 1,
+        (true, true) => 2,
+    }
+}
+
 /// How a session from another lane is labeled in the worktree it made. One that only worked
 /// there is labeled "worked here".
 const MADE_IT: &str = "made this worktree";
@@ -516,12 +532,15 @@ pub fn compose(inp: Inputs) -> Board {
         }
         // Stable: each part keeps its order.
         sessions.sort_by_key(|s| (s.earlier, s.unattended()));
-        let mut kept = 0;
-        // A running session is never cut: it holds its worktree (`cleanup`), and Codealong's
-        // removal looks for one on its lane's list.
+        // Each kind of session has room of its own (`cap_kind`). In one room, helpers came last
+        // and were cut first: a helper from yesterday left the board while ten-day-old sessions
+        // stayed. A running session is never cut: it holds its worktree (`cleanup`), and
+        // Codealong's removal looks for one on its lane's list.
+        let mut kept = [0; 3];
         sessions.retain(|s| {
-            let keep = kept < MAX_SESSIONS_PER_LANE || pinned.contains(&s.key) || s.live;
-            kept += keep as usize;
+            let kind = cap_kind(s);
+            let keep = kept[kind] < MAX_SESSIONS_PER_LANE || pinned.contains(&s.key) || s.live;
+            kept[kind] += keep as usize;
             keep
         });
         let current = sessions.iter().take_while(|s| !s.earlier && !s.unattended()).count();
@@ -1362,6 +1381,50 @@ mod tests {
         assert!(lane.sessions.iter().any(|s| s.key == oldest));
         assert!(lane.sessions.iter().any(|s| s.key == running));
         assert_eq!(board.pinned, pinned);
+    }
+
+    /// A main checkout takes in the sessions of every worktree removed from under it, so it fills
+    /// up. Its helpers went after your own sessions and were cut first: a helper whose turn ended
+    /// yesterday left the board, where no window, search or command found it, while thirty of your
+    /// sessions from ten days ago stayed. Each kind has room of its own, and the newest of each
+    /// kind stay.
+    #[test]
+    fn a_full_lane_keeps_room_for_its_helpers_and_runs() {
+        let apps = AppNames::default();
+        let seeds = vec![seed("/r/spark-portal", "portal")];
+        let a = acct("claude");
+        let session = |name: &str, ago: i64| {
+            let mut s = claude_session(&a, None, Some(&tr()), 0, NOW, &Quiet::default()).unwrap();
+            s.key = Session::key_for(Harness::Claude, "claude", name);
+            s.last_activity = NOW - ago;
+            s
+        };
+        let helping = |s: Session| Session { helper: Some(crate::model::Helper { parent: Some("claude:claude:lead".into()), report: true, ..Default::default() }), ..s };
+        let (git, prs, visitors) = (HashMap::new(), HashMap::new(), HashMap::new());
+        let order = vec!["Spruce".to_string()];
+        let board = |sessions: Vec<Session>| compose(Inputs { now: NOW, apps: &apps, seeds: &seeds, sessions, visitors: &visitors, git: &git, prs: &prs, requested: &HashMap::new(), made: &HashMap::new(), project_order: &order, notices: vec![], loading: false, github_at: None, pinned: &[], github_login: None, pr_links: &PrLinks::default(), previews: &Previews::default(), reusable: &HashMap::new(), review_snoozes: &[], session_settings: &Default::default(), auto_reviews: (&Default::default(), &Default::default(), &Default::default()), machines: &Default::default(), at_merged: &HashSet::new(), working_elsewhere: &BTreeSet::new() });
+        let listed = |b: &Board| b.lanes[0].sessions.iter().map(|s| s.key.clone()).collect::<HashSet<_>>();
+        let key = |name: &str| Session::key_for(Harness::Claude, "claude", name);
+
+        // Thirty-one of yours from ten days ago, and a helper from yesterday.
+        let mut sessions: Vec<Session> = (0..=MAX_SESSIONS_PER_LANE).map(|i| session(&format!("own{i}"), 10 * DAY_MS + i as i64 * 60_000)).collect();
+        sessions.push(helping(session("yesterday", DAY_MS)));
+        let kept = listed(&board(sessions));
+        assert!(kept.contains(&key("yesterday")), "the helper is cut");
+        assert!((0..MAX_SESSIONS_PER_LANE).all(|i| kept.contains(&key(&format!("own{i}")))));
+        assert!(!kept.contains(&key(&format!("own{MAX_SESSIONS_PER_LANE}"))), "the oldest of yours goes");
+
+        // Forty newer helpers and forty newer headless runs push none of yours out, nor the
+        // runs the helpers, and each keeps its newest.
+        let mut sessions: Vec<Session> = (0..MAX_SESSIONS_PER_LANE).map(|i| session(&format!("own{i}"), 10 * DAY_MS + i as i64 * 60_000)).collect();
+        sessions.extend((0..40).map(|i| helping(session(&format!("review{i}"), 2 * DAY_MS + i as i64 * 60_000))));
+        sessions.extend((0..40).map(|i| Session { headless: true, ..session(&format!("run{i}"), i as i64 * 60_000) }));
+        let kept = listed(&board(sessions));
+        assert!((0..MAX_SESSIONS_PER_LANE).all(|i| kept.contains(&key(&format!("own{i}")))));
+        let count = |prefix: &str| kept.iter().filter(|k| k.starts_with(&key(prefix))).count();
+        assert_eq!((count("review"), count("run")), (MAX_SESSIONS_PER_LANE, MAX_SESSIONS_PER_LANE));
+        assert!(kept.contains(&key("review0")) && !kept.contains(&key("review39")));
+        assert!(kept.contains(&key("run0")) && !kept.contains(&key("run39")));
     }
 
     /// The readers hand sessions over in their maps' order, which differs every time. A lane's
