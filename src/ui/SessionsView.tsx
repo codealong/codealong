@@ -82,11 +82,6 @@ export const SESSION_GROUPS = groupOptions('sessions');
 export type SessionGroup = ListGroup<SessionItem>;
 export type GroupedSessions = Grouped<SessionSection, SessionItem>;
 
-/** What a group's key is for a worktree: its own id, or its repo's. */
-export function groupKeyOf(lane: Lane, by: PlaceBy): string {
-  return placeIn(lane, by).key;
-}
-
 /**
  * The sections `sessionSections` made, grouped by worktree or by repo (groups.ts `groupRows`): a
  * session with the rows nested under it is listed and folded whole, in its group whatever
