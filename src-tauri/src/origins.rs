@@ -739,12 +739,6 @@ pub fn resolve_pending_handovers(sessions: &[Candidate], lanes: &dyn Lanes, now:
     (changed, handovers)
 }
 
-/// Matches pending starts to the sessions on the board and writes down what matched.
-#[allow(dead_code)]
-pub fn resolve_pending(sessions: &[Candidate], lanes: &dyn Lanes, now: i64) -> bool {
-    resolve_pending_handovers(sessions, lanes, now).0
-}
-
 /// The file as last read, read again when it changed on disk. One that doesn't parse shows
 /// as no origins; only a change to it is turned away.
 pub fn current() -> Arc<Store> {
