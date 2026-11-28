@@ -17,5 +17,5 @@ doctest = false
 # revision of the Rust bindings, which have no release on 1.0 yet; a newer one is taken on
 # purpose, with `cargo test -p codealong-vt` and `cargo test terminals` run against it. They need
 # Rust 1.96, hence rust-version.
-libghostty-vt = { git = "https://github.com/Uzaaft/libghostty-rs", rev = "9b598d6528c08c013407052767bb2e885ba869ba" }
+libghostty-vt = { git = "https://github.com/Uzaaft/libghostty-rs", rev = "4466c0f45f51f964f86d1974a50502dbec7cb0de" }
 serde = { version = "1", features = ["derive"] }
