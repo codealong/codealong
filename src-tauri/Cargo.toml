@@ -32,7 +32,7 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 aho-corasick = "1"
 memchr = "2"
-tauri = { version = "2", features = ["macos-private-api", "tray-icon"] }
+tauri = { version = "2.13", features = ["macos-private-api", "tray-icon"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["raw_value"] }
 toml = "1"
@@ -52,7 +52,7 @@ rusqlite = { version = "0.43", features = ["bundled"] }
 clap = { version = "4", features = ["derive", "wrap_help"] }
 # The quick panel's shortcut, which works in every app (Carbon hot keys: no permission needed).
 tauri-plugin-global-shortcut = "2"
-# Automatic updates (updates.rs), on Tauri 2.12: a later updater can need a later Tauri,
+# Automatic updates (updates.rs), on Tauri 2.13: a later updater can need a later Tauri,
 # which Cargo would otherwise upgrade Tauri to without asking.
 tauri-plugin-updater = "~2.14"
 # Your other devices (peers.rs): what goes between them, iroh included, is codealong-peer; the
@@ -66,6 +66,9 @@ png = "0.18"
 # before every path, which other programs' settings and git don't take (os/mod.rs's tests keep
 # std's out); tauri builds it already.
 dunce = "1"
+# The menu bar item's mark at its pixels per point (menubar.rs), which Tauri's tray doesn't pass
+# on: the version the Tauri above builds, with its features.
+tray-icon = { version = "0.27", default-features = false }
 # Link codes as QR codes, for the phone app to scan (Settings › Devices).
 qrcode = { version = "0.15", default-features = false, features = ["svg"] }
 # Codealong's own terminals (terminals.rs): wrapped in codealong-vt (vt/) so the ~2,000-line
@@ -87,7 +90,7 @@ objc2-service-management = { version = "0.3", default-features = false, features
 # The same windows on Linux (os/windows/linux.rs): the screens, the pointer and a window's opacity,
 # which Tauri doesn't expose. The version Tauri itself builds on.
 [target.'cfg(target_os = "linux")'.dependencies]
-gtk = "0.18"
+gtk = "0.19"
 
 # Win32 for what Codealong asks of Windows (os/*/windows.rs), the version Tauri builds already;
 # and AF_UNIX sockets, which Windows has had since Windows 10 (1803) and std doesn't wrap there,
@@ -98,7 +101,7 @@ uds_windows = "1"
 
 # updates.rs's end-to-end test runs the updater in Tauri's mock runtime, which opens no window.
 [dev-dependencies]
-tauri = { version = "2", features = ["test"] }
+tauri = { version = "2.13", features = ["test"] }
 
 # No debug information in development and test builds (the test profile inherits this one): a
 # panic still names its file and line. On macOS line tables stay in each build's object files,

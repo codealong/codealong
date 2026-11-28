@@ -56,6 +56,9 @@ const EACH: usize = 5;
 const TITLE_CHARS: usize = 60;
 /// How much of the mark shows while the app isn't connected to its server.
 const DIMMED: f32 = 0.35;
+/// The template's pixels per point: menubar.png is 36 pixels for an 18-point mark. Only a Mac
+/// draws a tray item by them; Linux's and Windows' draw it at a size of their own.
+const PIXELS_PER_POINT: f64 = 2.0;
 /// How long Quit and stop server waits for the server to quit the app before it quits by itself.
 const QUIT_WAIT: Duration = Duration::from_secs(15);
 
@@ -275,14 +278,31 @@ pub fn show(app: &AppHandle, on: bool) -> bool {
 }
 
 fn make(app: &AppHandle) -> Result<TrayIcon<Wry>> {
-    let build = || TrayIconBuilder::with_id(ID).icon(mark(app, false)?).icon_as_template(crate::os::is_macos()).show_menu_on_left_click(true).tooltip(app.package_info().name.as_str()).build(app).map_err(anyhow::Error::from);
+    let build = || -> Result<TrayIcon<Wry>> {
+        let (w, h, rgba) = mark(app, false)?;
+        let tray = TrayIconBuilder::with_id(ID).icon_templated(Image::new_owned(rgba, w, h)).show_menu_on_left_click(true).tooltip(app.package_info().name.as_str()).build(app)?;
+        put_mark(&tray, app, false)?;
+        Ok(tray)
+    };
     // Linux's tray library is loaded as the first item is made, and a desktop without it panics.
     std::panic::catch_unwind(std::panic::AssertUnwindSafe(build)).unwrap_or_else(|_| Err(anyhow!("this desktop has no libayatana-appindicator3 for a tray")))
 }
 
-/// The mark the item shows: the template on a Mac, the app's icon on Linux, whose trays draw
-/// what they're given; dimmed, mostly clear.
-fn mark(app: &AppHandle, dimmed: bool) -> Result<Image<'static>> {
+/// Puts the mark on the item, at its pixels per point: Tauri's own image has none to give, and
+/// tray-icon (0.27) draws one given as a pixel a point as tall as the menu bar allows, 22 points,
+/// where the template is 18. A template on a Mac, recoloured to the menu bar; elsewhere, which has
+/// neither templates nor scales, as it is.
+fn put_mark(tray: &TrayIcon<Wry>, app: &AppHandle, dimmed: bool) -> Result<()> {
+    let (w, h, rgba) = mark(app, dimmed)?;
+    tray.with_inner_tray_icon(move |t| -> Result<()> {
+        let icon = tray_icon::Icon::from_rgba_with_scale(rgba, w, h, PIXELS_PER_POINT)?;
+        Ok(t.set_icon_templated(Some(icon))?)
+    })?
+}
+
+/// The mark the item shows, its width, height and pixels: the template on a Mac, the app's icon
+/// on Linux, whose trays draw what they're given; dimmed, mostly clear.
+fn mark(app: &AppHandle, dimmed: bool) -> Result<(u32, u32, Vec<u8>)> {
     let png: &[u8] = match (crate::os::is_macos(), crate::is_dev_build(app)) {
         (true, _) => include_bytes!("../icons/menubar.png"),
         (false, false) => include_bytes!("../icons/32x32.png"),
@@ -294,7 +314,7 @@ fn mark(app: &AppHandle, dimmed: bool) -> Result<Image<'static>> {
             p[3] = (p[3] as f32 * DIMMED).round() as u8;
         }
     }
-    Ok(Image::new_owned(rgba, w as u32, h as u32))
+    Ok((w as u32, h as u32, rgba))
 }
 
 /// The bar's feed changed (lib.rs `Floating`): the item shows it, with `hosted`, the sessions the
@@ -354,11 +374,8 @@ fn apply(app: &AppHandle) {
         let _ = tray.set_title(face.title.as_deref());
         let _ = tray.set_tooltip(Some(&face.tooltip));
         if put.1.as_ref().map(|f| f.dimmed) != Some(face.dimmed) {
-            match mark(app, face.dimmed) {
-                Ok(m) => {
-                    let _ = tray.set_icon_with_as_template(Some(m), crate::os::is_macos());
-                }
-                Err(e) => eprintln!("Couldn't draw the menu bar item's mark: {e:#}"),
+            if let Err(e) = put_mark(&tray, app, face.dimmed) {
+                eprintln!("Couldn't draw the menu bar item's mark: {e:#}");
             }
         }
         put.1 = Some(face);
@@ -545,6 +562,13 @@ mod tests {
         assert_eq!(face(&listed, true, "Codealong"), Face { title: Some("2".into()), tooltip: "Codealong: 2 need you, 1 PR to review, 1 PR to merge, 1 done".into(), dimmed: false });
         assert_eq!(face(&Listed::default(), true, "Codealong Dev"), Face { title: None, tooltip: "Codealong Dev: nothing waits on you".into(), dimmed: false });
         assert_eq!(face(&listed, false, "Codealong"), Face { title: Some("2".into()), tooltip: "Codealong: starting its server".into(), dimmed: true });
+    }
+
+    #[test]
+    fn the_template_is_drawn_18_points_tall() {
+        // tray-icon draws it at its pixels over PIXELS_PER_POINT, up to the menu bar's 22.
+        let (_, h, _) = crate::emblems::decode(include_bytes!("../icons/menubar.png")).unwrap();
+        assert_eq!(h as f64 / PIXELS_PER_POINT, 18.0);
     }
 
     #[test]
