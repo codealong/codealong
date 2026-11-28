@@ -42,7 +42,8 @@ pub fn may(board: &Board, by: Option<&str>, s: &Session) -> Result<Whose, String
     if s.key == by {
         return Ok(Whose::Own);
     }
-    let started = s.origin.as_ref().is_some_and(|o| o.how == OriginHow::Started && o.key == by);
+    let started = s.origin.as_ref().is_some_and(|o| o.how == OriginHow::Started && o.key == by)
+        || s.helper.as_ref().and_then(|h| h.parent.as_deref()) == Some(by);
     if !started {
         let mine = board.session(by).map(|(_, me)| format!("“{}”", me.title)).unwrap_or_else(|| "this session".into());
         return Err(format!("“{}” isn't {mine} or a session it started, so it's its user's to mark done, in Codealong.", s.title));
@@ -434,10 +435,14 @@ mod tests {
         forked.origin = origin("me", OriginHow::Fork);
         let mut theirs = session("theirs", Status::Idle);
         theirs.origin = origin("other", OriginHow::Started);
-        let b = board(vec![me.clone(), started.clone(), forked.clone(), theirs.clone()]);
+        let mut adopted = session("adopted", Status::Idle);
+        adopted.origin = origin("old-boss", OriginHow::Started);
+        adopted.helper = Some(crate::model::Helper { parent: Some("me".into()), ..Default::default() });
+        let b = board(vec![me.clone(), started.clone(), forked.clone(), theirs.clone(), adopted.clone()]);
 
         assert_eq!(may(&b, Some("me"), &me), Ok(Whose::Own));
         assert_eq!(may(&b, Some("me"), &started), Ok(Whose::Started));
+        assert_eq!(may(&b, Some("me"), &adopted), Ok(Whose::Started));
         // A fork of it may be one you made, and another session's is that session's.
         for s in [&forked, &theirs] {
             assert!(may(&b, Some("me"), s).unwrap_err().contains("its user's to mark done"), "{}", s.key);

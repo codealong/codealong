@@ -104,6 +104,19 @@ describe('lineageOf', () => {
     homes.set(review.session.key, review);
     expect(lineageOf(boss.session, homes).to.map((k) => `${cameWord(k.how)} ${k.session.key}`)).toContain('Its helper codex:codex:review');
     expect(lineageOf(review.session, homes).from).toBeNull();
+    // A helper whose original parent moved points `from` at the moved copy (Helper of), even if
+    // the helper itself was forked from an earlier helper session.
+    const movedBoss = { lane, session: fx.session({ key: 'claude:claude2:boss-moved', account: 'claude2', origin: { key: 'claude:claude:boss', how: 'fork' } }) };
+    const movedHelper = { lane, session: fx.session({ key: 'codex:codex:rev2', origin: { key: 'claude:claude:boss', how: 'started' }, helper: { parent: 'claude:claude2:boss-moved' } }) };
+    const forkedHelper = { lane, session: fx.session({ key: 'codex:codex:rev3', origin: { key: 'codex:codex:rev', how: 'fork' }, helper: { parent: 'claude:claude2:boss-moved' } }) };
+    homes.set(movedBoss.session.key, movedBoss);
+    homes.set(movedHelper.session.key, movedHelper);
+    homes.set(forkedHelper.session.key, forkedHelper);
+    expect(lineageOf(movedHelper.session, homes).from?.session.key).toBe('claude:claude2:boss-moved');
+    expect(originWord(lineageOf(movedHelper.session, homes).from!.how)).toBe('Helper of');
+    expect(lineageOf(forkedHelper.session, homes).from?.session.key).toBe('claude:claude2:boss-moved');
+    expect(originWord(lineageOf(forkedHelper.session, homes).from!.how)).toBe('Helper of');
+    expect(lineageOf(movedBoss.session, homes).to.map((k) => `${cameWord(k.how)} ${k.session.key}`)).toEqual(['Its helper codex:codex:rev2', 'Its helper codex:codex:rev3']);
   });
 });
 

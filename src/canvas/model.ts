@@ -951,8 +951,9 @@ export function links(e: Entities, on: Set<string>): [string, string][] {
 export function originLinks(e: Entities, on: Set<string>): [string, string][] {
   const out: [string, string][] = [];
   for (const { session } of e.sessions.values()) {
-    if (!session.origin) continue;
-    const from = refId('session', session.origin.key);
+    const parent = session.helper?.parent && !session.helper.pr ? session.helper.parent : session.origin?.key;
+    if (!parent) continue;
+    const from = refId('session', parent);
     const to = refId('session', session.key);
     if (from !== to && on.has(from) && on.has(to)) out.push([from, to]);
   }
