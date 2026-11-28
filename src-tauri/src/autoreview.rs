@@ -982,12 +982,17 @@ pub fn reviewer_of<'a>(pr: &PrItem, mine: &SharedReview, machines: &'a Machines,
         .iter()
         .filter_map(|x| match at_head(x.said)? {
             (ClaimState::Done, at) => Some(((false, at, x.key), x.machine)),
-            (ClaimState::UnderWay, at) if x.around && x.said.would => Some(((true, at, x.key), x.machine)),
+            (ClaimState::UnderWay, at) if x.around && (x.said.would || (pr.mine && pr.state == PrState::Merged)) => Some(((true, at, x.key), x.machine)),
             _ => None,
         })
         .min_by(|a, b| a.0.cmp(&b.0));
     if let Some((_, m)) = first {
         return m.map(shown);
+    }
+    // No machine starts a new round once a PR has ended, so a peer's stale `would: true` never
+    // preempts or shows as queued after merge/close.
+    if !pr.state.is_open() {
+        return None;
     }
     // One here that didn't get done keeps the commit here, as it would with no other machine; one
     // that gave way to another machine's doesn't.
@@ -1340,7 +1345,7 @@ impl Reviewer {
             let failed = t.rounds.last().filter(|r| r.stage == ReviewStage::Failed).map(|r| r.by_hand);
             if let (Some(by_hand), Some(pr)) = (failed, pr) {
                 let rcfg = settings.reviews(cfg, pr);
-                if by_hand || (on && (wanted_here(&rcfg, board, pr, now) || own::recover_merged(&rcfg, &board.lanes, pr))) {
+                if by_hand || (on && (wanted_here(&rcfg, board, pr, now) || own::recover_merged(&rcfg, &board.lanes, &board.machines, pr))) {
                     changed |= t.take_up(board, pr, false);
                 }
             }
@@ -1983,7 +1988,7 @@ pub fn apply(prs: &mut [PrItem], store: &Store, global: &ReviewsCfg, sessions: &
             continue;
         }
         // One of yours: until its review is kept here (`own::import`).
-        if let Some((m, r)) = own.then(|| own::elsewhere(t, pr, &head, owned, machines, now)).flatten() {
+        if let Some((m, r)) = own.then(|| own::elsewhere(t, pr, &head, keeps_owner, machines, now)).flatten() {
             pr.auto_review = Some(AutoReview { replaced: t.map(Tracked::replaced).unwrap_or_default(), own: true, holds: false, ..elsewhere(&head, m, r, since, now) });
             continue;
         }
@@ -5923,37 +5928,6 @@ mod tests {
         assert_eq!(kinds(&jobs), [format!("send 7 1111111 by Codex, gpt-5.5 on Studio to {MAKER}")]);
         let t = &r.store.prs["o/r#7"];
         assert_eq!((t.rounds.len(), t.rounds[0].from.as_deref(), t.rounds[0].stage), (1, Some("Studio"), ReviewStage::Kept));
-
-        // After the owner observes the PR merged, it keeps `owner: true` on its card (with
-        // `would: false` so neither machine starts a new round), the reviewer machine keeps
-        // publishing `handed` once its in-flight review finishes, and the owner imports and sends
-        // the findings exactly once.
-        let merged_p = PrItem { state: PrState::Merged, merged_at: Some(NOW), ..p.clone() };
-        let mut owner_merged = board(vec![merged_p.clone()], vec![maker.clone()]);
-        owner_merged.lanes[0].repo_slug = Some("o/r".into());
-        apply(&mut owner_merged.prs, &Store::default(), &own(), &Default::default(), &Default::default(), &owner_merged.lanes, &owner_merged.machines, NOW + 61_000);
-        assert!(owner_merged.prs[0].shared_review.owner && !owner_merged.prs[0].shared_review.would, "owner stays true on merge without starting new rounds");
-
-        // Reviewer machine sees the owner's merged card (`owner: true`) and publishes `handed`.
-        let mut owner_as_peer = studio(Rank::Backup, vec![(merged_p.clone(), false, None)]);
-        owner_as_peer.prs[0].shared_review.as_mut().unwrap().owner = true;
-        let mut reviewer_merged = board(vec![merged_p.clone()], vec![]);
-        reviewer_merged.lanes[0].repo_slug = Some("o/r".into());
-        reviewer_merged.machines = std::sync::Arc::new(machines(Rank::First, vec![owner_as_peer]));
-        apply(&mut reviewer_merged.prs, &kept, &own(), &Default::default(), &Default::default(), &reviewer_merged.lanes, &reviewer_merged.machines, NOW + 62_000);
-        assert_eq!(reviewer_merged.prs[0].shared_review.handed.as_ref(), Some(&handed));
-        assert!(!reviewer_merged.prs[0].shared_review.would, "reviewer starts nothing new after merge");
-
-        // Owner sees the reviewer's `handed` on the merged PR, imports it, and sends it once.
-        let mut reviewer_as_peer = studio(Rank::First, vec![(merged_p.clone(), false, round("kept", HEAD, NOW + 60_000))]);
-        reviewer_as_peer.prs[0].shared_review.as_mut().unwrap().handed = Some(handed.clone());
-        owner_merged.machines = std::sync::Arc::new(machines(Rank::Backup, vec![reviewer_as_peer]));
-        apply(&mut owner_merged.prs, &Store::default(), &own(), &Default::default(), &Default::default(), &owner_merged.lanes, &owner_merged.machines, NOW + 63_000);
-        let mut owner_r = Reviewer::default();
-        let jobs = owner_r.due(&owner_merged, &own(), NOW + 63_000);
-        assert_eq!(kinds(&jobs), [format!("send 7 1111111 by Codex, gpt-5.5 on Studio to {MAKER}")]);
-        owner_r.told(&jobs[0], Went::Sent(MAKER.into()), NOW + 64_000).unwrap();
-        assert!(owner_r.due(&owner_merged, &own(), NOW + 65_000).is_empty(), "sent exactly once");
         // Not this machine's round as your machines weigh them, so the PR stays with the Studio.
         assert_eq!(shared_review(Some(t), HEAD, true).round, None);
         r.told(&jobs[0], Went::Sent(MAKER.into()), NOW + 62_000).unwrap();
@@ -5974,6 +5948,89 @@ mod tests {
         assert!(own::import(&mut later, "o/r#7", &mine(7, NEXT), &their_machines, &own_cfg));
         assert_eq!(later.prs["o/r#7"].rounds.iter().map(|r| r.head.as_str()).collect::<Vec<_>>(), [HEAD, NEXT]);
         assert!(!own::import(&mut with(vec![Round::new(HEAD, ReviewStage::Kept, NOW)]), "o/r#7", &p, &their_machines, &own_cfg));
+    }
+
+    #[test]
+    fn two_machines_finish_recover_and_hand_back_own_pr_review_after_merge() {
+        use codealong_peer::pr::HandedReview;
+        let p = mine(7, HEAD);
+        let merged_p = PrItem { state: PrState::Merged, merged_at: Some(NOW), ..p.clone() };
+        let maker = Session { status: Status::Idle, last_activity: NOW, ..fixtures::session(MAKER) };
+        let handed = HandedReview { head: HEAD.into(), agent: "Codex, gpt-5.5".into(), review: "Two problems.".into(), at: NOW + 60_000 };
+
+        // 1. Reviewer machine is still Reviewing when it observes PrState::Merged BEFORE the owner
+        //    does (so the owner's stale peer card still has `owner: true, would: true` and no round):
+        //    the reviewer must NOT abort as `ELSEWHERE`, and must finish and publish `handed`.
+        let mut stale_owner = studio(Rank::Backup, vec![(p.clone(), true, None)]);
+        stale_owner.prs[0].shared_review.as_mut().unwrap().owner = true;
+        let mut r_peer = Reviewer::default();
+        let mut open_reviewer = board(vec![p.clone()], vec![]);
+        open_reviewer.lanes[0].repo_slug = Some("o/r".into());
+        open_reviewer.machines = std::sync::Arc::new(machines(Rank::First, vec![stale_owner.clone()]));
+        apply(&mut open_reviewer.prs, &r_peer.store, &own(), &Default::default(), &Default::default(), &open_reviewer.lanes, &open_reviewer.machines, NOW);
+        let start_job = r_peer.due(&open_reviewer, &own(), NOW).pop().unwrap();
+        r_peer.told(&start_job, Went::Started(vec![started(AUTO, S, NOW)]), NOW).unwrap();
+
+        let mut merged_reviewer = board(vec![merged_p.clone()], vec![session(Status::Working, NOW + 10_000)]);
+        merged_reviewer.lanes[0].repo_slug = Some("o/r".into());
+        merged_reviewer.machines = std::sync::Arc::new(machines(Rank::First, vec![stale_owner.clone()]));
+        apply(&mut merged_reviewer.prs, &r_peer.store, &own(), &Default::default(), &Default::default(), &merged_reviewer.lanes, &merged_reviewer.machines, NOW + 10_000);
+        assert_eq!(merged_reviewer.prs[0].auto_review.as_ref().and_then(|a| a.machine.as_deref()), None, "stale owner must not preempt in-flight review");
+        assert!(r_peer.due(&merged_reviewer, &own(), NOW + 10_000).is_empty());
+        assert_eq!(r_peer.store.prs["o/r#7"].rounds[0].stage, ReviewStage::Reviewing, "not aborted as ELSEWHERE");
+
+        let mut done_reviewer = board(vec![merged_p.clone()], vec![session(Status::Unread, NOW + 60_000)]);
+        done_reviewer.lanes[0].repo_slug = Some("o/r".into());
+        done_reviewer.machines = std::sync::Arc::new(machines(Rank::First, vec![stale_owner]));
+        apply(&mut done_reviewer.prs, &r_peer.store, &own(), &Default::default(), &Default::default(), &done_reviewer.lanes, &done_reviewer.machines, NOW + 61_000);
+        read(&mut r_peer, &done_reviewer, &own(), NOW + 61_000, "Two problems.", "Codex, gpt-5.5");
+        let post = r_peer.due(&done_reviewer, &own(), NOW + 62_000).pop().unwrap();
+        r_peer.told(&post, Went::Kept(None), NOW + 63_000).unwrap();
+        apply(&mut done_reviewer.prs, &r_peer.store, &own(), &Default::default(), &Default::default(), &done_reviewer.lanes, &done_reviewer.machines, NOW + 63_000);
+        assert_eq!(done_reviewer.prs[0].shared_review.handed.as_ref().map(|h| h.review.as_str()), Some("Two problems."));
+        assert!(!done_reviewer.prs[0].shared_review.would, "reviewer starts nothing new after merge");
+
+        // 2. Owner observes PrState::Merged while the peer is reviewing, keeps `owner: true` and
+        //    shows the peer's round (`keeps_owner` -> `own::elsewhere`), then imports and sends once.
+        let mut peer_reviewing = studio(Rank::First, vec![(merged_p.clone(), false, round("reviewing", HEAD, NOW))]);
+        let mut owner_merged = board(vec![merged_p.clone()], vec![maker.clone()]);
+        owner_merged.lanes[0].repo_slug = Some("o/r".into());
+        owner_merged.machines = std::sync::Arc::new(machines(Rank::Backup, vec![peer_reviewing.clone()]));
+        apply(&mut owner_merged.prs, &Store::default(), &own(), &Default::default(), &Default::default(), &owner_merged.lanes, &owner_merged.machines, NOW + 30_000);
+        assert!(owner_merged.prs[0].shared_review.owner && !owner_merged.prs[0].shared_review.would);
+        assert_eq!(owner_merged.prs[0].auto_review.as_ref().and_then(|a| a.machine.as_deref()), Some("Studio"), "owner keeps showing peer's in-flight round after merge");
+
+        peer_reviewing = studio(Rank::First, vec![(merged_p.clone(), false, round("kept", HEAD, NOW + 60_000))]);
+        peer_reviewing.prs[0].shared_review.as_mut().unwrap().handed = Some(handed.clone());
+        owner_merged.machines = std::sync::Arc::new(machines(Rank::Backup, vec![peer_reviewing]));
+        apply(&mut owner_merged.prs, &Store::default(), &own(), &Default::default(), &Default::default(), &owner_merged.lanes, &owner_merged.machines, NOW + 63_000);
+        let mut owner_r = Reviewer::default();
+        let owner_jobs = owner_r.due(&owner_merged, &own(), NOW + 63_000);
+        assert_eq!(kinds(&owner_jobs), [format!("send 7 1111111 by Codex, gpt-5.5 on Studio to {MAKER}")]);
+        owner_r.told(&owner_jobs[0], Went::Sent(MAKER.into()), NOW + 64_000).unwrap();
+        assert!(owner_r.due(&owner_merged, &own(), NOW + 65_000).is_empty(), "sent exactly once");
+
+        // 3. Peer post-merge `take_up` recovery when a late reviewer session shows up after merge.
+        let mut merged_owner_card = studio(Rank::Backup, vec![(merged_p.clone(), false, None)]);
+        merged_owner_card.prs[0].shared_review.as_mut().unwrap().owner = true;
+        let mut peer_recover = Reviewer::default();
+        let pending = Pending { account: "codex".into(), lane: "/r".into(), at: NOW };
+        peer_recover.told(&start_job, Went::Started(vec![Part { pending: Some(pending), ..Part::asked(AUTO, None, None, NOW) }]), NOW).unwrap();
+        assert!(peer_recover.due(&open_reviewer, &own(), NOW + SHOW_MS + 1).is_empty());
+        assert_eq!(peer_recover.store.prs["o/r#7"].rounds[0].stage, ReviewStage::Failed);
+        let late = Session {
+            account: "codex".into(),
+            status: Status::Working,
+            started_at: Some(NOW + 500),
+            last_activity: NOW + SHOW_MS + 2_000,
+            first_prompt: Some("Review pull request #7 in o/r (https://github.com/o/r/pull/7)".into()),
+            ..fixtures::session(S)
+        };
+        let mut peer_late_board = board(vec![merged_p], vec![late]);
+        peer_late_board.lanes[0].repo_slug = Some("o/r".into());
+        peer_late_board.machines = std::sync::Arc::new(machines(Rank::First, vec![merged_owner_card]));
+        assert!(peer_recover.due(&peer_late_board, &own(), NOW + SHOW_MS + 2_000).is_empty());
+        assert_eq!(peer_recover.store.prs["o/r#7"].rounds[0].stage, ReviewStage::Reviewing, "peer recovered late session after merge");
     }
 
     /// What sharing your PRs' reviews must keep track of (from PR #33's review, 2026-11-21): a
