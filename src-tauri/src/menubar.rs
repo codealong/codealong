@@ -584,6 +584,8 @@ mod tests {
         // The server goes: the tooltip changes and the mark dims, which fails.
         assert_eq!(to_put(Some(&on), &off), (true, true));
         let shown = shown_after(off.clone(), false);
+        // Still without its server, the next refresh tries the mark again.
+        assert_eq!(to_put(shown.as_ref(), &off), (true, true));
         // It comes back as it was: the tooltip that went on with the failed face is put back.
         assert_eq!(to_put(shown.as_ref(), &on), (true, true));
         // A face whose mark went on is taken as shown.
