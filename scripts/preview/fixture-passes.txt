@@ -13,6 +13,8 @@ PREVIEW_ANALYTICS=1 scripts/preview.sh sessions '' scripts/preview/usage-analyti
 PREVIEW_EXPERIMENTS=1 scripts/preview.sh sessions '' scripts/preview/usage-experiments-check.js
 PREVIEW_BOARDS=scripts/preview/boards-everything.json scripts/preview.sh canvas '' scripts/preview/boards-empty-check.js
 PREVIEW_BOARDS=scripts/preview/boards-everything.json scripts/preview.sh canvas '' scripts/preview/canvas-tools-check.js
+PREVIEW_BOARDS=scripts/preview/boards-everything.json scripts/preview.sh canvas '' scripts/preview/working-set-check.js
+PREVIEW_BOARDS=scripts/preview/boards-sample.json scripts/preview.sh canvas '' scripts/preview/working-set-check.js
 PREVIEW_BOARDS=scripts/preview/boards-everything.json scripts/preview.sh sessions '' scripts/preview/boards-off-check.js
 PREVIEW_BOARDS_OFF=1 PREVIEW_BOARDS=scripts/preview/boards-everything.json scripts/preview.sh kanban '' scripts/preview/boards-off-check.js
 PREVIEW_DATE=2026-12-28 PREVIEW_WAIT=60000 PREVIEW_TODOS=scripts/preview/todos-sample.json scripts/preview.sh todo '' scripts/preview/due-check.js

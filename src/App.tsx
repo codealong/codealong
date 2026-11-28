@@ -63,15 +63,15 @@ import { SCHEDULE_GROUPS, SCHEDULE_ROWS, SCHEDULE_SORTS, SchedulesView } from '.
 import { scheduleOf, scheduleProject, type ScheduleSort } from './schedules';
 import { KanbanView } from './ui/KanbanView';
 import { applyKanbanDrop, boardOrderWith, columnWith, kanbanCardId, kanbanStep, orderedIds, type KanbanActs } from './kanban';
-import { CanvasView } from './ui/CanvasView';
+import { CanvasHost, type CanvasMode } from './ui/CanvasHost';
 import { entitiesOf, homeLane, refId, type OnBoard, type RefItem, type RefKind } from './canvas/model';
 import { useCanvas } from './canvas/useCanvas';
-import { columnsOf, holdsOf, takesAll } from './boards/model';
+import { columnsOf, holdsOf, newBoardId, takesAll } from './boards/model';
 import { columnOf } from './boards/rules';
 import { useBoardAsks } from './boards/useBoardAsks';
 import { useBoardEdits } from './boards/useBoardEdits';
 import { useBoards } from './boards/useBoards';
-import { BoardBar, type BoardLayout } from './ui/BoardBar';
+import { BoardBar, type BoardBarLayout, type BoardLayout } from './ui/BoardBar';
 import { BoardDialog, ColumnDialog } from './ui/BoardDialog';
 import { BoardEmpty } from './ui/BoardEmpty';
 import { ThemeSwitch, useTheme } from './ui/ThemeSwitch';
@@ -203,6 +203,7 @@ function domId(r: { key: string }): string {
 // Sessions, grouped by worktree until you pick otherwise (`sessionGroup`).
 const VIEW_STORED = oneOf(VIEWS.map((v) => v.id));
 const LAYOUT_STORED = oneOf<BoardLayout>(['kanban', 'canvas']);
+const CANVAS_MODE_STORED = oneOf<CanvasMode>(['board', 'working-set']);
 const AGE_STORED = oneOf(AGES.map((a) => a.id));
 const SORT_STORED = oneOf(SESSION_SORTS.map((o) => o.id));
 const PR_SORT_STORED = oneOf(PR_SORTS.map((o) => o.id));
@@ -618,7 +619,8 @@ export function App() {
   const canvasKeys = useRef<(e: KeyboardEvent) => boolean>(() => false);
   // Whether the canvas is drawn. CanvasView gives the window its keys while it is, and they go with
   // it: a board deleted, or a project with none, leaves no keys behind to act on a canvas that's gone.
-  const canvasShown = view === 'canvas' && !!board && !!shownBoard && !!canvas.doc && !loading;
+  const [canvasMode, setCanvasMode] = useStored<CanvasMode>('codealong:canvas-mode', CANVAS_MODE_STORED, 'board');
+  const canvasShown = view === 'canvas' && !!board && !loading && !!shownBoard && (canvasMode === 'working-set' || !!canvas.doc);
   useEffect(() => {
     if (!canvasShown) canvasKeys.current = () => false;
   }, [canvasShown]);
@@ -637,7 +639,16 @@ export function App() {
   // makes or changes, what its menus and the dialogs' Save do, and Add to board › in the other
   // menus (one thing's or several of a kind picked together).
   const { boardItems, boardEdit, setBoardEdit, columnEdit, setColumnEdit, showBoard, saveBoard, boardMenu, columnMenu, saveColumn, ruleChoices } = useBoardEdits({ boards, applyBoard, boardsOn, view, setView, lastLayout, current, projects, pickProject, setSelectedKey, setToast, board, rawLanes, projectLanes, todoStore, member, allSubjects, now });
-  const boardLayout: BoardLayout = view === 'canvas' ? 'canvas' : 'kanban';
+  const boardBarLayout: BoardBarLayout = view === 'kanban' ? 'kanban' : canvasMode === 'working-set' ? 'map' : 'canvas';
+  const pickBoardLayout = (next: BoardBarLayout) => {
+    if (next === 'kanban') setView('kanban');
+    else { setCanvasMode(next === 'map' ? 'working-set' : 'board'); setView('canvas'); }
+  };
+  const startWorkingSetBoard = () => {
+    const id = newBoardId();
+    void applyBoard({ op: 'create', board: { id, name: 'Working set', project: current, rule: {}, added: [], removed: [], columns: null } });
+    boards.pick(id); setCanvasMode('working-set'); setView('canvas');
+  };
   // What's pinned to the desktop, so menus offer to take it off (desktop.rs).
   const onDesktop = menus.useDesktopPins();
   // The sessions kept in windows of their own, so a session's menu offers to pop it out or show
@@ -917,7 +928,10 @@ export function App() {
       clearFilters();
       setDrill(null);
       setView(r.layout);
-      if (r.focus?.length) setCanvasFocus((f) => ({ ids: r.focus ?? [], n: (f?.n ?? 0) + 1 }));
+      if (r.focus?.length) {
+        setCanvasMode('board');
+        setCanvasFocus((f) => ({ ids: r.focus ?? [], n: (f?.n ?? 0) + 1 }));
+      }
       return;
     }
     // A schedule a session came from: the Schedules view, on it, in the project that lists it
@@ -1796,7 +1810,7 @@ export function App() {
           {!loading && (view === 'sessions' || view === 'prs' || view === 'todo' || view === 'schedules' || ((view === 'kanban' || view === 'canvas') && shownBoard) || findShown) && (
             <ListBar>
               {(view === 'kanban' || view === 'canvas') && shownBoard && (
-                <BoardBar board={shownBoard} project={shownBoard.project !== current ? shownBoard.project : null} layout={boardLayout} labels={todoStore.labels} onLayout={setView} onMenu={() => boardMenu()} onEdit={() => setBoardEdit({ board: shownBoard })} />
+                <BoardBar board={shownBoard} project={shownBoard.project !== current ? shownBoard.project : null} layout={boardBarLayout} labels={todoStore.labels} onLayout={pickBoardLayout} onMenu={() => boardMenu()} onEdit={() => setBoardEdit({ board: shownBoard })} />
               )}
               {(view === 'kanban' || view === 'canvas') && shownBoard && filterChips}
               {view === 'sessions' && (
@@ -1905,34 +1919,21 @@ export function App() {
                     : 'No sessions in the last 14 days.'}
             </div>
           )}
-          {(view === 'kanban' || view === 'canvas') && !loading && boards.read && !shownBoard && <BoardEmpty project={current} error={boards.error} onNew={() => setBoardEdit({ board: null })} />}
-          {canvasShown && board && shownBoard && canvas.doc && (
-            <CanvasView
-              doc={canvas.doc}
-              update={canvas.update}
-              entities={canvasEntities}
-              holds={holds}
+          {(view === 'kanban' || view === 'canvas') && !loading && boards.read && !shownBoard && <BoardEmpty project={current} error={boards.error} onNew={() => setBoardEdit({ board: null })} onWorkingSet={startWorkingSetBoard} />}
+          {canvasShown && board && shownBoard && (
+            <CanvasHost
+              mode={canvasMode} board={shownBoard}
+              doc={canvas.doc} update={canvas.update} entities={canvasEntities} holds={holds}
+              schedules={board.schedules ?? []} prs={board.prs}
               onTakeOff={(cards) => void applyBoard({ op: 'remove', id: shownBoard.id, cards })}
               onPutOn={(cards) => void applyBoard({ op: 'add', id: shownBoard.id, cards })}
               onSettings={() => setBoardEdit({ board: shownBoard })}
-              labels={labelById}
-              todos={todoStore.todos}
-              now={now}
-              terminal={board.apps.terminal}
-              theme={theme}
-              project={current}
-              focus={canvasFocus}
-              onOpen={openCard}
-              onShowPr={showPrOf}
-              menuFor={cardMenu}
-              onToast={setToast}
-              onUndo={(message, undo, icon) => setTodoUndo({ message, undo, icon })}
-              keys={canvasKeys}
-              onSelectItem={setCanvasSel}
-              query={query}
+              labels={labelById} todos={todoStore.todos} now={now} terminal={board.apps.terminal} theme={theme} project={current}
+              focus={canvasFocus} onOpen={openCard} onShowPr={showPrOf} onShowSchedule={(id) => reveal.current({ kind: 'schedule', id })}
+              menuFor={cardMenu} onToast={setToast} onUndo={(message, undo, icon) => setTodoUndo({ message, undo, icon })}
+              keys={canvasKeys} onSelectItem={setCanvasSel} query={query}
               filtering={!!query.trim() || bayFilter.length > 0 || facetsOn(facets, 'canvas').length > 0}
-              matches={canvasMatches}
-              fitMatches={canvasFit}
+              matches={canvasMatches} fitMatches={canvasFit}
             />
           )}
           {view === 'schedules' && board && !loading && (

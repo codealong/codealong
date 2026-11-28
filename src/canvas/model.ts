@@ -68,12 +68,24 @@ export interface Camera {
   zoom: number;
 }
 
+/** Per-board overrides for the dynamic Map view (`ui/WorkingSetCanvas.tsx`), saved inside
+ *  `CanvasDoc.map` in `boards.json` so pins, manual clusters, custom cluster names and shelved
+ *  schedule hubs belong to each board and sync across windows. */
+export interface MapLayoutState {
+  pinnedPos: Record<string, { x: number; y: number }>;
+  groups: Record<string, string>;
+  groupNames: Record<string, string>;
+  shelvedHubs?: string[];
+}
+
 export interface CanvasDoc {
   version: 1;
   items: CanvasItem[];
   camera: Camera | null;
   /** How the last tidy laid it out, which new work follows. */
   layout: TidyMode;
+  /** Per-board Map layout overrides; omitted when empty. */
+  map?: MapLayoutState;
 }
 
 export interface Rect {
@@ -99,6 +111,32 @@ export function emptyDoc(): CanvasDoc {
   return { version: 1, items: [], camera: null, layout: 'worktree' };
 }
 
+/** Strips empty or malformed entries from a board's Map layout overrides; returns undefined when empty. */
+export function cleanMapState(raw: unknown): MapLayoutState | undefined {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
+  const r = raw as Partial<MapLayoutState>;
+  const num = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
+  const pinnedPos: Record<string, { x: number; y: number }> = {};
+  if (r.pinnedPos && typeof r.pinnedPos === 'object' && !Array.isArray(r.pinnedPos)) {
+    for (const [k, v] of Object.entries(r.pinnedPos)) {
+      if (v && typeof v === 'object' && num(v.x) && num(v.y)) pinnedPos[k] = { x: v.x, y: v.y };
+    }
+  }
+  const groups: Record<string, string> = {};
+  if (r.groups && typeof r.groups === 'object' && !Array.isArray(r.groups)) {
+    for (const [k, v] of Object.entries(r.groups)) if (typeof v === 'string' && v) groups[k] = v;
+  }
+  const groupNames: Record<string, string> = {};
+  if (r.groupNames && typeof r.groupNames === 'object' && !Array.isArray(r.groupNames)) {
+    for (const [k, v] of Object.entries(r.groupNames)) if (typeof v === 'string' && v.trim()) groupNames[k] = v.trim();
+  }
+  const shelvedHubs = Array.isArray(r.shelvedHubs) ? [...new Set(r.shelvedHubs.filter((x): x is string => typeof x === 'string' && x.length > 0))] : [];
+  if (Object.keys(pinnedPos).length === 0 && Object.keys(groups).length === 0 && Object.keys(groupNames).length === 0 && shelvedHubs.length === 0) {
+    return undefined;
+  }
+  return { pinnedPos, groups, groupNames, ...(shelvedHubs.length > 0 ? { shelvedHubs } : {}) };
+}
+
 /** A saved document as read back, with anything missing or malformed dropped. */
 export function readDoc(raw: unknown): CanvasDoc {
   const doc = emptyDoc();
@@ -118,6 +156,8 @@ export function readDoc(raw: unknown): CanvasDoc {
   const old = raw as { tidy?: { layout?: unknown }; scope?: { layout?: unknown } };
   if ((r.layout ?? old.tidy?.layout ?? old.scope?.layout) === 'time') doc.layout = 'time';
   if (r.camera && num(r.camera.x) && num(r.camera.y) && num(r.camera.zoom) && r.camera.zoom > 0) doc.camera = r.camera;
+  const map = cleanMapState(r.map);
+  if (map) doc.map = map;
   return doc;
 }
 

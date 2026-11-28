@@ -92,6 +92,7 @@
 @import '../ui/FieldPicker.css';
 @import '../ui/card/CardFace.css';
 @import '../ui/CanvasView.css';
+@import '../ui/WorkingSetCanvas.css';
 @import '../ui/card/CardPopover.css';
 @import '../ui/KanbanView.css';
 @import '../ui/Markdown.css';

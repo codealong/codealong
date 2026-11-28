@@ -518,3 +518,36 @@ describe('outline', () => {
     expect(o.notes).toEqual([{ id: expect.any(String), text: 'Invoices', frame: billing.id, by: 'arrange' }]);
   });
 });
+
+describe('readDoc map overrides', () => {
+  it('omits map when empty, round-trips valid overrides and drops malformed entries', () => {
+    const clean = readDoc({ version: 1, items: [], camera: null, layout: 'worktree', map: { pinnedPos: {}, groups: {}, groupNames: {}, shelvedHubs: [] } });
+    expect('map' in clean).toBe(false);
+
+    const parsed = readDoc({
+      version: 1,
+      items: [],
+      camera: null,
+      layout: 'worktree',
+      map: {
+        pinnedPos: { 'session:a': { x: 120, y: 240 }, 'session:bad': { x: Number.NaN, y: 0 } },
+        groups: { 'session:a': 'grp:1', 'session:empty': '' },
+        groupNames: { 'grp:1': '  Northwind  ', 'grp:blank': '   ' },
+        shelvedHubs: ['schedule:s1', 'schedule:s1', 42],
+      },
+    });
+    expect(parsed.map).toEqual({
+      pinnedPos: { 'session:a': { x: 120, y: 240 } },
+      groups: { 'session:a': 'grp:1' },
+      groupNames: { 'grp:1': 'Northwind' },
+      shelvedHubs: ['schedule:s1'],
+    });
+
+    // Preserved across sync and tidy
+    const e = ents([lane('a', [session('s1')])]);
+    const synced = sync(parsed, e, everything(e));
+    expect(synced.map).toEqual(parsed.map);
+    const tidied = tidy(synced, e, NOW, everything(e));
+    expect(tidied.map).toEqual(parsed.map);
+  });
+});

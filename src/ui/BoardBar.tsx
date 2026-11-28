@@ -1,5 +1,5 @@
 // The Board view's tools, in the strip over it (ListBar.tsx): the board shown, whose menu picks
-// another, makes one or changes this one, the Kanban | Canvas toggle, and what the board takes in.
+// another, makes one or changes this one, the Kanban | Map | Canvas toggle, and what the board takes in.
 
 import { ruleWords, type BoardDoc } from '../boards/model';
 import { keysIn } from '../platform';
@@ -7,9 +7,11 @@ import type { Label } from '../types';
 import { Icon, Seg } from './primitives';
 
 export type BoardLayout = 'kanban' | 'canvas';
+export type BoardBarLayout = 'kanban' | 'map' | 'canvas';
 
-const LAYOUTS: { id: BoardLayout; label: string; icon: string; title: string }[] = [
+const LAYOUTS: { id: BoardBarLayout; label: string; icon: string; title: string }[] = [
   { id: 'kanban', label: 'Kanban', icon: 'layout-kanban', title: keysIn('Kanban: its todos and sessions in columns (⇧⌘K)') },
+  { id: 'map', label: 'Map', icon: 'compass', title: 'Map: dynamic clusters of active sessions, schedules and actions' },
   { id: 'canvas', label: 'Canvas', icon: 'layout-grid', title: keysIn('Canvas: its work laid out in space (⇧⌘B)') },
 ];
 
@@ -17,9 +19,9 @@ interface BoardBarProps {
   board: BoardDoc;
   /** Its project, when the window shows another (All projects): it's that project's work. */
   project: string | null;
-  layout: BoardLayout;
+  layout: BoardBarLayout;
   labels: Label[];
-  onLayout: (layout: BoardLayout) => void;
+  onLayout: (layout: BoardBarLayout) => void;
   /** The board's menu: the others to show, a new one, its settings. */
   onMenu: () => void;
   /** Its settings: what it takes in. */
