@@ -161,7 +161,7 @@ if [ "$updates" = 0 ] && [ "$notarize" = 1 ]; then
 fi
 [ -z "$notes_file" ] || [ -f "$notes_file" ] || fail "No release notes at $notes_file."
 command -v cargo-about >/dev/null ||
-  fail "The app carries the licenses of the crates it's built with, which cargo-about writes: cargo install cargo-about --locked --features cli."
+  fail "The app carries the licenses of the crates it's built with, which cargo-about writes: cargo install cargo-about --version 0.9.2 --locked --features cli (release.yml says why that one)."
 if [ "$draft" = 1 ]; then
   [ "$notarize" = 1 ] || fail "A draft release is for handing out, so it's notarized: drop --no-notarize."
   gh auth status >/dev/null 2>&1 || fail "--draft makes the release with gh, which isn't signed in (gh auth login)."

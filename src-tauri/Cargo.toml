@@ -32,7 +32,10 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 aho-corasick = "1"
 memchr = "2"
-tauri = { version = "2.13", features = ["macos-private-api", "tray-icon"] }
+# Tauri's minor and tray-icon's version move together: menubar.rs is handed tray-icon's own type
+# (`with_inner_tray_icon`, tray-icon below), which a later minor can change, so one is taken on
+# purpose, with tray-icon's requirement beside it.
+tauri = { version = "~2.13", features = ["macos-private-api", "tray-icon"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["raw_value"] }
 toml = "1"
@@ -101,7 +104,7 @@ uds_windows = "1"
 
 # updates.rs's end-to-end test runs the updater in Tauri's mock runtime, which opens no window.
 [dev-dependencies]
-tauri = { version = "2.13", features = ["test"] }
+tauri = { version = "~2.13", features = ["test"] }
 
 # No debug information in development and test builds (the test profile inherits this one): a
 # panic still names its file and line. On macOS line tables stay in each build's object files,

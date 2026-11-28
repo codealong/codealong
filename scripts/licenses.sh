@@ -11,7 +11,7 @@ cd "$(dirname "$0")/.."
 out="$1"
 shift
 command -v cargo-about >/dev/null ||
-  { echo "The app carries the licenses of the crates it's built with, which cargo-about writes: cargo install cargo-about --locked --features cli." >&2; exit 1; }
+  { echo "The app carries the licenses of the crates it's built with, which cargo-about writes: cargo install cargo-about --version 0.9.2 --locked --features cli (release.yml says why that one)." >&2; exit 1; }
 log="$(mktemp)"
 config=src-tauri/about.toml
 if [ $# -gt 0 ]; then
