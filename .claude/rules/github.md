@@ -7,6 +7,7 @@ paths:
   - "src-tauri/src/prasks.rs"
   - "src-tauri/src/prmerge.rs"
   - "src-tauri/src/autoreview.rs"
+  - "src-tauri/src/autoreview/**"
   - "scripts/land.sh"
   - ".github/workflows/*.yml"
 ---

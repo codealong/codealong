@@ -1,6 +1,7 @@
 ---
 paths:
   - "src-tauri/src/cursor.rs"
+  - "src-tauri/src/cursor/**"
 ---
 
 # Cursor
@@ -203,8 +204,8 @@ chunks) and this Mac's files (2026-10-09). Paths are under `src-tauri/src/`.
   `%APPDATA%\Cursor\auth.json` on Windows, or in a custom `CURSOR_CONFIG_DIR` folder) with
   `AGENT_CLI_CREDENTIAL_STORE=file`. Usage and Privacy Mode try `auth.json`, then the app's
   plaintext token (skipping `cursor-safe-storage:`), then the command line's OS secret store,
-  falling through when a token is turned down (`cursor.rs` `ask_tokens`, `call_dashboard`,
-  `Cursor::signed_in`).
+  falling through when a token is turned down (`cursor/auth.rs` `ask_tokens`, `call_dashboard`;
+  `cursor.rs` `Cursor::signed_in`).
 - Usage: `GetCurrentPeriodUsage` on the DashboardService with `{}`, as the app's
   `UsageDataService` asks it, and `GetPlanInfo` for the plan's name: `cursor.rs` (Plan usage
   section, `read_usage`, `usage_meters`). Spends are cents, percents out of 100, times strings of
@@ -231,7 +232,8 @@ chunks) and this Mac's files (2026-10-09). Paths are under `src-tauri/src/`.
   `usage_reset_performed` ("Limits reset! Thank you for helping us improve Grok Bot"): turning on
   data sharing there resets the limits, which Codealong's turn-off never does.
 - Privacy Mode (whether Cursor trains on the account) is the account's on Cursor's servers,
-  read and set with the app's token: `cursor.rs` (Privacy Mode section). The enum is
+  read and set with the same sign-in as usage (the token order above, `cursor/auth.rs`
+  `call_dashboard`): `cursor.rs` (Privacy Mode section). The enum is
   `aiserver.v1.PrivacyMode`: 0 unspecified, 1 `NO_STORAGE` (Legacy, offered only to accounts
   already on it), 2 `NO_TRAINING` (Privacy Mode), 3 `USAGE_DATA_TRAINING_ALLOWED` and 4
   `USAGE_CODEBASE_TRAINING_ALLOWED` (Share Data). The answer can also carry
