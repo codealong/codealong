@@ -174,14 +174,15 @@ impl Engine {
             return;
         }
         let Some(text) = crate::util::read_range(path, from, to) else { return };
+        let source = prlinks::Source::File(path);
         let mut marked = false;
-        for (pr, at) in prlinks::pr_marks(&text) {
+        for (pr, at) in text.lines().flat_map(|line| prlinks::line_marks(line, &source)) {
             let have = self.pr_marks.entry(key.to_string()).or_default();
             marked |= prlinks::add_mark(have, pr, at);
         }
         self.dirty_if(marked, "a PR mark in a line");
         let mut pushed = false;
-        for (branch, at) in text.lines().filter_map(prlinks::line_push) {
+        for (branch, at) in text.lines().flat_map(|line| prlinks::line_pushes(line, &source)) {
             let have = self.pr_pushes.entry(key.to_string()).or_default();
             pushed |= prlinks::add_push(have, branch, at);
         }
@@ -433,13 +434,14 @@ fn file_marks(path: &Path) -> (Vec<(String, i64)>, Vec<(String, i64)>, Vec<crate
     let mut pushes = Vec::new();
     let mut made = Vec::new();
     let mut chrome = chrometabs::Use::default();
+    let source = prlinks::Source::File(path);
     crate::util::each_line_with(path, &needles, |line| {
-        if let Some(m) = prlinks::line_mark(line) {
+        for m in prlinks::line_marks(line, &source) {
             if !marks.iter().any(|(k, _)| k == &m.0) {
                 marks.push(m);
             }
         }
-        pushes.extend(prlinks::line_push(line));
+        pushes.extend(prlinks::line_pushes(line, &source));
         made.extend(artifacts::line_artifact(line));
         chrometabs::fold(&mut chrome, line);
     });

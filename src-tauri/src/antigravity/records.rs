@@ -3,20 +3,22 @@
 //!
 //! Antigravity writes tool calls (`PLANNER_RESPONSE`) and their outputs (`GENERIC`, or
 //! `SYSTEM_MESSAGE` for background tasks) as separate lines in
-//! `brain/<id>/.system_generated/logs/transcript_full.jsonl` (or `transcript.jsonl`). Because
-//! `run_command` runs in a PTY, `gh pr create` prints its banner
-//! (`Creating [draft ]pull request for <head> into <base> in <owner/name>`) followed by the new
-//! PR's URL on the same result line, and `git push` prints `To <remote>` followed by its
-//! ref-status table.
+//! `brain/<id>/.system_generated/logs/transcript_full.jsonl` (or `transcript.jsonl`). Because a
+//! command's stdout can print another session's records (for example while debugging transcripts),
+//! each candidate `GENERIC` or `SYSTEM_MESSAGE` output line is paired back to its originating
+//! `PLANNER_RESPONSE` `run_command` step and counted only when that shell command actually ran
+//! `gh pr create` or `git push`.
 
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
-use std::path::PathBuf;
+use std::io::BufRead;
+use std::path::{Path, PathBuf};
 
 use serde_json::Value;
 
 use crate::harness::NewLines;
 use crate::model::{Harness, Session};
+use crate::prlinks::Source;
 use crate::util::parse_rfc3339_ms;
 
 use super::{read_conversations_in, transcript_file, Conversation, Folder};
@@ -46,8 +48,8 @@ pub(super) const OUTPUT_MARKS: &[&str] = &["\"type\":\"GENERIC\"", "\"type\":\"S
 /// `transcript_full.jsonl`, JSON-encoded string form in `transcript.jsonl`).
 pub(super) const FOLDER_MARKS: &[&str] = &["\"Cwd\":\"", "\\\"Cwd\\\":\\\""];
 
-/// Substrings checked before decoding a log line for Antigravity PR marks (`pr_made`) or branch
-/// pushes (`pushed`).
+/// Substrings checked before decoding a log line for Antigravity PR marks (`pr_marks_on`) or
+/// branch pushes (`pushes_on`).
 pub(super) const PR_NEEDLES: &[&str] = &[
     "Creating pull request for ",
     "Creating draft pull request for ",
@@ -87,6 +89,382 @@ fn command_output(v: &Value) -> Option<&str> {
         "SYSTEM_MESSAGE" => (header.contains("finished with result:\nCommand exited with code ") || header.contains("finished with result:\nThe command exited with code ")).then_some(output),
         _ => None,
     }
+}
+
+/// The step index of the `run_command` tool result (`PLANNER_RESPONSE.step_index + 1 + call_idx`):
+/// `GENERIC` carries it as its own `step_index`, and a background task's `SYSTEM_MESSAGE` names it
+/// as `Task id "<conv>/task-<step>" finished with result:`.
+fn result_step(v: &Value) -> Option<i64> {
+    match v.get("type").and_then(Value::as_str)? {
+        "GENERIC" => v.get("step_index").and_then(Value::as_i64),
+        "SYSTEM_MESSAGE" => {
+            let content = v.get("content").and_then(Value::as_str)?;
+            let before = content.split_once("\" finished with result:\n")?.0;
+            let num = before.rsplit_once("/task-")?.1;
+            num.parse::<i64>().ok()
+        }
+        _ => None,
+    }
+}
+
+/// Extracts `CommandLine` if `line` is the `PLANNER_RESPONSE` whose `run_command` call produced
+/// `target_step` (`step_index + 1 + idx == target_step`).
+fn planner_command(line: &str, target_step: i64) -> Option<String> {
+    if !line.contains("\"PLANNER_RESPONSE\"") || !line.contains("\"run_command\"") {
+        return None;
+    }
+    let v: Value = serde_json::from_str(line).ok()?;
+    if v.get("type").and_then(Value::as_str) != Some("PLANNER_RESPONSE") {
+        return None;
+    }
+    let step = v.get("step_index").and_then(Value::as_i64)?;
+    let calls = v.get("tool_calls").and_then(Value::as_array)?;
+    if target_step <= step || target_step > step + calls.len() as i64 {
+        return None;
+    }
+    let call = &calls[(target_step - step - 1) as usize];
+    if call.get("name").and_then(Value::as_str) != Some("run_command") {
+        return None;
+    }
+    super::arg(call.get("args")?, "CommandLine")
+}
+
+/// Looks up the `CommandLine` of the `PLANNER_RESPONSE` `run_command` call paired with
+/// `target_step` in `source` (handles out-of-order steps and background task completions whose
+/// call sits earlier in the transcript).
+fn command_for_step(source: &Source<'_>, target_step: i64) -> Option<String> {
+    match source {
+        Source::Text(text) => text.lines().find_map(|l| planner_command(l, target_step)),
+        Source::File(path) => {
+            let file = std::fs::File::open(path).ok()?;
+            let mut reader = std::io::BufReader::with_capacity(1 << 20, file);
+            let finder = memchr::memmem::Finder::new(b"\"run_command\"");
+            let mut buf = Vec::new();
+            loop {
+                buf.clear();
+                match reader.read_until(b'\n', &mut buf) {
+                    Ok(0) | Err(_) => return None,
+                    Ok(_) => {}
+                }
+                if finder.find(&buf).is_some() {
+                    let line = String::from_utf8_lossy(&buf);
+                    if let Some(cmd) = planner_command(line.trim_end(), target_step) {
+                        return Some(cmd);
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Splits a shell command string into simple commands (lists of argv words), respecting single
+/// quotes, double quotes with backslash escapes, unquoted backslash escapes, `#` comments,
+/// heredoc bodies (`<<` / `<<-`), command separators (`&&`, `||`, `;`, `|`, `&`, `\n`, `(`, `)`,
+/// `$(`, standalone `{`/`}`), and redirections.
+fn shell_commands(cmd: &str) -> Vec<Vec<String>> {
+    let chars: Vec<char> = cmd.chars().collect();
+    let mut cmds: Vec<Vec<String>> = Vec::new();
+    let mut cur_cmd: Vec<String> = Vec::new();
+    let mut cur_word = String::new();
+    let mut in_word = false;
+    let mut heredocs: Vec<(String, bool)> = Vec::new();
+
+    let finish_word = |in_word: &mut bool, cur_word: &mut String, cur_cmd: &mut Vec<String>| {
+        if *in_word {
+            cur_cmd.push(std::mem::take(cur_word));
+            *in_word = false;
+        }
+    };
+    let finish_cmd = |in_word: &mut bool, cur_word: &mut String, cur_cmd: &mut Vec<String>, cmds: &mut Vec<Vec<String>>| {
+        finish_word(in_word, cur_word, cur_cmd);
+        if !cur_cmd.is_empty() {
+            cmds.push(std::mem::take(cur_cmd));
+        }
+    };
+
+    let mut i = 0;
+    while i < chars.len() {
+        let c = chars[i];
+        match c {
+            '\n' => {
+                finish_cmd(&mut in_word, &mut cur_word, &mut cur_cmd, &mut cmds);
+                i += 1;
+                // Skip any heredoc bodies queued on the line that just ended.
+                for (delim, strip_tabs) in heredocs.drain(..) {
+                    while i < chars.len() {
+                        let start = i;
+                        while i < chars.len() && chars[i] != '\n' {
+                            i += 1;
+                        }
+                        let mut line: String = chars[start..i].iter().collect();
+                        if line.ends_with('\r') {
+                            line.pop();
+                        }
+                        if i < chars.len() && chars[i] == '\n' {
+                            i += 1;
+                        }
+                        let matched = if strip_tabs { line.trim_start_matches('\t') == delim } else { line == delim };
+                        if matched {
+                            break;
+                        }
+                    }
+                }
+            }
+            ' ' | '\t' | '\r' => {
+                finish_word(&mut in_word, &mut cur_word, &mut cur_cmd);
+                i += 1;
+            }
+            '#' if !in_word => {
+                while i < chars.len() && chars[i] != '\n' {
+                    i += 1;
+                }
+            }
+            '\'' => {
+                in_word = true;
+                i += 1;
+                while i < chars.len() && chars[i] != '\'' {
+                    cur_word.push(chars[i]);
+                    i += 1;
+                }
+                if i < chars.len() {
+                    i += 1;
+                }
+            }
+            '"' => {
+                in_word = true;
+                i += 1;
+                while i < chars.len() && chars[i] != '"' {
+                    if chars[i] == '\\' && i + 1 < chars.len() {
+                        let next = chars[i + 1];
+                        if matches!(next, '"' | '\\' | '$' | '`' | '\n') {
+                            if next != '\n' {
+                                cur_word.push(next);
+                            }
+                            i += 2;
+                            continue;
+                        }
+                    }
+                    cur_word.push(chars[i]);
+                    i += 1;
+                }
+                if i < chars.len() {
+                    i += 1;
+                }
+            }
+            '\\' => {
+                if i + 1 < chars.len() && chars[i + 1] == '\n' {
+                    i += 2;
+                } else if i + 1 < chars.len() {
+                    in_word = true;
+                    cur_word.push(chars[i + 1]);
+                    i += 2;
+                } else {
+                    i += 1;
+                }
+            }
+            '$' if chars.get(i + 1) == Some(&'(') => {
+                // Unquoted command substitution `$(...)` runs the inner command(s).
+                finish_cmd(&mut in_word, &mut cur_word, &mut cur_cmd, &mut cmds);
+                i += 2;
+            }
+            ';' | '(' | ')' => {
+                finish_cmd(&mut in_word, &mut cur_word, &mut cur_cmd, &mut cmds);
+                i += 1;
+            }
+            '{' | '}' if !in_word => {
+                finish_cmd(&mut in_word, &mut cur_word, &mut cur_cmd, &mut cmds);
+                i += 1;
+            }
+            '&' | '|' => {
+                finish_cmd(&mut in_word, &mut cur_word, &mut cur_cmd, &mut cmds);
+                i += if chars.get(i + 1) == Some(&c) { 2 } else { 1 };
+            }
+            '<' if chars.get(i + 1) == Some(&'<') && chars.get(i + 2) != Some(&'<') => {
+                finish_word(&mut in_word, &mut cur_word, &mut cur_cmd);
+                i += 2;
+                let strip_tabs = chars.get(i) == Some(&'-');
+                if strip_tabs {
+                    i += 1;
+                }
+                while i < chars.len() && matches!(chars[i], ' ' | '\t') {
+                    i += 1;
+                }
+                let mut delim = String::new();
+                while i < chars.len() && !matches!(chars[i], ' ' | '\t' | '\n' | '\r' | ';' | '&' | '|' | '(' | ')') {
+                    match chars[i] {
+                        '\'' | '"' => i += 1,
+                        '\\' if i + 1 < chars.len() => {
+                            delim.push(chars[i + 1]);
+                            i += 2;
+                        }
+                        ch => {
+                            delim.push(ch);
+                            i += 1;
+                        }
+                    }
+                }
+                if !delim.is_empty() {
+                    heredocs.push((delim, strip_tabs));
+                }
+            }
+            '>' | '<' => {
+                // Drop numeric fd prefix glued to redirection (`2>/dev/null`) rather than keeping
+                // it as an argument word.
+                if in_word && cur_word.chars().all(|ch| ch.is_ascii_digit()) {
+                    cur_word.clear();
+                    in_word = false;
+                } else {
+                    finish_word(&mut in_word, &mut cur_word, &mut cur_cmd);
+                }
+                i += 1;
+                if matches!(chars.get(i), Some('>' | '<' | '&')) {
+                    i += 1;
+                    // `>&1` / `>&2` / `>&-`: skip the target fd too.
+                    while i < chars.len() && (chars[i].is_ascii_digit() || chars[i] == '-') {
+                        i += 1;
+                    }
+                } else {
+                    // Skip the redirected path token so it isn't mistaken for a command/subcommand.
+                    while i < chars.len() && matches!(chars[i], ' ' | '\t') {
+                        i += 1;
+                    }
+                    while i < chars.len() && !matches!(chars[i], ' ' | '\t' | '\n' | '\r' | ';' | '&' | '|' | '(' | ')') {
+                        if chars[i] == '\'' {
+                            i += 1;
+                            while i < chars.len() && chars[i] != '\'' {
+                                i += 1;
+                            }
+                            if i < chars.len() {
+                                i += 1;
+                            }
+                        } else if chars[i] == '"' {
+                            i += 1;
+                            while i < chars.len() && chars[i] != '"' {
+                                i += if chars[i] == '\\' && i + 1 < chars.len() { 2 } else { 1 };
+                            }
+                            if i < chars.len() {
+                                i += 1;
+                            }
+                        } else {
+                            i += 1;
+                        }
+                    }
+                }
+            }
+            _ => {
+                in_word = true;
+                cur_word.push(c);
+                i += 1;
+            }
+        }
+    }
+    finish_cmd(&mut in_word, &mut cur_word, &mut cur_cmd, &mut cmds);
+    cmds
+}
+
+fn is_env_assignment(word: &str) -> bool {
+    let Some((name, _)) = word.split_once('=') else { return false };
+    let mut chars = name.chars();
+    chars.next().is_some_and(|c| c.is_ascii_alphabetic() || c == '_') && chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
+}
+
+/// Skips leading environment assignments and transparent command wrappers (`env`, `command`,
+/// `time`, `noglob`, `nohup`, `nice`, `exec`), returning the invoked program's basename and its
+/// argument slice.
+fn program_and_args(words: &[String]) -> Option<(&str, &[String])> {
+    let mut i = 0;
+    while i < words.len() {
+        let w = words[i].as_str();
+        if is_env_assignment(w) {
+            i += 1;
+            continue;
+        }
+        let base = Path::new(w).file_name().and_then(|s| s.to_str()).unwrap_or(w);
+        match base {
+            "command" | "time" | "noglob" | "nohup" | "exec" => {
+                i += 1;
+                while i < words.len() && words[i].starts_with('-') {
+                    i += 1;
+                }
+            }
+            "env" => {
+                i += 1;
+                while i < words.len() {
+                    if words[i] == "-u" || words[i] == "--unset" || words[i] == "-C" || words[i] == "--chdir" {
+                        i += 2;
+                    } else if words[i].starts_with('-') || is_env_assignment(&words[i]) {
+                        i += 1;
+                    } else {
+                        break;
+                    }
+                }
+            }
+            "nice" => {
+                i += 1;
+                while i < words.len() {
+                    if words[i] == "-n" {
+                        i += 2;
+                    } else if words[i].starts_with('-') {
+                        i += 1;
+                    } else {
+                        break;
+                    }
+                }
+            }
+            _ => return Some((base, &words[i + 1..])),
+        }
+    }
+    None
+}
+
+/// True when `cmd` actually executes `gh pr create` as a shell command (not merely mentioning it in
+/// a script argument, commit message, heredoc, or search pattern).
+fn runs_gh_pr_create(cmd: &str) -> bool {
+    shell_commands(cmd).iter().any(|words| {
+        let Some(("gh", args)) = program_and_args(words) else { return false };
+        if args.first().map(String::as_str) != Some("pr") {
+            return false;
+        }
+        let mut i = 1;
+        while i < args.len() {
+            let a = args[i].as_str();
+            if matches!(a, "-R" | "--repo") {
+                i += 2;
+            } else if a.starts_with('-') {
+                i += 1;
+            } else {
+                break;
+            }
+        }
+        if args.get(i).map(String::as_str) != Some("create") {
+            return false;
+        }
+        !args.iter().any(|a| a == "-h" || a == "--help")
+    })
+}
+
+/// True when `cmd` actually executes `git push` (not `--dry-run`, `--delete`, `--help`, or a
+/// mention inside another command's arguments).
+fn runs_git_push(cmd: &str) -> bool {
+    shell_commands(cmd).iter().any(|words| {
+        let Some(("git", args)) = program_and_args(words) else { return false };
+        let mut i = 0;
+        while i < args.len() {
+            let a = args[i].as_str();
+            if matches!(a, "-C" | "-c" | "--git-dir" | "--work-tree" | "--namespace" | "--super-prefix" | "--config-env" | "--exec-path") {
+                i += 2;
+            } else if a.starts_with('-') {
+                i += 1;
+            } else {
+                break;
+            }
+        }
+        if args.get(i).map(String::as_str) != Some("push") {
+            return false;
+        }
+        let rest = &args[i + 1..];
+        !rest.iter().any(|a| matches!(a.as_str(), "-n" | "--dry-run" | "-h" | "--help" | "-d" | "--delete"))
+    })
 }
 
 fn created_at(v: &Value) -> i64 {
@@ -145,20 +523,21 @@ fn is_spinner_or_blank(s: &str) -> bool {
     s.chars().all(|c| c.is_whitespace() || ('\u{2800}'..='\u{28ff}').contains(&c))
 }
 
-/// The PR an Antigravity transcript line says the session created (`gh pr create` in `run_command`),
-/// by its URL, with the line's timestamp.
-pub(super) fn pr_made(line: &str) -> Option<(String, i64)> {
+/// All PRs an Antigravity transcript line says the session created (`gh pr create` in
+/// `run_command`), by URL and timestamp, verified against the paired `PLANNER_RESPONSE` command in
+/// `source`.
+pub(super) fn pr_marks_on(line: &str, source: &Source<'_>) -> Vec<(String, i64)> {
     if !(line.contains("Creating pull request for ") || line.contains("Creating draft pull request for ")) {
-        return None;
+        return Vec::new();
     }
     if !line.contains("/pull/") || !is_command_line(line) {
-        return None;
+        return Vec::new();
     }
-    let v: Value = serde_json::from_str(line).ok()?;
-    let out = command_output(&v)?;
+    let Ok(v) = serde_json::from_str::<Value>(line) else { return Vec::new() };
+    let Some(out) = command_output(&v) else { return Vec::new() };
     let at = created_at(&v);
     let lines: Vec<&str> = out.lines().collect();
-    let mut found: Option<String> = None;
+    let mut found: Vec<(String, i64)> = Vec::new();
     for (i, raw) in lines.iter().enumerate() {
         let banner = terminal_line(raw);
         let Some(repo) = create_banner_repo(banner.trim()) else { continue };
@@ -174,33 +553,38 @@ pub(super) fn pr_made(line: &str) -> Option<(String, i64)> {
             if (seg.starts_with("https://github.com/") || seg.starts_with("http://github.com/")) && !seg.contains(char::is_whitespace) {
                 if let Some(key) = crate::prlinks::from_url(seg) {
                     if key.split_once('#').is_some_and(|(slug, _)| slug.eq_ignore_ascii_case(repo)) {
-                        found = Some(seg.to_string());
+                        if !found.iter().any(|(u, _)| u == seg) {
+                            found.push((seg.to_string(), at));
+                        }
                         break;
                     }
                 }
             }
         }
     }
-    Some((found?, at))
+    if found.is_empty() {
+        return found;
+    }
+    let Some(step) = result_step(&v) else { return Vec::new() };
+    let Some(cmd) = command_for_step(source, step) else { return Vec::new() };
+    if runs_gh_pr_create(&cmd) { found } else { Vec::new() }
 }
 
-/// The remote branch an Antigravity transcript line says the session pushed to (`git push` in
-/// `run_command`), with the line's timestamp. Parses git's `To <remote>` header followed by
-/// `print_ref_status` lines, accepting fast-forward (`   `), forced (` + `), and new-branch
-/// (` * [new branch]`) updates while ignoring rejected (` ! `), deleted (` - `), up-to-date
-/// (` = `), and tag pushes (`[new tag]`).
-pub(super) fn pushed(line: &str) -> Option<(String, i64)> {
+/// All remote branches an Antigravity transcript line says the session pushed to (`git push` in
+/// `run_command`), with timestamp, verified against the paired `PLANNER_RESPONSE` command in
+/// `source`.
+pub(super) fn pushes_on(line: &str, source: &Source<'_>) -> Vec<(String, i64)> {
     if !line.contains(" -> ") || !is_command_line(line) {
-        return None;
+        return Vec::new();
     }
     if !(line.contains("To github.com:") || line.contains("To https://") || line.contains("To ssh://") || line.contains("To git@")) {
-        return None;
+        return Vec::new();
     }
-    let v: Value = serde_json::from_str(line).ok()?;
-    let out = command_output(&v)?;
+    let Ok(v) = serde_json::from_str::<Value>(line) else { return Vec::new() };
+    let Some(out) = command_output(&v) else { return Vec::new() };
     let at = created_at(&v);
     let mut in_push = false;
-    let mut found: Option<String> = None;
+    let mut found: Vec<(String, i64)> = Vec::new();
     for raw in out.lines() {
         let clean = terminal_line(raw);
         if let Some(remote) = clean.strip_prefix("To ") {
@@ -226,10 +610,15 @@ pub(super) fn pushed(line: &str) -> Option<(String, i64)> {
         let dst = dst.strip_suffix(" (forced update)").unwrap_or(dst).trim();
         let dst = dst.strip_prefix("refs/heads/").unwrap_or(dst);
         if !dst.is_empty() && !dst.contains(char::is_whitespace) && !dst.contains('"') && !dst.contains('\'') {
-            found = Some(dst.to_string());
+            found.push((dst.to_string(), at));
         }
     }
-    Some((found?, at))
+    if found.is_empty() {
+        return found;
+    }
+    let Some(step) = result_step(&v) else { return Vec::new() };
+    let Some(cmd) = command_for_step(source, step) else { return Vec::new() };
+    if runs_git_push(&cmd) { found } else { Vec::new() }
 }
 
 /// Tracks Antigravity transcripts (top-level and subagents) and their last-read byte offsets so
@@ -400,97 +789,148 @@ mod tests {
     use super::*;
     use serde_json::json;
 
-    fn generic(ts: &str, content: &str) -> String {
-        json!({"step_index": 60, "source": "MODEL", "type": "GENERIC", "status": "DONE", "created_at": ts, "content": content}).to_string()
+    fn planner(step: i64, cmd: &str) -> String {
+        json!({
+            "step_index": step,
+            "source": "MODEL",
+            "type": "PLANNER_RESPONSE",
+            "status": "DONE",
+            "created_at": "1970-01-01T00:00:01Z",
+            "tool_calls": [{"name": "run_command", "args": {"CommandLine": cmd}}]
+        })
+        .to_string()
     }
 
-    fn system_msg(ts: &str, content: &str) -> String {
-        json!({"step_index": 141, "source": "SYSTEM", "type": "SYSTEM_MESSAGE", "status": "DONE", "created_at": ts, "content": content}).to_string()
+    fn generic(step: i64, ts: &str, content: &str) -> String {
+        json!({"step_index": step, "source": "MODEL", "type": "GENERIC", "status": "DONE", "created_at": ts, "content": content}).to_string()
+    }
+
+    fn system_msg(step: i64, ts: &str, content: &str) -> String {
+        json!({"step_index": step, "source": "SYSTEM", "type": "SYSTEM_MESSAGE", "status": "DONE", "created_at": ts, "content": content}).to_string()
     }
 
     #[test]
-    fn finds_prs_from_synchronous_draft_and_background_commands() {
+    fn finds_prs_and_pushes_from_verified_commands_including_background_and_multi_pr() {
         // Real PTY output with git push + spinner frames + gh pr create.
+        let p_sync = planner(
+            59,
+            "git push alice 65d3cbc54:refs/heads/fix-readme-env-pull-ref && gh pr create --repo acme/app --base main --head alice:fix-readme-env-pull-ref --title \"Fix\" --body \"$(cat <<'EOF'\nSummary\nEOF\n)\"",
+        );
         let sync = generic(
+            60,
             "1970-01-01T00:00:05Z",
             "Created At: 2026-11-27T15:25:49-08:00\nCompleted At: 2026-11-27T15:26:00-08:00\nCommand exited with code 0.\n\nCommand output:\nTo github.com:alice/app.git\r\n * [new branch]          65d3cbc54 -> fix-readme-env-pull-ref\r\n\r\r⣾\r\r⣽\r\nCreating pull request for alice:fix-readme-env-pull-ref into main in acme/app\r\n\r\n\r\r⣾\r\r⣽\r\r⣻\rhttps://github.com/acme/app/pull/1616\r\n## app...alice/app\r\n",
         );
-        assert_eq!(pr_made(&sync), Some(("https://github.com/acme/app/pull/1616".to_string(), 5000)));
-        assert_eq!(pushed(&sync), Some(("fix-readme-env-pull-ref".to_string(), 5000)));
+        let text = format!("{p_sync}\n{sync}");
+        let src = Source::Text(&text);
+        assert_eq!(pr_marks_on(&sync, &src), vec![("https://github.com/acme/app/pull/1616".to_string(), 5000)]);
+        assert_eq!(pushes_on(&sync, &src), vec![("fix-readme-env-pull-ref".to_string(), 5000)]);
 
-        // Draft PR with ANSI color codes.
+        // Draft PR with ANSI color codes, written out of order (GENERIC before PLANNER_RESPONSE).
+        let p_draft = planner(10, "gh pr create --draft --title x");
         let draft = generic(
+            11,
             "1970-01-01T00:00:06Z",
             "Created At: 2026-11-27T15:25:49-08:00\nCommand exited with code 0.\n\nCommand output:\n\x1b[1mCreating draft pull request for feat into main in Org/Repo\x1b[0m\r\n\r\n\x1b[32mhttps://github.com/org/repo/pull/42\x1b[0m\r\n",
         );
-        assert_eq!(pr_made(&draft), Some(("https://github.com/org/repo/pull/42".to_string(), 6000)));
+        let out_of_order = format!("{draft}\n{p_draft}");
+        assert_eq!(pr_marks_on(&draft, &Source::Text(&out_of_order)), vec![("https://github.com/org/repo/pull/42".to_string(), 6000)]);
 
-        // Background task completion (SYSTEM_MESSAGE).
+        // Background task completion (SYSTEM_MESSAGE) opening two PRs in one chained command.
+        let p_bg = planner(
+            130,
+            "(cd ~/work/repo-a && git push -u origin topic-a && gh pr create -R acme/repo-a --title a) && (cd ~/work/repo-b && git push -u origin topic-b && gh pr create -R acme/repo-b --title b)",
+        );
         let bg = system_msg(
+            141,
             "1970-01-01T00:00:07Z",
-            "<SYSTEM_MESSAGE>\n[Message] sender=abc/task-1 content=Task id \"abc/task-1\" finished with result:\nCommand exited with code 0.\n\nCommand output:\nTo github.com:o/r.git\r\n * [new branch]        feat -> feat\r\nCreating pull request for feat into main in o/r\r\n\r\n\r\r⣾\rhttps://github.com/o/r/pull/9\r\n",
+            "<SYSTEM_MESSAGE>\n[Message] sender=abc/task-131 content=Task id \"abc/task-131\" finished with result:\nCommand exited with code 0.\n\nCommand output:\nTo github.com:acme/repo-a.git\r\n * [new branch]        topic-a -> topic-a\r\nCreating pull request for topic-a into main in acme/repo-a\r\n\r\n\r\r⣾\rhttps://github.com/acme/repo-a/pull/446\r\n---\r\nTo github.com:acme/repo-b.git\r\n * [new branch]        topic-b -> topic-b\r\nCreating pull request for topic-b into main in acme/repo-b\r\n\r\n\r\r⣾\rhttps://github.com/acme/repo-b/pull/325\r\n",
         );
-        assert_eq!(pr_made(&bg), Some(("https://github.com/o/r/pull/9".to_string(), 7000)));
-        assert_eq!(pushed(&bg), Some(("feat".to_string(), 7000)));
+        let bg_text = format!("{p_bg}\n{bg}");
+        let bg_src = Source::Text(&bg_text);
+        assert_eq!(
+            pr_marks_on(&bg, &bg_src),
+            vec![
+                ("https://github.com/acme/repo-a/pull/446".to_string(), 7000),
+                ("https://github.com/acme/repo-b/pull/325".to_string(), 7000),
+            ]
+        );
+        assert_eq!(pushes_on(&bg, &bg_src), vec![("topic-a".to_string(), 7000), ("topic-b".to_string(), 7000)]);
 
-        // Older agy format (`The command exited with code 0.\nOutput:\n`).
+        // Older agy format (`The command exited with code 0.\nOutput:\n`) and `git -C` + `Source::File`.
+        let p_older = planner(20, "git -C /tmp/work push origin HEAD:main");
         let older = generic(
+            21,
             "1970-01-01T00:00:08Z",
-            "Created At: 2026-10-14T20:29:09-07:00\n\nThe command exited with code 0.\nOutput:\nTo https://github.com/o/r.git\r\n   f9b6ed09..135355fd  HEAD -> main\r\n",
+            "Created At: 2026-10-14T20:29:09-07:00\n\nThe command exited with code 0.\nOutput:\nTo https://github.com/acme/repo.git\r\n   f9b6ed09..135355fd  HEAD -> main\r\n",
         );
-        assert_eq!(pushed(&older), Some(("main".to_string(), 8000)));
+        let dir = crate::fixtures::scratch("agy-pr-file-source");
+        let file = dir.join("transcript_full.jsonl");
+        std::fs::write(&file, format!("{p_older}\n{older}\n")).unwrap();
+        assert_eq!(pushes_on(&older, &Source::File(&file)), vec![("main".to_string(), 8000)]);
     }
 
     #[test]
-    fn ignores_read_file_json_dumps_pr_views_and_failed_pushes() {
+    fn ignores_printed_records_from_debugging_commands_and_non_push_or_create_commands() {
+        // A debugging script (even one whose Python source mentions `gh pr create` and `git push`)
+        // printing another session's real push and PR creation output must NOT be attributed here.
+        let printed_out = "Created At: 2026-11-27T16:05:41-08:00\nCompleted At: 2026-11-27T16:05:42-08:00\nCommand exited with code 0.\n\nCommand output:\n=== Line 142 step=141 source=SYSTEM type=SYSTEM_MESSAGE ===\nTo github.com:acme/infra.git\r\n * [new branch]        session-rules -> session-rules\r\nCreating pull request for session-rules into main in acme/infra\r\n\r\n\r\r⣾\rhttps://github.com/acme/infra/pull/446\r\n";
+
+        for (i, debug_cmd) in [
+            "python3 -c 'import json\nfor l in open(\"other.jsonl\"):\n  if \"gh pr create\" in l or \"git push\" in l: print(json.loads(l)[\"content\"])'",
+            "python3 - <<'EOF'\nprint('git push && gh pr create')\nEOF",
+            "cat /tmp/other-session.log",
+            "rg -n \"Creating pull request for|git push\" /tmp/logs",
+            "git commit -m \"Only count git push and gh pr create commands\"",
+            "git push --dry-run origin session-rules && gh pr view 446",
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let step = (i as i64 + 1) * 10;
+            let p = planner(step, debug_cmd);
+            let g = generic(step + 1, "1970-01-01T00:00:09Z", printed_out);
+            let text = format!("{p}\n{g}");
+            let src = Source::Text(&text);
+            assert!(pr_marks_on(&g, &src).is_empty(), "false PR positive for: {debug_cmd}");
+            assert!(pushes_on(&g, &src).is_empty(), "false push positive for: {debug_cmd}");
+        }
+
+        // Output with no paired PLANNER_RESPONSE (or paired with a non-run_command tool) is ignored.
+        let orphan = generic(99, "1970-01-01T00:00:09Z", printed_out);
+        assert!(pr_marks_on(&orphan, &Source::Text(&orphan)).is_empty());
+        assert!(pushes_on(&orphan, &Source::Text(&orphan)).is_empty());
+
         // read_file output reading a log that mentions gh pr create and git push.
         let read_file = generic(
+            2,
             "1970-01-01T00:00:01Z",
             "Created At: 2026-11-27T15:25:49-08:00\nShowing lines 1-42 of 42\n36: To github.com:o/r.git\n37:  * [new branch] feat -> feat\n39: Creating pull request for feat into main in o/r\n41: https://github.com/o/r/pull/325\n",
         );
-        assert_eq!(pr_made(&read_file), None);
-        assert_eq!(pushed(&read_file), None);
+        let p_rf = planner(1, "git push origin feat && gh pr create");
+        let rf_text = format!("{p_rf}\n{read_file}");
+        assert!(pr_marks_on(&read_file, &Source::Text(&rf_text)).is_empty());
+        assert!(pushes_on(&read_file, &Source::Text(&rf_text)).is_empty());
 
-        // Command output printing another session's JSONL transcript (escaped \r\n inside JSON).
-        let json_dump = generic(
-            "1970-01-01T00:00:02Z",
-            r#"Created At: 2026-11-27T15:25:49-08:00
-Command exited with code 0.
-
-Command output:
-{"type":"GENERIC","content":"To github.com:o/r.git\r\n * [new branch] a -> feat\r\nCreating pull request for feat into main in o/r\r\nhttps://github.com/o/r/pull/1616\r\n"}
-"#,
-        );
-        assert_eq!(pr_made(&json_dump), None);
-        assert_eq!(pushed(&json_dump), None);
-
-        // gh pr view prints a URL without a creation banner.
-        let view = generic(
-            "1970-01-01T00:00:03Z",
-            "Created At: 2026-11-27T15:25:49-08:00\nCommand exited with code 0.\n\nCommand output:\nhttps://github.com/o/r/pull/58\r\n",
-        );
-        assert_eq!(pr_made(&view), None);
-
-        // Banner whose repo doesn't match the printed URL.
-        let mismatch = generic(
-            "1970-01-01T00:00:04Z",
-            "Created At: 2026-11-27T15:25:49-08:00\nCommand exited with code 1.\n\nCommand output:\nCreating pull request for feat into main in o/r\r\nSee https://github.com/other/repo/pull/1\r\n",
-        );
-        assert_eq!(pr_made(&mismatch), None);
-
-        // Rejected push, deleted branch, and new tag don't count as pushed branches.
+        // Rejected push, deleted branch, and new tag don't count even from a real `git push`.
+        let p_push = planner(40, "git push origin feat");
         let non_pushes = generic(
+            41,
             "1970-01-01T00:00:05Z",
             "Created At: 2026-11-27T15:25:49-08:00\nCommand exited with code 1.\n\nCommand output:\nTo https://github.com/o/r.git\r\n ! [remote rejected]   feat -> feat (refused)\r\n - [deleted]           old -> old\r\n * [new tag]           v1.0 -> v1.0\r\n",
         );
-        assert_eq!(pushed(&non_pushes), None);
+        let np_text = format!("{p_push}\n{non_pushes}");
+        assert!(pushes_on(&non_pushes, &Source::Text(&np_text)).is_empty());
 
         // Force push strips `(forced update)` and `refs/heads/`.
+        let p_force = planner(50, "FOO=1 /usr/bin/git push --force-with-lease origin local:refs/heads/topic");
         let forced = generic(
+            51,
             "1970-01-01T00:00:06Z",
             "Created At: 2026-11-27T15:25:49-08:00\nCommand exited with code 0.\n\nCommand output:\nTo ssh://git@github.com/o/r.git\r\n + abc1234...def5678  local -> refs/heads/topic (forced update)\r\n",
         );
-        assert_eq!(pushed(&forced), Some(("topic".to_string(), 6000)));
+        let f_text = format!("{p_force}\n{forced}");
+        assert_eq!(pushes_on(&forced, &Source::Text(&f_text)), vec![("topic".to_string(), 6000)]);
     }
 
     #[test]
@@ -538,7 +978,7 @@ Command output:
         tracker.note_read("antigravity", &convs, &nested, &mut lines, &mut found);
         assert!(lines.is_empty() && found.is_empty());
 
-        // Appending to the parent or subagent transcript triggers changed_for and emits NewLines.
+        // Appending to the parent transcript triggers changed_for and emits NewLines.
         let before = std::fs::metadata(&parent_log).unwrap().len();
         use std::io::Write;
         writeln!(std::fs::OpenOptions::new().append(true).open(&parent_log).unwrap(), "{{\"type\":\"GENERIC\"}}").unwrap();

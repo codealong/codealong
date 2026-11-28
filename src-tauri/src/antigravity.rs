@@ -2477,12 +2477,12 @@ impl crate::harness::Adapter for Antigravity {
         records::PR_NEEDLES
     }
 
-    fn pr_made(&self, line: &str) -> Option<(String, i64)> {
-        records::pr_made(line)
+    fn pr_marks_on(&self, line: &str, source: &crate::prlinks::Source<'_>) -> Vec<(String, i64)> {
+        records::pr_marks_on(line, source)
     }
 
-    fn pushed(&self, line: &str) -> Option<(String, i64)> {
-        records::pushed(line)
+    fn pushes_on(&self, line: &str, source: &crate::prlinks::Source<'_>) -> Vec<(String, i64)> {
+        records::pushes_on(line, source)
     }
 
     fn reader(&self, _wake: crate::harness::Wake) -> Box<dyn crate::harness::Reader> {
