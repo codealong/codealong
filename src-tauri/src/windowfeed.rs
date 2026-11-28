@@ -19,17 +19,41 @@ use serde_json::value::RawValue;
 
 use crate::model::Board;
 
+/// A list of the board's sent an item at a time, as the sessions are: its field's name as
+/// written, the name its order goes by in a push, and its items' keys on the board, in order.
+/// Any other field goes whole when it changes. The schedules (some 270 KB, one of them changed by
+/// a check every few minutes) and the todos (some 900 KB) did: the schedules were 1.5 GB of the
+/// 2.1 GB the windows were sent in a week (perf.log, 2026-11-21 to 11-28).
+struct List {
+    name: &'static str,
+    order: &'static str,
+    keys: for<'a> fn(&'a Board) -> Vec<&'a str>,
+}
+
+const LISTS: [List; 3] = [
+    List { name: "prs", order: "prOrder", keys: |b| b.prs.iter().map(|p| p.key.as_str()).collect() },
+    List { name: "schedules", order: "scheduleOrder", keys: |b| b.schedules.iter().map(|s| s.schedule.id.as_str()).collect() },
+    List { name: "todos", order: "todoOrder", keys: |b| b.todos.iter().map(|t| t.id.as_str()).collect() },
+];
+
 /// What the windows were last sent, part by part.
 #[derive(Default)]
 pub struct Feed {
     /// The rev of the board last sent; none before the first push.
     rev: Option<u64>,
-    /// Each field of the board but its lanes and PRs, by its name as written.
+    /// Each field of the board but its lanes and `LISTS`, by its name as written.
     fields: HashMap<String, u64>,
     lanes: Vec<String>,
     lane: HashMap<String, LaneSent>,
-    prs: Vec<String>,
-    pr: HashMap<String, u64>,
+    /// Each of `LISTS`, in its order there.
+    lists: Vec<ListSent>,
+}
+
+/// One of `LISTS` as last sent: its items' keys in order, and each item's hash by its key.
+#[derive(Default)]
+struct ListSent {
+    keys: Vec<String>,
+    items: HashMap<String, u64>,
 }
 
 /// A lane as last sent: the lane without its sessions, and its sessions by key, in order.
@@ -51,10 +75,11 @@ pub struct Push {
 
 /// A board's text cut into its parts, each as it was written.
 struct Cut<'a> {
-    /// Every field but the lanes, the PRs and the rev, which each push carries apart.
+    /// Every field but the lanes, `LISTS` and the rev, which each push carries apart.
     fields: Vec<(&'a str, &'a RawValue)>,
     lanes: Vec<LaneCut<'a>>,
-    prs: Vec<(&'a str, &'a RawValue)>,
+    /// Each of `LISTS`' items by its key, in its order there.
+    lists: Vec<Vec<(&'a str, &'a RawValue)>>,
 }
 
 struct LaneCut<'a> {
@@ -77,9 +102,9 @@ impl Feed {
             }
         };
         let next = sent(&cut, board.rev);
-        // Two lanes with one id, or two sessions in a lane or two PRs with one key, can't be told
-        // apart in what changed.
-        let told_apart = next.lane.len() == cut.lanes.len() && next.pr.len() == cut.prs.len() && cut.lanes.iter().all(|l| next.lane[l.id].sessions.len() == l.sessions.len());
+        // Two lanes with one id, or two sessions in a lane or two items of a list with one key,
+        // can't be told apart in what changed.
+        let told_apart = next.lane.len() == cut.lanes.len() && next.lists.iter().zip(&cut.lists).all(|(sent, items)| sent.items.len() == items.len()) && cut.lanes.iter().all(|l| next.lane[l.id].sessions.len() == l.sessions.len());
         let delta = match self.rev {
             Some(base) if told_apart => Some(self.delta(&cut, &next, base, board.rev)),
             _ => None,
@@ -137,28 +162,40 @@ impl Feed {
         if !groups.is_empty() {
             let _ = write!(out, r#","sessions":{{{}}}"#, groups.join(","));
         }
-        if next.prs != self.prs {
-            let _ = write!(out, r#","prOrder":{}"#, list(next.prs.iter().map(String::as_str)));
-        }
-        let prs: Vec<&str> = cut.prs.iter().filter(|(k, _)| self.pr.get(*k) != next.pr.get(*k)).map(|(_, v)| v.get()).collect();
-        if !prs.is_empty() {
-            let _ = write!(out, r#","prs":[{}]"#, prs.join(","));
+        let none = ListSent::default();
+        for (i, kind) in LISTS.iter().enumerate() {
+            let (was, now) = (self.lists.get(i).unwrap_or(&none), &next.lists[i]);
+            if now.keys != was.keys {
+                let _ = write!(out, r#","{}":{}"#, kind.order, list(now.keys.iter().map(String::as_str)));
+            }
+            let changed: Vec<&str> = cut.lists[i].iter().filter(|(k, _)| was.items.get(*k) != now.items.get(*k)).map(|(_, v)| v.get()).collect();
+            if !changed.is_empty() {
+                let _ = write!(out, r#","{}":[{}]"#, kind.name, changed.join(","));
+            }
         }
         out.push('}');
         (out, lanes, sessions)
     }
 }
 
-/// `text`, the board written out, cut into its parts; the lanes' ids and sessions' and PRs' keys
-/// are the board's own, in the order they were written.
+/// `text`, the board written out, cut into its parts; the lanes' ids and the keys of sessions and
+/// of `LISTS`' items are the board's own, in the order they were written.
 fn cut<'a>(text: &'a str, board: &'a Board) -> serde_json::Result<Cut<'a>> {
     let top: BTreeMap<&str, &RawValue> = serde_json::from_str(text)?;
     let parts = |name: &str| top.get(name).map(|raw| raw.get()).unwrap_or("[]");
     let lanes: Vec<BTreeMap<&str, &RawValue>> = serde_json::from_str(parts("lanes"))?;
-    let prs: Vec<&RawValue> = serde_json::from_str(parts("prs"))?;
     let mismatch = || serde::de::Error::custom("the board's text doesn't match the board");
-    if lanes.len() != board.lanes.len() || prs.len() != board.prs.len() {
+    if lanes.len() != board.lanes.len() {
         return Err(mismatch());
+    }
+    let mut lists = Vec::with_capacity(LISTS.len());
+    for kind in &LISTS {
+        let items: Vec<&RawValue> = serde_json::from_str(parts(kind.name))?;
+        let keys = (kind.keys)(board);
+        if items.len() != keys.len() {
+            return Err(mismatch());
+        }
+        lists.push(keys.into_iter().zip(items).collect());
     }
     let mut cut_lanes = Vec::with_capacity(lanes.len());
     for (raw, lane) in lanes.iter().zip(&board.lanes) {
@@ -170,9 +207,9 @@ fn cut<'a>(text: &'a str, board: &'a Board) -> serde_json::Result<Cut<'a>> {
         cut_lanes.push(LaneCut { id: &lane.id, head: format!("{{{}}}", head.join(",")), sessions: lane.sessions.iter().map(|s| s.key.as_str()).zip(sessions).collect() });
     }
     Ok(Cut {
-        fields: top.into_iter().filter(|(k, _)| !matches!(*k, "lanes" | "prs" | "rev")).collect(),
+        fields: top.into_iter().filter(|(k, _)| !matches!(*k, "lanes" | "rev") && !LISTS.iter().any(|l| l.name == *k)).collect(),
         lanes: cut_lanes,
-        prs: board.prs.iter().map(|p| p.key.as_str()).zip(prs).collect(),
+        lists,
     })
 }
 
@@ -188,8 +225,7 @@ fn sent(cut: &Cut, rev: u64) -> Feed {
         fields: cut.fields.iter().map(|(k, v)| (k.to_string(), hash(v.get()))).collect(),
         lanes: cut.lanes.iter().map(|l| l.id.to_string()).collect::<Vec<_>>(),
         lane,
-        prs: cut.prs.iter().map(|(k, _)| k.to_string()).collect(),
-        pr: cut.prs.iter().map(|(k, v)| (k.to_string(), hash(v.get()))).collect(),
+        lists: cut.lists.iter().map(|items| ListSent { keys: items.iter().map(|(k, _)| k.to_string()).collect(), items: items.iter().map(|(k, v)| (k.to_string(), hash(v.get()))).collect() }).collect(),
     }
 }
 
@@ -228,6 +264,15 @@ mod tests {
         crate::model::Session { status, ..session(key) }
     }
 
+    fn schedule(id: &str, next_at: i64) -> crate::schedules::Item {
+        let schedule = crate::schedules::Schedule { id: id.into(), name: format!("Schedule {id}"), ..Default::default() };
+        crate::schedules::Item { schedule, next_at: Some(next_at), ..Default::default() }
+    }
+
+    fn todo(id: &str, title: &str) -> crate::todos::Todo {
+        serde_json::from_value(json!({ "id": id, "title": title })).expect("a todo")
+    }
+
     /// The boards a run of pushes goes through, each changing the one before as publishes do.
     fn boards() -> Vec<Board> {
         let first = Board {
@@ -236,6 +281,8 @@ mod tests {
             lanes: vec![lane("/work/app", vec![session("claude:a:1"), session("claude:a:2"), session("claude:a:3")]), lane("/work/api", vec![session("codex:c:4")])],
             prs: vec![pr(1, "Add teams"), pr(2, "Fix login")],
             github_current: [("o/r".to_string(), Some(900))].into(),
+            schedules: vec![schedule("s-1", 5_000), schedule("s-2", 9_000)],
+            todos: vec![todo("t-1", "Write the guide"), todo("t-2", "Fix the bar")],
             ..Board::default()
         };
         let mut boards = vec![first];
@@ -267,6 +314,12 @@ mod tests {
             b.loading = true;
             b.github_current.clear();
         });
+        // A schedule's check moves its next run; a todo changes, and one comes ahead of the rest.
+        next(&|b| {
+            b.schedules[1].next_at = Some(12_000);
+            b.todos[0].title = "Write the guide's first part".into();
+            b.todos.insert(0, todo("t-3", "Bump deps"));
+        });
         // Only the time.
         next(&|_| {});
         boards
@@ -295,7 +348,7 @@ mod tests {
         assert_eq!(one["sessions"]["/work/app"].as_array().map(|s| s.len()), Some(1));
         assert_eq!(one["sessions"]["/work/app"][0]["key"], "claude:a:2");
         assert_eq!(one["fields"].as_object().map(|f| f.keys().cloned().collect::<Vec<_>>()), Some(vec!["generatedAt".to_string()]));
-        for absent in ["lanes", "laneOrder", "sessionsOf", "prs", "prOrder", "gone"] {
+        for absent in ["lanes", "laneOrder", "sessionsOf", "prs", "prOrder", "schedules", "scheduleOrder", "todos", "todoOrder", "gone"] {
             assert!(one.get(absent).is_none(), "{absent}");
         }
 
@@ -319,8 +372,18 @@ mod tests {
         assert_eq!(prs["gone"], json!(["githubCurrent"]));
         assert_eq!(prs["fields"]["loading"], true);
 
+        // Schedules and todos by id, as PRs go: only the ones that changed, and the order when it
+        // did, never the whole list as a field.
+        let lists = value(&pushes[5]);
+        let ids = |v: &Value| v.as_array().map(|items| items.iter().map(|i| i["id"].clone()).collect::<Vec<_>>());
+        assert_eq!(ids(&lists["schedules"]), Some(vec![json!("s-2")]));
+        assert!(lists.get("scheduleOrder").is_none(), "the schedules' order didn't change");
+        assert_eq!(ids(&lists["todos"]), Some(vec![json!("t-3"), json!("t-1")]));
+        assert_eq!(lists["todoOrder"], json!(["t-3", "t-1", "t-2"]));
+        assert_eq!(lists["fields"].as_object().map(|f| f.keys().cloned().collect::<Vec<_>>()), Some(vec!["generatedAt".to_string()]));
+
         // Nothing but the time: a few bytes.
-        assert!(pushes[5].json.get().len() < 80, "{}", pushes[5].json.get());
+        assert!(pushes[6].json.get().len() < 80, "{}", pushes[6].json.get());
     }
 
     #[test]
@@ -333,6 +396,10 @@ mod tests {
         assert!(feed.push(&twice).unwrap().whole);
         assert!(feed.push(&boards[2]).unwrap().whole, "and the next, since what was sent couldn't be kept");
         assert!(!feed.push(&boards[3]).unwrap().whole);
+        // So do two schedules with one id.
+        let mut again = boards[4].clone();
+        again.schedules.push(schedule("s-1", 7_000));
+        assert!(feed.push(&again).unwrap().whole);
     }
 
     /// The pushes `boards` go through, with each board as a window should have it once the push

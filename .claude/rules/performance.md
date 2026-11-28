@@ -34,11 +34,20 @@ paths:
   <address>`, the load address from the report's header).
 - `node scripts/perf-summary.mjs` sums up the app's latest run (its header has the options). A
   window that can't be seen holds pushes and renders the latest when it's shown, so its push
-  times are for boards someone saw.
+  times are for boards someone saw. A window still counted as shown while the display sleeps
+  isn't held, and WebKit slows it then: a `ui[<window>] stall: a 1 s timer ran ~1000 ms late`
+  every two seconds (1,800 an hour a window) and main-window commits of 250 to 300 ms, which
+  were all of 2026-11-25 22:00 to 11-26 07:00, the display off throughout (`pmset -g log`,
+  "Display is turned off"). Those hours are WebKit's throttling, not load: leave them out of a
+  week's window numbers.
 - The windows are sent what changed in each board, a session at a time (windowfeed.rs), and the
   log's `windows sent` lines say how much, and its `feed to <device>` lines what each linked
   device was fed (peerfeed.rs `perf_line`); only the first push, and a read after a window missed
-  one, carry the whole board. A whole board's cost in a window is
+  one, carry the whole board. The PRs, schedules and todos go an item at a time too
+  (windowfeed.rs `LISTS`), and any other field of the board whole when it changes: until
+  2026-11-28 the schedules did (some 270 KB, changed by a check every few minutes), 1.5 GB of
+  the 2.1 GB the windows were sent from 2026-11-21 to 11-28, a send of 230 to 290 KB with
+  "0 sessions in 0 lanes" some thousand times a day. A whole board's cost in a window is
   `scripts/preview/push-bench.js` (forty pushes of the real board
   with one worktree changed, as most publishes are), the quick panel's open, keys and pushes
   `quick-bench.js`, and its keys after a prompt of up to 12,000 characters `quick-long-bench.js`

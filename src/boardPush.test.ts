@@ -24,6 +24,27 @@ describe('applyPush', () => {
     expect(second.lanes[0].sessions[0]).toBe(first.lanes[0].sessions[0]);
     expect(second.lanes[0].sessions[1]).not.toBe(first.lanes[0].sessions[1]);
     expect(second.prs).toBe(first.prs);
+    expect(second.schedules).toBe(first.schedules);
+    expect(second.todos).toBe(first.todos);
+  });
+
+  it('takes schedules and todos an item at a time, keeping the rest', () => {
+    let board: Board | null = null;
+    for (const { push } of run.slice(0, 5)) board = applyPush(board, push);
+    const before = board!;
+    const after = applyPush(before, run[5].push)!;
+    // One schedule's check moved it on: the other is the same object.
+    expect(after.schedules![0]).toBe(before.schedules![0]);
+    expect(after.schedules![1]).not.toBe(before.schedules![1]);
+    // A todo came first and one changed; the one that didn't is kept.
+    expect(after.todos.map((t) => t.id)).toEqual(['t-3', 't-1', 't-2']);
+    expect(after.todos[2]).toBe(before.todos[1]);
+  });
+
+  it('can’t order a schedule or a todo the board doesn’t have', () => {
+    const first = applyPush(null, run[0].push)!;
+    expect(applyPush(first, { rev: 2, base: first.rev ?? 0, todoOrder: ['nowhere'] })).toBeNull();
+    expect(applyPush(first, { rev: 2, base: first.rev ?? 0, scheduleOrder: ['nowhere'] })).toBeNull();
   });
 
   it('can’t change a board it isn’t for', () => {

@@ -339,7 +339,64 @@
         "verify_account": "",
         "verify_model": ""
       },
-      "schedules": [],
+      "schedules": [
+        {
+          "asked": 0,
+          "catchUp": "once",
+          "createdAt": 0,
+          "id": "s-1",
+          "name": "Schedule s-1",
+          "nextAt": 5000,
+          "notes": false,
+          "onlyIf": "",
+          "overlap": "skip",
+          "paused": false,
+          "quiet": false,
+          "run": {
+            "account": "",
+            "folder": "",
+            "freshAfter": "",
+            "prompt": "",
+            "session": "",
+            "to": "new",
+            "worktree": false
+          },
+          "runs": [],
+          "updatedAt": 0,
+          "when": {
+            "kind": "fired"
+          },
+          "whenWords": ""
+        },
+        {
+          "asked": 0,
+          "catchUp": "once",
+          "createdAt": 0,
+          "id": "s-2",
+          "name": "Schedule s-2",
+          "nextAt": 9000,
+          "notes": false,
+          "onlyIf": "",
+          "overlap": "skip",
+          "paused": false,
+          "quiet": false,
+          "run": {
+            "account": "",
+            "folder": "",
+            "freshAfter": "",
+            "prompt": "",
+            "session": "",
+            "to": "new",
+            "worktree": false
+          },
+          "runs": [],
+          "updatedAt": 0,
+          "when": {
+            "kind": "fired"
+          },
+          "whenWords": ""
+        }
+      ],
       "sessions": {
         "block_flagged_sessions": true,
         "continue_after_network_error": true,
@@ -365,7 +422,38 @@
         "due": [],
         "ready": []
       },
-      "todos": [],
+      "todos": [
+        {
+          "createdAt": 0,
+          "dependsOn": [],
+          "description": "",
+          "doneAt": null,
+          "id": "t-1",
+          "labels": [],
+          "pending": [],
+          "project": "",
+          "sessions": [],
+          "status": "todo",
+          "title": "Write the guide",
+          "updatedAt": 0,
+          "worktrees": []
+        },
+        {
+          "createdAt": 0,
+          "dependsOn": [],
+          "description": "",
+          "doneAt": null,
+          "id": "t-2",
+          "labels": [],
+          "pending": [],
+          "project": "",
+          "sessions": [],
+          "status": "todo",
+          "title": "Fix the bar",
+          "updatedAt": 0,
+          "worktrees": []
+        }
+      ],
       "tools": "folded",
       "training": [],
       "usage": [],
@@ -713,7 +801,64 @@
           "verify_account": "",
           "verify_model": ""
         },
-        "schedules": [],
+        "schedules": [
+          {
+            "asked": 0,
+            "catchUp": "once",
+            "createdAt": 0,
+            "id": "s-1",
+            "name": "Schedule s-1",
+            "nextAt": 5000,
+            "notes": false,
+            "onlyIf": "",
+            "overlap": "skip",
+            "paused": false,
+            "quiet": false,
+            "run": {
+              "account": "",
+              "folder": "",
+              "freshAfter": "",
+              "prompt": "",
+              "session": "",
+              "to": "new",
+              "worktree": false
+            },
+            "runs": [],
+            "updatedAt": 0,
+            "when": {
+              "kind": "fired"
+            },
+            "whenWords": ""
+          },
+          {
+            "asked": 0,
+            "catchUp": "once",
+            "createdAt": 0,
+            "id": "s-2",
+            "name": "Schedule s-2",
+            "nextAt": 9000,
+            "notes": false,
+            "onlyIf": "",
+            "overlap": "skip",
+            "paused": false,
+            "quiet": false,
+            "run": {
+              "account": "",
+              "folder": "",
+              "freshAfter": "",
+              "prompt": "",
+              "session": "",
+              "to": "new",
+              "worktree": false
+            },
+            "runs": [],
+            "updatedAt": 0,
+            "when": {
+              "kind": "fired"
+            },
+            "whenWords": ""
+          }
+        ],
         "sessions": {
           "block_flagged_sessions": true,
           "continue_after_network_error": true,
@@ -739,7 +884,38 @@
           "due": [],
           "ready": []
         },
-        "todos": [],
+        "todos": [
+          {
+            "createdAt": 0,
+            "dependsOn": [],
+            "description": "",
+            "doneAt": null,
+            "id": "t-1",
+            "labels": [],
+            "pending": [],
+            "project": "",
+            "sessions": [],
+            "status": "todo",
+            "title": "Write the guide",
+            "updatedAt": 0,
+            "worktrees": []
+          },
+          {
+            "createdAt": 0,
+            "dependsOn": [],
+            "description": "",
+            "doneAt": null,
+            "id": "t-2",
+            "labels": [],
+            "pending": [],
+            "project": "",
+            "sessions": [],
+            "status": "todo",
+            "title": "Fix the bar",
+            "updatedAt": 0,
+            "worktrees": []
+          }
+        ],
         "tools": "folded",
         "training": [],
         "usage": [],
@@ -1090,7 +1266,64 @@
         "verify_account": "",
         "verify_model": ""
       },
-      "schedules": [],
+      "schedules": [
+        {
+          "asked": 0,
+          "catchUp": "once",
+          "createdAt": 0,
+          "id": "s-1",
+          "name": "Schedule s-1",
+          "nextAt": 5000,
+          "notes": false,
+          "onlyIf": "",
+          "overlap": "skip",
+          "paused": false,
+          "quiet": false,
+          "run": {
+            "account": "",
+            "folder": "",
+            "freshAfter": "",
+            "prompt": "",
+            "session": "",
+            "to": "new",
+            "worktree": false
+          },
+          "runs": [],
+          "updatedAt": 0,
+          "when": {
+            "kind": "fired"
+          },
+          "whenWords": ""
+        },
+        {
+          "asked": 0,
+          "catchUp": "once",
+          "createdAt": 0,
+          "id": "s-2",
+          "name": "Schedule s-2",
+          "nextAt": 9000,
+          "notes": false,
+          "onlyIf": "",
+          "overlap": "skip",
+          "paused": false,
+          "quiet": false,
+          "run": {
+            "account": "",
+            "folder": "",
+            "freshAfter": "",
+            "prompt": "",
+            "session": "",
+            "to": "new",
+            "worktree": false
+          },
+          "runs": [],
+          "updatedAt": 0,
+          "when": {
+            "kind": "fired"
+          },
+          "whenWords": ""
+        }
+      ],
       "sessions": {
         "block_flagged_sessions": true,
         "continue_after_network_error": true,
@@ -1116,7 +1349,38 @@
         "due": [],
         "ready": []
       },
-      "todos": [],
+      "todos": [
+        {
+          "createdAt": 0,
+          "dependsOn": [],
+          "description": "",
+          "doneAt": null,
+          "id": "t-1",
+          "labels": [],
+          "pending": [],
+          "project": "",
+          "sessions": [],
+          "status": "todo",
+          "title": "Write the guide",
+          "updatedAt": 0,
+          "worktrees": []
+        },
+        {
+          "createdAt": 0,
+          "dependsOn": [],
+          "description": "",
+          "doneAt": null,
+          "id": "t-2",
+          "labels": [],
+          "pending": [],
+          "project": "",
+          "sessions": [],
+          "status": "todo",
+          "title": "Fix the bar",
+          "updatedAt": 0,
+          "worktrees": []
+        }
+      ],
       "tools": "folded",
       "training": [],
       "usage": [],
@@ -1505,7 +1769,64 @@
         "verify_account": "",
         "verify_model": ""
       },
-      "schedules": [],
+      "schedules": [
+        {
+          "asked": 0,
+          "catchUp": "once",
+          "createdAt": 0,
+          "id": "s-1",
+          "name": "Schedule s-1",
+          "nextAt": 5000,
+          "notes": false,
+          "onlyIf": "",
+          "overlap": "skip",
+          "paused": false,
+          "quiet": false,
+          "run": {
+            "account": "",
+            "folder": "",
+            "freshAfter": "",
+            "prompt": "",
+            "session": "",
+            "to": "new",
+            "worktree": false
+          },
+          "runs": [],
+          "updatedAt": 0,
+          "when": {
+            "kind": "fired"
+          },
+          "whenWords": ""
+        },
+        {
+          "asked": 0,
+          "catchUp": "once",
+          "createdAt": 0,
+          "id": "s-2",
+          "name": "Schedule s-2",
+          "nextAt": 9000,
+          "notes": false,
+          "onlyIf": "",
+          "overlap": "skip",
+          "paused": false,
+          "quiet": false,
+          "run": {
+            "account": "",
+            "folder": "",
+            "freshAfter": "",
+            "prompt": "",
+            "session": "",
+            "to": "new",
+            "worktree": false
+          },
+          "runs": [],
+          "updatedAt": 0,
+          "when": {
+            "kind": "fired"
+          },
+          "whenWords": ""
+        }
+      ],
       "sessions": {
         "block_flagged_sessions": true,
         "continue_after_network_error": true,
@@ -1531,7 +1852,38 @@
         "due": [],
         "ready": []
       },
-      "todos": [],
+      "todos": [
+        {
+          "createdAt": 0,
+          "dependsOn": [],
+          "description": "",
+          "doneAt": null,
+          "id": "t-1",
+          "labels": [],
+          "pending": [],
+          "project": "",
+          "sessions": [],
+          "status": "todo",
+          "title": "Write the guide",
+          "updatedAt": 0,
+          "worktrees": []
+        },
+        {
+          "createdAt": 0,
+          "dependsOn": [],
+          "description": "",
+          "doneAt": null,
+          "id": "t-2",
+          "labels": [],
+          "pending": [],
+          "project": "",
+          "sessions": [],
+          "status": "todo",
+          "title": "Fix the bar",
+          "updatedAt": 0,
+          "worktrees": []
+        }
+      ],
       "tools": "folded",
       "training": [],
       "usage": [],
@@ -1919,7 +2271,64 @@
         "verify_account": "",
         "verify_model": ""
       },
-      "schedules": [],
+      "schedules": [
+        {
+          "asked": 0,
+          "catchUp": "once",
+          "createdAt": 0,
+          "id": "s-1",
+          "name": "Schedule s-1",
+          "nextAt": 5000,
+          "notes": false,
+          "onlyIf": "",
+          "overlap": "skip",
+          "paused": false,
+          "quiet": false,
+          "run": {
+            "account": "",
+            "folder": "",
+            "freshAfter": "",
+            "prompt": "",
+            "session": "",
+            "to": "new",
+            "worktree": false
+          },
+          "runs": [],
+          "updatedAt": 0,
+          "when": {
+            "kind": "fired"
+          },
+          "whenWords": ""
+        },
+        {
+          "asked": 0,
+          "catchUp": "once",
+          "createdAt": 0,
+          "id": "s-2",
+          "name": "Schedule s-2",
+          "nextAt": 9000,
+          "notes": false,
+          "onlyIf": "",
+          "overlap": "skip",
+          "paused": false,
+          "quiet": false,
+          "run": {
+            "account": "",
+            "folder": "",
+            "freshAfter": "",
+            "prompt": "",
+            "session": "",
+            "to": "new",
+            "worktree": false
+          },
+          "runs": [],
+          "updatedAt": 0,
+          "when": {
+            "kind": "fired"
+          },
+          "whenWords": ""
+        }
+      ],
       "sessions": {
         "block_flagged_sessions": true,
         "continue_after_network_error": true,
@@ -1945,7 +2354,38 @@
         "due": [],
         "ready": []
       },
-      "todos": [],
+      "todos": [
+        {
+          "createdAt": 0,
+          "dependsOn": [],
+          "description": "",
+          "doneAt": null,
+          "id": "t-1",
+          "labels": [],
+          "pending": [],
+          "project": "",
+          "sessions": [],
+          "status": "todo",
+          "title": "Write the guide",
+          "updatedAt": 0,
+          "worktrees": []
+        },
+        {
+          "createdAt": 0,
+          "dependsOn": [],
+          "description": "",
+          "doneAt": null,
+          "id": "t-2",
+          "labels": [],
+          "pending": [],
+          "project": "",
+          "sessions": [],
+          "status": "todo",
+          "title": "Fix the bar",
+          "updatedAt": 0,
+          "worktrees": []
+        }
+      ],
       "tools": "folded",
       "training": [],
       "usage": [],
@@ -2399,7 +2839,64 @@
         "verify_account": "",
         "verify_model": ""
       },
-      "schedules": [],
+      "schedules": [
+        {
+          "asked": 0,
+          "catchUp": "once",
+          "createdAt": 0,
+          "id": "s-1",
+          "name": "Schedule s-1",
+          "nextAt": 5000,
+          "notes": false,
+          "onlyIf": "",
+          "overlap": "skip",
+          "paused": false,
+          "quiet": false,
+          "run": {
+            "account": "",
+            "folder": "",
+            "freshAfter": "",
+            "prompt": "",
+            "session": "",
+            "to": "new",
+            "worktree": false
+          },
+          "runs": [],
+          "updatedAt": 0,
+          "when": {
+            "kind": "fired"
+          },
+          "whenWords": ""
+        },
+        {
+          "asked": 0,
+          "catchUp": "once",
+          "createdAt": 0,
+          "id": "s-2",
+          "name": "Schedule s-2",
+          "nextAt": 9000,
+          "notes": false,
+          "onlyIf": "",
+          "overlap": "skip",
+          "paused": false,
+          "quiet": false,
+          "run": {
+            "account": "",
+            "folder": "",
+            "freshAfter": "",
+            "prompt": "",
+            "session": "",
+            "to": "new",
+            "worktree": false
+          },
+          "runs": [],
+          "updatedAt": 0,
+          "when": {
+            "kind": "fired"
+          },
+          "whenWords": ""
+        }
+      ],
       "sessions": {
         "block_flagged_sessions": true,
         "continue_after_network_error": true,
@@ -2425,7 +2922,38 @@
         "due": [],
         "ready": []
       },
-      "todos": [],
+      "todos": [
+        {
+          "createdAt": 0,
+          "dependsOn": [],
+          "description": "",
+          "doneAt": null,
+          "id": "t-1",
+          "labels": [],
+          "pending": [],
+          "project": "",
+          "sessions": [],
+          "status": "todo",
+          "title": "Write the guide",
+          "updatedAt": 0,
+          "worktrees": []
+        },
+        {
+          "createdAt": 0,
+          "dependsOn": [],
+          "description": "",
+          "doneAt": null,
+          "id": "t-2",
+          "labels": [],
+          "pending": [],
+          "project": "",
+          "sessions": [],
+          "status": "todo",
+          "title": "Fix the bar",
+          "updatedAt": 0,
+          "worktrees": []
+        }
+      ],
       "tools": "folded",
       "training": [],
       "usage": [],
@@ -2854,7 +3382,64 @@
         "verify_account": "",
         "verify_model": ""
       },
-      "schedules": [],
+      "schedules": [
+        {
+          "asked": 0,
+          "catchUp": "once",
+          "createdAt": 0,
+          "id": "s-1",
+          "name": "Schedule s-1",
+          "nextAt": 5000,
+          "notes": false,
+          "onlyIf": "",
+          "overlap": "skip",
+          "paused": false,
+          "quiet": false,
+          "run": {
+            "account": "",
+            "folder": "",
+            "freshAfter": "",
+            "prompt": "",
+            "session": "",
+            "to": "new",
+            "worktree": false
+          },
+          "runs": [],
+          "updatedAt": 0,
+          "when": {
+            "kind": "fired"
+          },
+          "whenWords": ""
+        },
+        {
+          "asked": 0,
+          "catchUp": "once",
+          "createdAt": 0,
+          "id": "s-2",
+          "name": "Schedule s-2",
+          "nextAt": 12000,
+          "notes": false,
+          "onlyIf": "",
+          "overlap": "skip",
+          "paused": false,
+          "quiet": false,
+          "run": {
+            "account": "",
+            "folder": "",
+            "freshAfter": "",
+            "prompt": "",
+            "session": "",
+            "to": "new",
+            "worktree": false
+          },
+          "runs": [],
+          "updatedAt": 0,
+          "when": {
+            "kind": "fired"
+          },
+          "whenWords": ""
+        }
+      ],
       "sessions": {
         "block_flagged_sessions": true,
         "continue_after_network_error": true,
@@ -2880,7 +3465,53 @@
         "due": [],
         "ready": []
       },
-      "todos": [],
+      "todos": [
+        {
+          "createdAt": 0,
+          "dependsOn": [],
+          "description": "",
+          "doneAt": null,
+          "id": "t-3",
+          "labels": [],
+          "pending": [],
+          "project": "",
+          "sessions": [],
+          "status": "todo",
+          "title": "Bump deps",
+          "updatedAt": 0,
+          "worktrees": []
+        },
+        {
+          "createdAt": 0,
+          "dependsOn": [],
+          "description": "",
+          "doneAt": null,
+          "id": "t-1",
+          "labels": [],
+          "pending": [],
+          "project": "",
+          "sessions": [],
+          "status": "todo",
+          "title": "Write the guide's first part",
+          "updatedAt": 0,
+          "worktrees": []
+        },
+        {
+          "createdAt": 0,
+          "dependsOn": [],
+          "description": "",
+          "doneAt": null,
+          "id": "t-2",
+          "labels": [],
+          "pending": [],
+          "project": "",
+          "sessions": [],
+          "status": "todo",
+          "title": "Fix the bar",
+          "updatedAt": 0,
+          "worktrees": []
+        }
+      ],
       "tools": "folded",
       "training": [],
       "usage": [],
@@ -2893,7 +3524,556 @@
       "fields": {
         "generatedAt": 6000
       },
-      "rev": 6
+      "rev": 6,
+      "schedules": [
+        {
+          "asked": 0,
+          "catchUp": "once",
+          "createdAt": 0,
+          "id": "s-2",
+          "name": "Schedule s-2",
+          "nextAt": 12000,
+          "notes": false,
+          "onlyIf": "",
+          "overlap": "skip",
+          "paused": false,
+          "quiet": false,
+          "run": {
+            "account": "",
+            "folder": "",
+            "freshAfter": "",
+            "prompt": "",
+            "session": "",
+            "to": "new",
+            "worktree": false
+          },
+          "runs": [],
+          "updatedAt": 0,
+          "when": {
+            "kind": "fired"
+          },
+          "whenWords": ""
+        }
+      ],
+      "todoOrder": [
+        "t-3",
+        "t-1",
+        "t-2"
+      ],
+      "todos": [
+        {
+          "createdAt": 0,
+          "dependsOn": [],
+          "description": "",
+          "doneAt": null,
+          "id": "t-3",
+          "labels": [],
+          "pending": [],
+          "project": "",
+          "sessions": [],
+          "status": "todo",
+          "title": "Bump deps",
+          "updatedAt": 0,
+          "worktrees": []
+        },
+        {
+          "createdAt": 0,
+          "dependsOn": [],
+          "description": "",
+          "doneAt": null,
+          "id": "t-1",
+          "labels": [],
+          "pending": [],
+          "project": "",
+          "sessions": [],
+          "status": "todo",
+          "title": "Write the guide's first part",
+          "updatedAt": 0,
+          "worktrees": []
+        }
+      ]
+    }
+  },
+  {
+    "board": {
+      "apps": {
+        "editor": "",
+        "editorId": "",
+        "editors": [],
+        "newTerminal": "project",
+        "runIn": "codealong",
+        "terminal": "",
+        "terminalId": ""
+      },
+      "chatShortcut": "",
+      "decisions": {
+        "default": "jev",
+        "prompts": false,
+        "pull_requests": false,
+        "quick_panel": false,
+        "sessions": false,
+        "todos": false
+      },
+      "devices": {
+        "automations": "first",
+        "enabled": false,
+        "in_bar": true,
+        "iroh": true,
+        "name": "",
+        "port": 47471,
+        "remote_control": false,
+        "tailscale": true
+      },
+      "experimental": {
+        "analytics": false,
+        "boards": false,
+        "experiments": false,
+        "voice": false
+      },
+      "generatedAt": 7000,
+      "githubAt": null,
+      "githubLogin": null,
+      "githubPolled": false,
+      "glass": false,
+      "improve": {},
+      "improveShortcut": "",
+      "labels": [],
+      "lanes": [
+        {
+          "bay": "idle",
+          "branch": null,
+          "callsign": "work/app-fix",
+          "defaultTarget": null,
+          "detached": null,
+          "detail": null,
+          "git": null,
+          "glyph": "idle",
+          "headline": "",
+          "hidden": false,
+          "id": "/work/app-fix",
+          "lastActivity": 0,
+          "looksFinished": false,
+          "origin": "main",
+          "parked": false,
+          "path": "/work/app-fix",
+          "pr": null,
+          "project": "P",
+          "repo": "r",
+          "repoSlug": null,
+          "sessions": [
+            {
+              "account": "claude",
+              "appAccount": false,
+              "archived": false,
+              "attachCommand": null,
+              "branch": null,
+              "cwd": "/r",
+              "detail": null,
+              "excerpt": null,
+              "harness": "claude",
+              "headline": "",
+              "id": "claude:a:3",
+              "key": "claude:a:3",
+              "lastActivity": 0,
+              "lastPromptAt": 0,
+              "live": true,
+              "name": null,
+              "openTarget": "s|claude:a:3|focus",
+              "pid": null,
+              "resumeCommand": null,
+              "shortId": "claude:",
+              "stalledSince": null,
+              "startedAt": null,
+              "status": "idle",
+              "statusSince": null,
+              "surface": "cli",
+              "title": "Title claude:a:3",
+              "visitor": null
+            },
+            {
+              "account": "claude",
+              "appAccount": false,
+              "archived": false,
+              "attachCommand": null,
+              "branch": null,
+              "cwd": "/r",
+              "detail": null,
+              "excerpt": null,
+              "harness": "claude",
+              "headline": "",
+              "id": "claude:a:5",
+              "key": "claude:a:5",
+              "lastActivity": 0,
+              "lastPromptAt": 0,
+              "live": true,
+              "name": null,
+              "openTarget": "s|claude:a:5|focus",
+              "pid": null,
+              "resumeCommand": null,
+              "shortId": "claude:",
+              "stalledSince": null,
+              "startedAt": null,
+              "status": "idle",
+              "statusSince": null,
+              "surface": "cli",
+              "title": "Title claude:a:5",
+              "visitor": null
+            }
+          ],
+          "targets": []
+        },
+        {
+          "bay": "idle",
+          "branch": null,
+          "callsign": "work/app",
+          "defaultTarget": null,
+          "detached": null,
+          "detail": null,
+          "git": null,
+          "glyph": "idle",
+          "headline": "",
+          "hidden": false,
+          "id": "/work/app",
+          "lastActivity": 0,
+          "looksFinished": false,
+          "origin": "main",
+          "parked": false,
+          "path": "/work/app",
+          "pr": null,
+          "project": "P",
+          "repo": "r",
+          "repoSlug": null,
+          "sessions": [
+            {
+              "account": "claude",
+              "appAccount": false,
+              "archived": false,
+              "attachCommand": null,
+              "branch": null,
+              "cwd": "/r",
+              "detail": null,
+              "excerpt": null,
+              "harness": "claude",
+              "headline": "",
+              "id": "claude:a:2",
+              "key": "claude:a:2",
+              "lastActivity": 0,
+              "lastPromptAt": 0,
+              "live": true,
+              "name": null,
+              "openTarget": "s|claude:a:2|focus",
+              "pid": null,
+              "resumeCommand": null,
+              "shortId": "claude:",
+              "stalledSince": null,
+              "startedAt": null,
+              "status": "working",
+              "statusSince": null,
+              "surface": "cli",
+              "title": "Title claude:a:2",
+              "visitor": null
+            },
+            {
+              "account": "claude",
+              "appAccount": false,
+              "archived": false,
+              "attachCommand": null,
+              "branch": null,
+              "cwd": "/r",
+              "detail": null,
+              "excerpt": null,
+              "harness": "claude",
+              "headline": "",
+              "id": "claude:a:1",
+              "key": "claude:a:1",
+              "lastActivity": 0,
+              "lastPromptAt": 0,
+              "live": true,
+              "name": null,
+              "openTarget": "s|claude:a:1|focus",
+              "pid": null,
+              "resumeCommand": null,
+              "shortId": "claude:",
+              "stalledSince": null,
+              "startedAt": null,
+              "status": "idle",
+              "statusSince": null,
+              "surface": "cli",
+              "title": "Title claude:a:1",
+              "visitor": null
+            }
+          ],
+          "targets": []
+        }
+      ],
+      "listenShortcut": "",
+      "load": null,
+      "loading": true,
+      "logoStatus": "idle",
+      "mainWindowShortcut": "",
+      "mcp": [],
+      "notices": [],
+      "nudgeAbout": "everything",
+      "perfLog": false,
+      "pinned": [],
+      "pinnedPrs": [],
+      "pinnedRepos": [],
+      "pinnedWorktrees": [],
+      "prStopped": {},
+      "projects": [],
+      "prs": [
+        {
+          "additions": 1,
+          "author": "ana",
+          "base": null,
+          "changedFiles": 1,
+          "checks": {
+            "failed": 0,
+            "failing": [],
+            "passed": 0,
+            "pending": 0,
+            "skipped": 0
+          },
+          "closedAt": null,
+          "createdAt": 1,
+          "deletions": 0,
+          "head": "b",
+          "key": "o/r#1",
+          "lanes": [],
+          "merge": "unknown",
+          "mergedAt": null,
+          "mine": false,
+          "number": 1,
+          "project": "P",
+          "repo": "r",
+          "repoSlug": "o/r",
+          "requestedBy": null,
+          "reviewRequested": false,
+          "sessions": [],
+          "state": "open",
+          "title": "Add teams and roles",
+          "updatedAt": 2,
+          "url": "https://github.com/o/r/pull/1"
+        },
+        {
+          "additions": 1,
+          "author": "ana",
+          "base": null,
+          "changedFiles": 1,
+          "checks": {
+            "failed": 0,
+            "failing": [],
+            "passed": 0,
+            "pending": 0,
+            "skipped": 0
+          },
+          "closedAt": null,
+          "createdAt": 1,
+          "deletions": 0,
+          "head": "b",
+          "key": "o/r#3",
+          "lanes": [],
+          "merge": "unknown",
+          "mergedAt": null,
+          "mine": false,
+          "number": 3,
+          "project": "P",
+          "repo": "r",
+          "repoSlug": "o/r",
+          "requestedBy": null,
+          "reviewRequested": false,
+          "sessions": [],
+          "state": "open",
+          "title": "Bump deps",
+          "updatedAt": 2,
+          "url": "https://github.com/o/r/pull/3"
+        }
+      ],
+      "queue": {
+        "due_within": 0,
+        "order": [
+          "needs",
+          "reviews",
+          "merges",
+          "due",
+          "unread",
+          "ready"
+        ]
+      },
+      "quickShortcut": "",
+      "repos": {},
+      "resets": [],
+      "rev": 7,
+      "reviews": {
+        "account": "",
+        "auto": false,
+        "drafts": true,
+        "effort": "",
+        "model": "",
+        "other_harness": true,
+        "own": {
+          "account": "",
+          "auto": false,
+          "drafts": false,
+          "effort": "",
+          "max_rounds": 2,
+          "model": "",
+          "other_harness": true,
+          "prompt": "",
+          "send": true,
+          "send_comments": false
+        },
+        "post": "draft",
+        "prompt": "",
+        "start": "no-terminal",
+        "submit": "never",
+        "verify": true,
+        "verify_account": "",
+        "verify_model": ""
+      },
+      "schedules": [
+        {
+          "asked": 0,
+          "catchUp": "once",
+          "createdAt": 0,
+          "id": "s-1",
+          "name": "Schedule s-1",
+          "nextAt": 5000,
+          "notes": false,
+          "onlyIf": "",
+          "overlap": "skip",
+          "paused": false,
+          "quiet": false,
+          "run": {
+            "account": "",
+            "folder": "",
+            "freshAfter": "",
+            "prompt": "",
+            "session": "",
+            "to": "new",
+            "worktree": false
+          },
+          "runs": [],
+          "updatedAt": 0,
+          "when": {
+            "kind": "fired"
+          },
+          "whenWords": ""
+        },
+        {
+          "asked": 0,
+          "catchUp": "once",
+          "createdAt": 0,
+          "id": "s-2",
+          "name": "Schedule s-2",
+          "nextAt": 12000,
+          "notes": false,
+          "onlyIf": "",
+          "overlap": "skip",
+          "paused": false,
+          "quiet": false,
+          "run": {
+            "account": "",
+            "folder": "",
+            "freshAfter": "",
+            "prompt": "",
+            "session": "",
+            "to": "new",
+            "worktree": false
+          },
+          "runs": [],
+          "updatedAt": 0,
+          "when": {
+            "kind": "fired"
+          },
+          "whenWords": ""
+        }
+      ],
+      "sessions": {
+        "block_flagged_sessions": true,
+        "continue_after_network_error": true,
+        "continue_after_restart": true,
+        "continue_after_sign_in": true,
+        "hibernate_after": 0,
+        "live_replies": false,
+        "resume_for_any_session": true,
+        "resume_for_pr_news": true,
+        "resume_for_sessions_it_started": true,
+        "show_started": false
+      },
+      "showKeys": false,
+      "showStarted": false,
+      "sides": {},
+      "talkOrchestratorShortcut": "",
+      "talkShortcut": "",
+      "teamFiles": [],
+      "theme": "system",
+      "today": "",
+      "todoHints": {},
+      "todoQueue": {
+        "due": [],
+        "ready": []
+      },
+      "todos": [
+        {
+          "createdAt": 0,
+          "dependsOn": [],
+          "description": "",
+          "doneAt": null,
+          "id": "t-3",
+          "labels": [],
+          "pending": [],
+          "project": "",
+          "sessions": [],
+          "status": "todo",
+          "title": "Bump deps",
+          "updatedAt": 0,
+          "worktrees": []
+        },
+        {
+          "createdAt": 0,
+          "dependsOn": [],
+          "description": "",
+          "doneAt": null,
+          "id": "t-1",
+          "labels": [],
+          "pending": [],
+          "project": "",
+          "sessions": [],
+          "status": "todo",
+          "title": "Write the guide's first part",
+          "updatedAt": 0,
+          "worktrees": []
+        },
+        {
+          "createdAt": 0,
+          "dependsOn": [],
+          "description": "",
+          "doneAt": null,
+          "id": "t-2",
+          "labels": [],
+          "pending": [],
+          "project": "",
+          "sessions": [],
+          "status": "todo",
+          "title": "Fix the bar",
+          "updatedAt": 0,
+          "worktrees": []
+        }
+      ],
+      "tools": "folded",
+      "training": [],
+      "usage": [],
+      "waitingShortcut": "",
+      "whenLimited": "suggest",
+      "zoom": 0
+    },
+    "push": {
+      "base": 6,
+      "fields": {
+        "generatedAt": 7000
+      },
+      "rev": 7
     }
   }
 ]

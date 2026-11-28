@@ -3,7 +3,7 @@
 // push for a board other than the one a window has (one it missed, or one from before it
 // listened) can't be put together: the window reads the board whole instead.
 
-import type { Board, Lane, PrItem, Session } from './types';
+import type { Board, Lane, PrItem, ScheduleItem, Session, Todo } from './types';
 
 /** A lane without its sessions. */
 type LaneHead = Omit<Lane, 'sessions'>;
@@ -14,7 +14,7 @@ export type BoardPush =
       rev: number;
       /** The board this changes. */
       base: number;
-      /** The board's own fields that changed, but its lanes and PRs. */
+      /** The board's own fields that changed, but its lanes, PRs, schedules and todos. */
       fields?: Partial<Board>;
       /** Fields the board no longer has. */
       gone?: string[];
@@ -28,19 +28,26 @@ export type BoardPush =
       sessions?: Record<string, Session[]>;
       /** Every PR's key, in order, when that changed. */
       prOrder?: string[];
+      /** PRs that changed; the schedules and todos below go the same way (windowfeed.rs `LISTS`). */
       prs?: PrItem[];
+      scheduleOrder?: string[];
+      schedules?: ScheduleItem[];
+      todoOrder?: string[];
+      todos?: Todo[];
     };
 
 /** The board `push` makes of `prev`, or null when it can't be made from `prev` (it changes
- *  another board, or names a session `prev` doesn't have). Lanes, sessions and PRs that didn't
- *  change are `prev`'s own objects. */
+ *  another board, or names a session, PR, schedule or todo `prev` doesn't have). Lanes, sessions,
+ *  PRs, schedules and todos that didn't change are `prev`'s own objects. */
 export function applyPush(prev: Board | null, push: BoardPush): Board | null {
   if ('full' in push) return push.full;
   if (!prev || (prev.rev ?? 0) !== push.base) return null;
   const lanes = lanesOf(prev.lanes, push);
-  const prs = prsOf(prev.prs, push);
-  if (!lanes || !prs) return null;
-  const next = { ...prev, ...push.fields, rev: push.rev, lanes, prs };
+  const prs = listOf(prev.prs, push.prOrder, push.prs, (p) => p.key);
+  const schedules = listOf(prev.schedules, push.scheduleOrder, push.schedules, (s) => s.id);
+  const todos = listOf(prev.todos, push.todoOrder, push.todos, (t) => t.id);
+  if (!lanes || prs === null || schedules === null || todos === null) return null;
+  const next = { ...prev, ...push.fields, rev: push.rev, lanes, prs, schedules, todos };
   for (const name of push.gone ?? []) delete (next as Record<string, unknown>)[name];
   return next;
 }
@@ -81,16 +88,21 @@ function sessionsOf(prev: Session[], keys: string[] | undefined, changed: Sessio
   return out;
 }
 
-function prsOf(prev: PrItem[], push: Exclude<BoardPush, { full: Board }>): PrItem[] | null {
-  if (!push.prOrder && !push.prs) return prev;
-  const fresh = new Map((push.prs ?? []).map((p) => [p.key, p]));
-  if (!push.prOrder) return prev.map((p) => fresh.get(p.key) ?? p);
-  const had = new Map(prev.map((p) => [p.key, p]));
-  const out: PrItem[] = [];
-  for (const key of push.prOrder) {
-    const p = fresh.get(key) ?? had.get(key);
-    if (!p) return null;
-    out.push(p);
+/** One of the board's lists sent an item at a time: `prev` with the items that `changed` in
+ *  place of its own, in the new `order` when there is one; null when the order names an item
+ *  neither has. A list `prev` doesn't have stays missing until a push sends it. */
+function listOf<T>(prev: T[], order: string[] | undefined, changed: T[] | undefined, keyOf: (item: T) => string): T[] | null;
+function listOf<T>(prev: T[] | undefined, order: string[] | undefined, changed: T[] | undefined, keyOf: (item: T) => string): T[] | undefined | null;
+function listOf<T>(prev: T[] | undefined, order: string[] | undefined, changed: T[] | undefined, keyOf: (item: T) => string): T[] | undefined | null {
+  if (!order && !changed) return prev;
+  const fresh = new Map((changed ?? []).map((item) => [keyOf(item), item]));
+  if (!order) return (prev ?? []).map((item) => fresh.get(keyOf(item)) ?? item);
+  const had = new Map((prev ?? []).map((item) => [keyOf(item), item]));
+  const out: T[] = [];
+  for (const key of order) {
+    const item = fresh.get(key) ?? had.get(key);
+    if (!item) return null;
+    out.push(item);
   }
   return out;
 }
