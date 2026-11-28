@@ -130,6 +130,8 @@ sign-off is one keystroke from the notch.
   your code goes only to the model provider you already use.
 - **Another model reads what one wrote.** The reviewer prefers another agent than the one that
   wrote the PR: Codex reviews what Claude Code wrote, and the other way round.
+- **Checked before you read it.** A second agent tries each finding against the code and drops
+  false positives and nits before the review is drafted or handed back.
 - **Your own agents' PRs too.** Each PR a session of yours opens can be reviewed the same way, and
   the review handed back to the session that wrote it to fix, before a teammate looks. Nothing
   goes on GitHub.
@@ -155,8 +157,8 @@ your editor.
 - **No notch needed.** An external display gets one drawn for it. Or float the bar over every app,
   as it does on Linux, keep it in the menu bar, pin a session to your desktop, or work through
   everything in the *Waiting on you* window.
-- **Later is a key away.** ⌃⌘1 to ⌃⌘7 snooze what can wait, ⌃⌘8 until its usage limit lifts or
-  the day its reply says the work goes on, and a short sound says when something new needs you.
+- **Later is a key away.** ⌃⌘1 to ⌃⌘7 snooze what can wait, ⌃⌘8 until its usage limit lifts, its
+  account has room again or the day its reply says the work goes on, and a short sound says when something new needs you.
 
 Approvals and questions are answered there for Claude Code, OpenCode, Antigravity's command line
 and any agent you run inside Codealong, and approvals for Codex's and Cursor's command lines in the
@@ -175,8 +177,8 @@ terminals that let Codealong answer them; the rest show what they wait on and op
 
 Press **⌥⌘/** and type. Codealong finds the session, todo or pull request you mean, by its title,
 its branch or what was said in it. Or keep typing a prompt and start it: in the worktree it belongs
-in or a new one, in a terminal tab, in the background or in the Claude or Codex app, on this
-machine or another of yours.
+in or a new one, inside Codealong (where it goes by default), in a terminal tab, in the background
+or in the Claude or Codex app, on this machine or another of yours.
 
 Leave the account on *Auto* and the work goes where there's room: an account near its plan's limit
 is passed over, and among the rest it picks the one whose week resets soonest, so no week's
@@ -190,12 +192,14 @@ allowance goes unused. More in
 - **[Schedules.](#schedules)** Start a session, or message one, every weekday at 9, when a deploy
   goes out, when a PR merges or its checks fail. Nothing is spent watching: an agent runs only
   when something happens.
-- **Sessions that pick themselves back up.** Out of plan usage mid-task? A Claude Code session
-  offers to move to an account with room and carry on, or moves by itself if you let it. Lid closed
+- **Sessions that pick themselves back up.** Out of plan usage mid-task? A session offers to move
+  to an account with room, of its own agent or another, and carry on (a Claude Code one moves by
+  itself if you let it), or to snooze until its account has room again. Lid closed
   and the network dropped? It's told to carry on once the connection is back.
 - **Agents that hear about their PRs.** Turn on nudges and a review, a request for changes or a
-  failing check goes to the session that opened the PR, which takes it from there. It's never told
-  to merge.
+  failing check goes to the session that opened the PR, which takes it from there. Updates come in
+  batches, bots' comments are left out, and a read-only copy of the session looks at a failing
+  check or a comment first, so a flaky one doesn't interrupt it. It's never told to merge.
 - **[A board your agents can read too.](#a-board-your-agents-can-read-too)** With the `codealong`
   command, agents see what the others are doing in the same repo, message one another and hand
   work to another model. One can keep watch over all of them for you.
@@ -325,7 +329,7 @@ goes without; [the development notes](docs/development.md#windows) say what else
 2. **Go through Set up Codealong**, which opens over the window the first time: tick the
    accounts to show, the folders your code lives in, and your terminal and editor, and, if you
    like, give each session an emblem beside its title, an emoji a decision model picks or a small picture a
-   Codex account draws, so the ones side by side read apart. Its last step
+   Codex account (or, on macOS, an Antigravity one) draws, so the ones side by side read apart. Its last step
    installs the agent tools: the `codealong` command on your PATH, Codealong's plugin in each
    Claude Code account (so you can answer its permission prompts and questions from Codealong),
    and a skill in every other agent that tells it how to use the board. On macOS, the app menu's
@@ -353,9 +357,9 @@ Five views of your work, each in a window of its own if you like (⇧⌘N):
 
 | View | What it shows |
 | --- | --- |
-| **Sessions** | Every agent session in one list, the ones that need you first, or grouped under each worktree (its branch, its PR, how far it is from main) or each repo, with collapsible sections. Pin the ones you're watching. |
-| **PRs** | Every pull request in your repos, with its review, checks and the sessions that worked on it. Tabs for all of them, yours and others', what needs you first in each: Review requested, Ready to merge, Needs work, plus Fixing and Working for PRs an agent is at work on. Group them by worktree or repo too. |
-| **Todo** | Work you mean to hand an agent, with notes, screenshots, labels and what each todo waits on, grouped by worktree or repo if you like. |
+| **Sessions** | Every agent session in one list, the ones that need you first, or grouped under each project, repo or worktree (its branch, its PR, how far it is from main), in groups you fold and put in your own order. Pin the ones you're watching. |
+| **PRs** | Every pull request in your repos, with its review, checks and the sessions that worked on it. Tabs for all of them, yours and others', what needs you first in each: Review requested, Ready to merge, Needs work, plus Fixing and Working for PRs an agent is at work on. Group them by project, repo or worktree too. |
+| **Todo** | Work you mean to hand an agent, with notes, screenshots, labels and what each todo waits on, grouped by project, repo or worktree if you like. |
 | **Schedules** | Sessions started, or messages sent, at the times you set or when something happens, with every run and how it went. |
 | **Board** (experimental) | Your work on boards you make, for the whole project or for a release or a fix: as **Kanban**, todos and sessions as cards in To do, In progress, In review and Done (or columns of your own), what needs you first in each; as **Canvas**, laid out in space, a frame per repo, a column per worktree, cards you arrange. |
 
@@ -513,13 +517,15 @@ else works without it.
 
 Select a session to read its whole conversation, straight from the agent's own records: your
 prompts, the replies as formatted text, and every tool call, which opens to show what went in and
-what came out (click a file a tool call read or changed to open it). Images you sent and files an
-agent sent you (images, videos, audio) show in place, links to pull requests show their status, and
-⌘F finds words anywhere in the window, the whole conversation among it.
+what came out (click a file a tool call read or changed to open it); each finished turn folds into
+one *Worked for …* line, and Settings › Appearance picks how much shows (Folded, Compact, Detailed
+or Zen). Images you sent, images a reply points to on your Mac and files an agent sent you (images,
+videos, audio) show in place, a link to a Markdown file opens in a preview, links to pull requests
+show their status, and ⌘F finds words anywhere in the window, the whole conversation among it.
 
 The box at the bottom replies the way that agent takes a prompt: typed into its terminal tab, sent
-through Claude Code's background service, started as a new turn in the Codex app, or through
-OpenCode's service. Paste screenshots or files into it. From there you can also:
+through Claude Code's background service, started as a new turn in the Codex app, through
+OpenCode's service, or straight to the agent, for a session Codealong runs. Paste screenshots or files into it. From there you can also:
 
 - **stop** a turn (Esc or ⌘.), or **send now** to slip a message into the running turn (⌃⏎);
 - **switch a session's model or effort** without starting over (a running Claude Code session, a
@@ -530,11 +536,14 @@ OpenCode's service. Paste screenshots or files into it. From there you can also:
   question in a copy;
 - **copy** any code block, or **run** a shell block in a new terminal where the session works;
 - **rename, label, pin, snooze, quiet, archive** or **mark as done** (which closes its terminal and
-  archives it), or **move** a Claude Code session to another account or worktree;
+  archives it), or **move** a session to another account or agent (Claude Code to Codex, say, with
+  a brief of the work so far), or a Claude Code session to another worktree;
 - **pop it out** of the main window into a window of its own, to keep it in view as you work.
 
-Out of room mid-task? A Claude Code session stopped by its usage limit offers to move to an
-account with room and carry on, or moves by itself if you let it. Lid closed and the network
+Out of room mid-task? A session stopped by its usage limit offers to move to an account with room,
+of its own agent or another, and carry on (a Claude Code one moves by itself if you let it), or to
+snooze until its account has room again; one whose account hit its limit since warns before its
+next turn would stop there. Lid closed and the network
 dropped? Codealong tells the session to carry on once the connection is back. Terminal quit
 partway through a turn? The session says it was cut off, and Carry on picks it up; one running in
 Codealong itself is told to carry on as Codealong comes back from a restart.
@@ -677,19 +686,23 @@ session where it lives.**
 | **Claude Code** in a terminal | ✓ | Types into its tab | ✓ | ✓ | ✓ | Weekly, per model |
 | **Claude Code** background jobs | ✓ | Its background service | ✓ | ✓ | ✓ | Weekly, per model |
 | **Claude app** | ✓ | As a message from another session | ✓ (with the plugin) | Opens it with the prompt | Its signed-in account | Shared with Claude Code |
-| **Codex CLI** | ✓ | Types into its tab | In Ghostty, iTerm2, Rex and tmux (with the skill's hook) | ✓ | ✓ | 5-hour, weekly |
+| **Codex CLI** | ✓ | Types into its tab | In Ghostty, iTerm2, Rex, tmux and Codealong's terminal (with the skill's hook); in Rex, tmux and Codealong's terminal also the ones the hook can't hand over, read off its screen | ✓ | ✓ | 5-hour, weekly |
 | **Codex app** | ✓ | Starts a new turn | In the app | ✓ | Its signed-in account | 5-hour, weekly |
 | **OpenCode** | ✓ | Its own service | ✓ | ✓ | ✓ | You bring the provider |
 | **Antigravity** | ✓ | Types into `agy`'s tab, or In Codealong (`agy acp`); the app opens with the prompt on the clipboard | `agy` in a terminal or In Codealong; the app in the app | `agy` in a terminal or In Codealong; the app in its own window | — | Weekly, per model group (with `agy`) |
-| **Cursor** (new) | ✓ | `cursor-agent` in a terminal; app chats open with the prompt on the clipboard | `cursor-agent` in Rex, tmux and Codealong's terminal; app chats in Cursor | `cursor-agent` | — | Monthly, Cursor's models and the others |
+| **Cursor** (new) | ✓ | `cursor-agent` in a terminal; app chats open with the prompt on the clipboard | `cursor-agent` in Rex, tmux and Codealong's terminal; app chats in Cursor | `cursor-agent` | — | Monthly, Cursor's models and the others (with the app's sign-in, or `cursor-agent`'s) |
 | **In Codealong** (Claude Code, Codex, OpenCode or Antigravity) | ✓ | ✓ | ✓ | ✓ | ✓ | Per account |
 
 Terminals: Ghostty (the exact tab, keypresses, new tabs beside their worktree), Rex (the same, with
 a Rex session for each project), iTerm2 and tmux (typing and keypresses), and Terminal (typing).
 Approvals for Claude Code go through Codealong's plugin, which Settings › Agents installs into each
-account, and Codex's through a hook it puts in each Codex account beside the skill. *In Codealong*
-means the agent runs in Codealong's own panel, over the
-[Agent Client Protocol](https://agentclientprotocol.com).
+account, and Codex's through a hook it puts in each Codex account beside the skill or, in Rex,
+tmux and Codealong's terminal, read off the screen where the hook can't hand one over. *In
+Codealong* means the agent runs in Codealong's own panel, over the
+[Agent Client Protocol](https://agentclientprotocol.com); it's where Claude Code, Codex, OpenCode
+and Antigravity accounts start new sessions unless Settings › Accounts says otherwise. Claude Code,
+Codex and Antigravity sessions are joined to the PRs they open or push to from their own records;
+OpenCode and Cursor ones by the branch they're on, or by hand (`codealong pr link`).
 
 ## Keyboard shortcuts
 
@@ -716,7 +729,7 @@ From any app (change them in Settings › General):
 | ⌘1 – ⌘5 | Open the selected worktree in its terminal, editor, the Claude app, the Codex app or its preview |
 | ⌘O | Open the selected PR on GitHub |
 | ⇧⌘M | Merge the selected session's PR once it's ready, and mark the session done (it asks first) |
-| ⌃⌘↑ / ⌃⌘↓ | Move the selected pin, or todo, up or down |
+| ⌃⌘↑ / ⌃⌘↓ | Move the selected pin, todo, or worktree heading (Sessions grouped by worktree) up or down |
 | ⌘⏎ | In the reply box: send your reply (or allow the call) and go on to the next agent waiting |
 | ⌘⌫ | Deny the call (with nothing typed in the box) |
 | ⌃⏎ | Send now, into the running turn |
@@ -725,7 +738,7 @@ From any app (change them in Settings › General):
 | ⌘E / ⇧⌘E | Mark seen / mark as done |
 | ⌘] / ⌘[ | Next / previous of what waits on you (in Sessions, the notch and the waiting window) |
 | ⌃⌘1 – ⌃⌘7 | Snooze: 15 minutes, 30 minutes, 1 hour, 3 hours, 5 PM, tomorrow morning, next week |
-| ⌃⌘8 | Snooze until the time offered: when its usage limit lifts, or when its reply says the work goes on |
+| ⌃⌘8 | Snooze until the time offered: when its usage limit lifts or its account has room again, or when its reply says the work goes on |
 | ⌃⌘P · ⌃⌘A · ⌃⌘R · ⌃⌘U | Pin, archive, rename, mark as unread |
 | ⌃⌘0 | Move to top: first in every queue of what waits on you |
 | ⌃⌘W | Close the session's terminal (the conversation stays, to resume) |
@@ -810,6 +823,7 @@ theme = "system"               # follows the system; or "light", "dark"
 zoom = 100                     # the windows and the cards in the notch and peek, in percent, 50 to 200 (⌘= ⌘- ⌘0)
 glass = true                   # the main window and the project windows show what's behind them through macOS's glass (on by default; macOS only)
 show_keys = true               # keyboard shortcuts beside what they do (on by default); false shows them only while you hold ⌘ or ⌃
+tools = "folded"               # a conversation's tool calls: "folded" folds each finished turn into one line you can open; "compact", "detailed", or "zen", your prompts and the agent's final replies alone
 
 [shortcuts]                          # macOS's defaults; on Linux they're Ctrl+Alt+/ and so on
 quick_panel = "Option+Cmd+/"        # works in every app; "" turns it off (Settings › General)
@@ -896,6 +910,9 @@ prompt = ""                    # what it's told to do (what to look for, subagen
 start = "no-terminal"          # where its session runs, yours too: "no-terminal" (Claude Code's background service, else Codealong); "codealong"; "background" (tmux with no window where the account has neither); "terminal" (in front, as new_terminal says)
 post = "draft"                 # "draft": a draft review of yours to finish; "comment": a comment; "none": stays in the session
 submit = "never"               # submit the agent's verdict as your review once posted: "approve", "approve-or-request-changes", "approve-or-comment"; "request-changes" or "comment" never approve
+verify = true                  # a second, read-only pass drops false positives and nits from a review before it's posted or handed back, yours too (Settings › Automation)
+verify_account = ""            # the account or routing group that pass runs on; "" for a quick one that can run it
+verify_model = ""              # and its model; "" for that account's own
 
 [reviews.own]
 auto = false                   # an agent reviews each PR a session of yours opened here, and again on new commits (Settings › Automation)
@@ -905,11 +922,15 @@ effort = ""                    # the effort it starts at, with an account named;
 other_harness = true           # prefer a harness other than the PR's session or trailers
 prompt = ""                    # what it's told to do; "" for Codealong's own
 send = true                    # hand each review to the PR's primary session; nothing goes on GitHub
+send_comments = false          # hand back a review whose verdict is only a comment too, not just one that asks for changes (Settings › Automation)
+max_rounds = 2                 # automatic reviews of a PR before they stop, 0 for no limit; one you ask for still runs
 drafts = false                 # review your draft PRs too; others' go by [reviews] drafts
 
 [pull_requests]
 nudge_by_default = false       # every open PR of yours tells its primary session what happens on it (Settings › Automation)
 nudge_about = "everything"     # what a nudge tells of: "feedback" only comments and changes asked for; "feedback-and-checks" adds failing checks and conflicts; "feedback-and-merges" and "feedback-checks-and-merges" add a merge to those
+triage_nudges = true           # a read-only copy of the PR's session looks at failing checks and comments first, so a flaky check or what's already handled doesn't interrupt it (Settings › Automation)
+nudge_bots = []                # bots whose comments tell the session too, by login; [] leaves every bot out, ["*"] takes them all
 rerequest_after_fixes = false  # ask a reviewer who asked for changes to look again, as you, once fixes are pushed and nobody said so (Settings › Automation)
 reviews_first = false          # PRs waiting on your review come before everything else in the notch, the waiting window and the quick panel
 
@@ -935,6 +956,12 @@ check = true                   # look for a new version by itself (Settings › 
 boards = false                 # the Board view, as Kanban and as Canvas, Add to board in the menus, and `codealong board`
 voice = false                  # the keys held to talk, sessions that listen to a meeting (Listen… in a session's menu), and `codealong listen`
 analytics = false              # who began each session and turn, what your prompts did, how the sessions you marked done stood (the Analytics window, `codealong analytics`)
+experiments = false            # `codealong exp`: one task run by different agents side by side from the same commit, judged, and compared in the Analytics window's Experiments tab
+
+[experiments."two-ways"]       # an experiment by name, once [experimental] experiments is on: `codealong exp run --preset two-ways`; `codealong exp presets` lists them
+arms = ["claude-work:opus", "codex+claude-work"]  # at least two, each a worker and, after a +, the account that reviews its work once; a seat is <account>[:<model>][:<effort>]
+judges = ["claude-work:opus:high", "codex"]       # blind judges, of different providers if you like, that rank the results; or one `judge`
+# eval = "npm test"            # a command each result must pass; none needed when the judges decide
 
 [voice]                        # once [experimental] voice is on (Settings › Experimental)
 locale = ""                    # the language spoken, such as "en-US"; "" for this Mac's own
@@ -961,7 +988,7 @@ name = "claude-work"           # what the board shows
 harness = "claude"             # claude, codex, opencode, antigravity or cursor
 home = "~/.claude-work"
 command = "claude-work"        # used for `claude-work --resume <id>`
-start = "background"           # where new sessions start: terminal, background, claude-app (~/.claude only), codex-app (~/.codex only), codealong; a start from the quick panel sets it
+start = "background"           # where new sessions start: terminal, background, claude-app (~/.claude only), codex-app (~/.codex only), codealong; a start from the quick panel sets it; unset, codealong for Claude Code, Codex, OpenCode and Antigravity where the adapter is installed, else a terminal
 # acp = "my-adapter --stdio"   # the Agent Client Protocol adapter Codealong runs its sessions through, in place of the installed one
 usage_cap = 90                 # Auto, routing groups and reviews pass over it once a meter reaches this percent (default 90)
 monthly = 200                  # what its plan costs you a month, in dollars: Paid in the Analytics window
@@ -1049,10 +1076,11 @@ in the guide's [Files Codealong keeps](docs/guide.md#files-codealong-keeps).
 - **It acts only when you ask.** Codealong types into a session only what you send it, or what
   a schedule you made sends when its time comes. Mark as done, Close idle sessions and Close stale
   terminals end only the sessions and tabs you pick, and their conversations stay, to resume.
-- **Sessions you start** open in a new terminal running the account's own command, with your
-  prompt passed in the window's environment (`CODEALONG_PROMPT`), so nothing in it is typed or
-  needs quoting. A session run *In Codealong* is a child of the app, allowed what the agent's own
-  permission settings allow, and asks only you; it ends when Codealong quits.
+- **Sessions you start** in a terminal open in a new one running the account's own command, with
+  your prompt passed in the window's environment (`CODEALONG_PROMPT`), so nothing in it is typed or
+  needs quoting. A session run *In Codealong*, where new sessions start by default, is a child of
+  Codealong's server, allowed what the agent's own permission settings allow, and asks only you; it
+  stops if the server does.
 
 macOS will ask you about two things. The first time Codealong opens or focuses a terminal tab, it
 asks whether Codealong may control Ghostty, iTerm2 or Terminal (Automation); without that,
@@ -1080,12 +1108,12 @@ Code's background jobs, the Claude and Codex apps. Keep starting agents the way 
 the quick panel when it's quicker.
 
 **Does it wrap or proxy my agents?**
-No. Codealong reads the files each agent already writes, and starts new work in the official tool,
-in your terminal or the maker's own app. Nothing sits between your agent and its model, and no API
-keys are involved. The optional plugin adds the `codealong` command, its skills and two hooks to
-Claude Code: one so you can answer its permission prompts from Codealong, and one that tells a new
-session its todo and worktree. If you choose to run an agent inside Codealong instead, it talks
-to the agent over the Agent Client Protocol.
+No. Codealong reads the files each agent already writes, and starts new work in the official tool:
+by default inside Codealong, over the agent's own Agent Client Protocol adapter, or in your
+terminal or the maker's own app, as Settings › Accounts says for each account. Nothing sits between
+your agent and its model, and no API keys are involved. The optional plugin adds the `codealong`
+command, its skills and two hooks to Claude Code: one so you can answer its permission prompts from
+Codealong, and one that tells a new session its todo and worktree.
 
 **Can I use several Claude Code accounts?**
 Yes. Each account runs the official Claude Code with its own config folder (`CLAUDE_CONFIG_DIR`),
