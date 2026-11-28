@@ -8,7 +8,7 @@
 // Without a file it downloads the list. Claude's fast mode is a multiple LiteLLM gives as
 // `provider_specific_entry.fast`; FAST has the ones its list lacks, from Anthropic's pricing (6x
 // on Opus 4.6). FIXES is for prices LiteLLM has wrong against the provider's own pricing page
-// (empty as of 2026-11-21: Sonnet 5.5's $0.10 cache read matches Anthropic's 0.05x rate).
+// (empty as of 2026-11-28: Sonnet 5.5's $0.10 cache read matches Anthropic's 0.05x rate).
 import { readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
