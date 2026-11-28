@@ -277,12 +277,14 @@ pub fn show(app: &AppHandle, on: bool) -> bool {
     true
 }
 
+/// The item, made with Tauri's own image, which it draws as tall as the menu bar allows: `show`
+/// calls `apply` straight after, which puts the mark on at its size (`put_mark`). Once Tauri has
+/// made the item it keeps it, so nothing that can fail comes after that here: a failure would
+/// leave an item up that the menu bar has no hold of.
 fn make(app: &AppHandle) -> Result<TrayIcon<Wry>> {
     let build = || -> Result<TrayIcon<Wry>> {
         let (w, h, rgba) = mark(app, false)?;
-        let tray = TrayIconBuilder::with_id(ID).icon_templated(Image::new_owned(rgba, w, h)).show_menu_on_left_click(true).tooltip(app.package_info().name.as_str()).build(app)?;
-        put_mark(&tray, app, false)?;
-        Ok(tray)
+        Ok(TrayIconBuilder::with_id(ID).icon_templated(Image::new_owned(rgba, w, h)).show_menu_on_left_click(true).tooltip(app.package_info().name.as_str()).build(app)?)
     };
     // Linux's tray library is loaded as the first item is made, and a desktop without it panics.
     std::panic::catch_unwind(std::panic::AssertUnwindSafe(build)).unwrap_or_else(|_| Err(anyhow!("this desktop has no libayatana-appindicator3 for a tray")))
@@ -375,7 +377,9 @@ fn apply(app: &AppHandle) {
         let _ = tray.set_tooltip(Some(&face.tooltip));
         if put.1.as_ref().map(|f| f.dimmed) != Some(face.dimmed) {
             if let Err(e) = put_mark(&tray, app, face.dimmed) {
+                // Not put down as shown, so the next change tries the mark again.
                 eprintln!("Couldn't draw the menu bar item's mark: {e:#}");
+                return;
             }
         }
         put.1 = Some(face);
