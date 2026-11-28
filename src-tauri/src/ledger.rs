@@ -144,8 +144,13 @@ impl TokenState {
     }
 }
 
-/// The ledger's file.
+/// The ledger's file. A test's is a scratch file of its own process: tests run in your home and
+/// go by your config.toml, so one that archived a made-up session with analytics on noted it in
+/// your ledger, and reports listed it among the sessions you left (2026-11-28).
 pub fn path() -> PathBuf {
+    if cfg!(test) {
+        return std::env::temp_dir().join(format!("codealong-ledger-{}.sqlite", std::process::id()));
+    }
     crate::config::support_dir().join("ledger.sqlite")
 }
 
@@ -1340,6 +1345,18 @@ mod tests {
         let db = Connection::open_in_memory().unwrap();
         db.execute_batch(SCHEMA).unwrap();
         db
+    }
+
+    /// What a test notes (an archive's dismissal, a turn) goes into a scratch ledger, never the
+    /// one in Codealong's folder under your home.
+    #[test]
+    fn a_test_never_writes_the_ledger_in_your_home() {
+        let file = path();
+        assert!(file.starts_with(std::env::temp_dir()), "{}", file.display());
+        assert!(!file.starts_with(crate::config::support_dir()), "{}", file.display());
+        with_db(|db| set_meta(db, "test-note", "kept here")).unwrap();
+        assert_eq!(with_db(|db| meta(db, "test-note")).unwrap().as_deref(), Some("kept here"));
+        assert!(file.exists());
     }
 
     #[test]
