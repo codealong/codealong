@@ -166,6 +166,7 @@ pub fn from_url(url: &str) -> Option<String> {
 /// line.
 pub enum Source<'a> {
     File(&'a Path),
+    #[cfg(test)]
     Text(&'a str),
 }
 
@@ -174,6 +175,7 @@ pub enum Source<'a> {
 /// Claude Code's on a command's result, Codex's on the command or on its app's `attach_artifact`
 /// tool, Antigravity's on a verified `gh pr create` command's result. Only lines with one of those
 /// marks are parsed.
+#[cfg(test)]
 pub fn pr_marks(text: &str) -> Vec<(String, i64)> {
     let source = Source::Text(text);
     text.lines().flat_map(|line| line_marks(line, &source)).collect()
@@ -184,11 +186,6 @@ pub fn line_marks(line: &str, source: &Source<'_>) -> Vec<(String, i64)> {
         .flat_map(|a| a.pr_marks_on(line, source))
         .filter_map(|(url, at)| Some((pr_key(&from_url(&url)?), at)))
         .collect()
-}
-
-pub fn line_mark(line: &str) -> Option<(String, i64)> {
-    let (url, at) = crate::harness::all().find_map(|a| a.pr_made(line))?;
-    Some((pr_key(&from_url(&url)?), at))
 }
 
 /// Text a log line has when it may hold a PR mark (`line_mark`), every harness's: the engine
@@ -236,6 +233,7 @@ pub fn line_pushes(line: &str, source: &Source<'_>) -> Vec<(String, i64)> {
 
 /// The branch a log line says its session pushed to, with when, from whichever harness's
 /// records the line is (`Adapter::pushed`), read from the lines `needles` finds.
+#[cfg(test)]
 pub fn line_push(line: &str) -> Option<(String, i64)> {
     crate::harness::all().find_map(|a| a.pushed(line))
 }

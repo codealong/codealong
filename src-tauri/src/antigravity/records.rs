@@ -134,6 +134,7 @@ fn planner_command(line: &str, target_step: i64) -> Option<String> {
 /// call sits earlier in the transcript).
 fn command_for_step(source: &Source<'_>, target_step: i64) -> Option<String> {
     match source {
+        #[cfg(test)]
         Source::Text(text) => text.lines().find_map(|l| planner_command(l, target_step)),
         Source::File(path) => {
             let file = std::fs::File::open(path).ok()?;
