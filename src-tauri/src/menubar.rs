@@ -372,18 +372,25 @@ fn apply(app: &AppHandle) {
             Err(e) => eprintln!("Couldn't make the menu bar item's menu: {e:#}"),
         }
     }
-    if put.1.as_ref() != Some(&face) {
+    let (text, mark) = to_put(put.1.as_ref(), &face);
+    if text {
         let _ = tray.set_title(face.title.as_deref());
         let _ = tray.set_tooltip(Some(&face.tooltip));
-        if put.1.as_ref().map(|f| f.dimmed) != Some(face.dimmed) {
-            if let Err(e) = put_mark(&tray, app, face.dimmed) {
-                // Not put down as shown, so the next change tries the mark again.
-                eprintln!("Couldn't draw the menu bar item's mark: {e:#}");
-                return;
-            }
-        }
-        put.1 = Some(face);
+        let marked = !mark || put_mark(&tray, app, face.dimmed).inspect_err(|e| eprintln!("Couldn't draw the menu bar item's mark: {e:#}")).is_ok();
+        put.1 = shown_after(face, marked);
     }
+}
+
+/// What putting `face` on the item needs, over `shown`, the face it last took as shown: its
+/// title and tooltip, and its mark.
+fn to_put(shown: Option<&Face>, face: &Face) -> (bool, bool) {
+    (shown != Some(face), shown.map(|f| f.dimmed) != Some(face.dimmed))
+}
+
+/// The face the item takes as shown once `face` went on: none when its mark failed, as its title
+/// and tooltip went on before it, so the next face goes on whole and tries the mark again.
+fn shown_after(face: Face, marked: bool) -> Option<Face> {
+    marked.then_some(face)
 }
 
 fn menu(app: &AppHandle, lines: &[Line]) -> tauri::Result<Menu<Wry>> {
@@ -566,6 +573,21 @@ mod tests {
         assert_eq!(face(&listed, true, "Codealong"), Face { title: Some("2".into()), tooltip: "Codealong: 2 need you, 1 PR to review, 1 PR to merge, 1 done".into(), dimmed: false });
         assert_eq!(face(&Listed::default(), true, "Codealong Dev"), Face { title: None, tooltip: "Codealong Dev: nothing waits on you".into(), dimmed: false });
         assert_eq!(face(&listed, false, "Codealong"), Face { title: Some("2".into()), tooltip: "Codealong: starting its server".into(), dimmed: true });
+    }
+
+    #[test]
+    fn a_face_whose_mark_failed_goes_on_whole_next_time() {
+        let on = Face { title: Some("2".into()), tooltip: "Codealong: 2 need you".into(), dimmed: false };
+        let off = Face { title: Some("2".into()), tooltip: "Codealong: starting its server".into(), dimmed: true };
+        assert_eq!(to_put(None, &on), (true, true), "a new item gets everything");
+        assert_eq!(to_put(Some(&on), &on), (false, false));
+        // The server goes: the tooltip changes and the mark dims, which fails.
+        assert_eq!(to_put(Some(&on), &off), (true, true));
+        let shown = shown_after(off.clone(), false);
+        // It comes back as it was: the tooltip that went on with the failed face is put back.
+        assert_eq!(to_put(shown.as_ref(), &on), (true, true));
+        // A face whose mark went on is taken as shown.
+        assert_eq!(shown_after(off.clone(), true), Some(off));
     }
 
     #[test]
