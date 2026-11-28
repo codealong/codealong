@@ -53,40 +53,58 @@ impl Handle {
         let (b, log) = (board.clone(), archived.clone());
         std::thread::spawn(move || {
             for msg in rx {
-                if let Msg::SetArchived(keys, on, _, reply) = msg {
-                    if let Ok(mut guard) = b.write() {
-                        for key in &keys {
+                match msg {
+                    Msg::SetArchived(keys, on, _, reply) => {
+                        if let Ok(mut guard) = b.write() {
+                            for key in &keys {
+                                for lane in &mut guard.lanes {
+                                    for s in &mut lane.sessions {
+                                        if s.key == *key {
+                                            s.archived = on;
+                                        }
+                                    }
+                                }
+                                if on {
+                                    for pr in &mut guard.prs {
+                                        if pr.primary.as_deref() == Some(key.as_str()) {
+                                            pr.primary = None;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        if let Ok(mut guard) = log.lock() {
+                            for key in keys {
+                                guard.push((key, on));
+                            }
+                        }
+                        let _ = reply.send(0);
+                    }
+                    Msg::HandOver { from, reply, .. } => {
+                        if let Ok(mut guard) = b.write() {
                             for lane in &mut guard.lanes {
                                 for s in &mut lane.sessions {
-                                    if s.key == *key {
-                                        s.archived = on;
+                                    if s.key == from {
+                                        s.archived = true;
                                     }
                                 }
                             }
-                            if on {
-                                for pr in &mut guard.prs {
-                                    if pr.primary.as_deref() == Some(key.as_str()) {
-                                        pr.primary = None;
-                                    }
+                            for pr in &mut guard.prs {
+                                if pr.primary.as_deref() == Some(from.as_str()) {
+                                    pr.primary = None;
                                 }
                             }
                         }
-                    }
-                    if let Ok(mut guard) = log.lock() {
-                        for key in keys {
-                            guard.push((key, on));
+                        if let Ok(mut guard) = log.lock() {
+                            guard.push((from, true));
                         }
+                        let _ = reply.send(0);
                     }
-                    let _ = reply.send(0);
+                    _ => {}
                 }
             }
         });
         (Handle { tx, board, terminal_use: None, in_memory: true }, archived)
-    }
-
-    #[cfg(test)]
-    pub(crate) fn is_in_memory(&self) -> bool {
-        self.in_memory
     }
 
     /// A handle on a board read once (`snapshot`, `light_snapshot`), with no engine behind it,
@@ -420,6 +438,25 @@ impl Handle {
         let _ = self.tx.send(Msg::TodoStarted { ids, lane, session, pending });
     }
 
+    /// Hands a moved session over to `copy`: archives `from` in its harness where that has an
+    /// archive (`Adapter::archive`), then transfers todos, `SeenState`, side conversations,
+    /// Kanban/Canvas cards, held outbox messages, terminals, and schedules to `copy`, records
+    /// the move leg, and archives `from` on one board publish (`engine/handover.rs`).
+    pub fn hand_over(&self, from: &str, copy: &str) -> Result<Option<i64>> {
+        let only_here = match self.archive_in_harness(from, true) {
+            Ok(kept) => kept.is_some(),
+            Err(e) => {
+                eprintln!("Moved {from}, but couldn't archive it in its harness: {e:#}");
+                true
+            }
+        };
+        let (tx, rx) = channel();
+        if self.tx.send(Msg::HandOver { from: from.to_string(), copy: copy.to_string(), was_pinned: false, only_here, reply: tx }).is_err() {
+            bail!("Codealong's engine stopped.");
+        }
+        Ok(rx.recv_timeout(SHOWN_WAIT).ok())
+    }
+
     /// Archives or unarchives a session: in its harness where that has an archive another
     /// program can reach (`Adapter::archive`: Codex, so the Codex app shows it too), and in
     /// Codealong, where a session of any other harness, or one its harness wouldn't archive just
@@ -620,7 +657,7 @@ impl Handle {
 /// Archives a session in its harness, or takes it out of its archive, where the harness has one
 /// another program can reach (`Adapter::archive`). Says why the harness kept it, where it would
 /// only be archived in Codealong.
-fn archive_in_harness(key: &str, archived: bool) -> Result<Option<String>> {
+pub(super) fn archive_in_harness(key: &str, archived: bool) -> Result<Option<String>> {
     let mut parts = key.splitn(3, ':');
     let (Some(harness), Some(account), Some(id)) = (parts.next(), parts.next(), parts.next()) else {
         bail!("That isn't a session.");

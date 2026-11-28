@@ -166,11 +166,12 @@ pub const RESUMED_TO_TELL: &str = "You had stopped, and Codealong resumed you to
 pub fn tell_waking(engine: &crate::engine::Handle, key: &str, text: &str) -> Result<Option<crate::start::Resumed>> {
     let cfg = crate::config::current()?;
     let board = engine.board();
-    let (session, account) = crate::harness::find(&board, &cfg, key)?;
+    let target = crate::origins::current().follow_move(key, |k| board.session(k).is_some());
+    let (session, account) = crate::harness::find(&board, &cfg, &target)?;
     ensure_not_flagged(&cfg, session, &Sender::Codealong)?;
     let routes = || crate::harness::adapter(session.harness).routes(account, session);
     match waking(session, account, routes, || crate::start::resume_out_of_sight(account, &crate::util::home())) {
-        Waking::Send => send_from(Some(engine), || engine.board(), &cfg, key, text, Sender::Codealong, false).map(|sent| Some(crate::start::Resumed { key: Some(key.to_string()), sent })),
+        Waking::Send => send_from(Some(engine), || engine.board(), &cfg, &target, text, Sender::Codealong, false).map(|sent| Some(crate::start::Resumed { key: Some(target), sent })),
         Waking::Nowhere => Ok(None),
         Waking::Resume(place) => {
             let prompt = by_codealong(&format!("{RESUMED_TO_TELL}\n\n{}", text.trim()));
@@ -635,17 +636,26 @@ pub fn send(board: &Board, cfg: &Config, session_key: &str, text: &str, sender: 
 /// which may wait on you by now, not as it was when it was asked.
 fn send_from<B: Borrow<Board>>(engine: Option<&crate::engine::Handle>, board: impl Fn() -> B, cfg: &Config, session_key: &str, text: &str, sender: Sender, now: bool) -> Result<Sent> {
     let b = board();
-    if let Some((_, s)) = b.borrow().session(session_key) {
+    let (target, note) = resolve_moved_target(&crate::origins::current(), b.borrow(), session_key, &sender)?;
+    if let Some((_, s)) = b.borrow().session(&target) {
         ensure_not_flagged(cfg, s, &sender)?;
     }
-    send_allowed(engine, board, cfg, session_key, text, sender, now)
+    send_resolved(engine, board, cfg, &target, note, text, sender, now)
 }
 
 /// After the automation check, or a deliberate Send review click. The click changes only
 /// whether a flagged session may receive it, never its author or its delivery routes.
 fn send_allowed<B: Borrow<Board>>(engine: Option<&crate::engine::Handle>, board: impl Fn() -> B, cfg: &Config, key: &str, text: &str, sender: Sender, now: bool) -> Result<Sent> {
-    ensure_not_moved(&crate::origins::current(), board().borrow(), key)?;
-    join(key, text.trim(), || at_the_box(key, || deliver(engine, board().borrow(), cfg, key, text, &sender, now)))
+    let (target, note) = resolve_moved_target(&crate::origins::current(), board().borrow(), key, &sender)?;
+    send_resolved(engine, board, cfg, &target, note, text, sender, now)
+}
+
+fn send_resolved<B: Borrow<Board>>(engine: Option<&crate::engine::Handle>, board: impl Fn() -> B, cfg: &Config, key: &str, note: Option<String>, text: &str, sender: Sender, now: bool) -> Result<Sent> {
+    let mut sent = join(key, text.trim(), || at_the_box(key, || deliver(engine, board().borrow(), cfg, key, text, &sender, now)))?;
+    if let Some(note) = note {
+        sent.message.push_str(&note);
+    }
+    Ok(sent)
 }
 
 /// Each session's input box, held by whatever types into it or presses keys there for a while:
@@ -679,6 +689,37 @@ pub fn ensure_not_flagged(cfg: &Config, s: &Session, sender: &Sender) -> Result<
         bail!("“{}” was flagged by its provider. Automatic messages and resumes are blocked in Settings › Automation; nothing was sent.", s.title);
     }
     Ok(())
+}
+
+/// Where a send to `key` goes when `key` moved to another session (`origins::Store::moved_to`).
+///
+/// Helpers of the moved session, its side conversation (`Sender::Side`), and Codealong itself
+/// (`Sender::Codealong`) are forwarded transparently to the current copy so work started before
+/// the move doesn't waste a turn hitting a moved-session error — while still passing the target
+/// through `ensure_not_flagged`, `leaves_boundary`, and inbound-message permission rules. Agent
+/// senders get a forwarding note appended to `Sent::message` naming the new key. Everyone else
+/// (`Sender::You`, unrelated agents, other devices) gets `moved_words` so they act on the copy.
+pub(crate) fn resolve_moved_target(origins: &crate::origins::Store, board: &Board, key: &str, sender: &Sender) -> Result<(String, Option<String>)> {
+    let Some(copy) = origins.moved_to(key, |k| board.session(k).is_some()) else {
+        return Ok((key.to_string(), None));
+    };
+    let forward = match sender {
+        Sender::Codealong | Sender::Side(_) => true,
+        _ => sender.agent_key().is_some_and(|from| {
+            board.session(from).is_some_and(|(_, s)| {
+                s.helper.as_ref().and_then(|h| h.parent.as_deref()).is_some_and(|p| p == copy || p == key)
+            })
+        }),
+    };
+    if !forward {
+        bail!("{}", moved_words(board, key, &copy));
+    }
+    let note = sender.agent_key().map(|_| {
+        let title = board.session(key).map_or_else(|| key.to_string(), |(_, s)| quoted(&s.title));
+        let account = copy.split(':').nth(1).unwrap_or_default();
+        format!(" (Forwarded: {title} moved to {account} as {copy}; use {copy} going forward.)")
+    });
+    Ok((copy, note))
 }
 
 /// A session that moved to another account (start.rs `move_to`) is neither sent to nor resumed
@@ -2366,6 +2407,42 @@ mod tests {
         assert_eq!(e, "“Fix the build” moved to claude2 and goes on there as claude:claude2:copy. Send to that session instead.");
         assert!(ensure_not_moved(&origins, &board, "claude:claude2:copy").is_ok());
         assert!(ensure_not_moved(&origins, &board_with(moved), "claude:claude:abc").is_ok());
+    }
+
+    #[test]
+    fn resolve_moved_target_forwards_helpers_side_and_codealong_and_rejects_others() {
+        let mut origins = crate::origins::Store::default();
+        origins.record_move("claude:claude:abc", "claude:claude2:copy", 10, Some(9));
+        let moved = session(Harness::Claude, Surface::Cli, Status::Stopped, false, None);
+        let copy = Session { key: "claude:claude2:copy".into(), account: "claude2".into(), ..moved.clone() };
+        let helper_updated = Session {
+            key: "codex:codex:h1".into(),
+            account: "codex".into(),
+            helper: Some(crate::model::Helper { parent: Some("claude:claude2:copy".into()), yours: false, report: false, pr: None }),
+            ..moved.clone()
+        };
+        let helper_stale = Session {
+            key: "codex:codex:h2".into(),
+            account: "codex".into(),
+            helper: Some(crate::model::Helper { parent: Some("claude:claude:abc".into()), yours: false, report: false, pr: None }),
+            ..moved.clone()
+        };
+        let outsider = Session { key: "codex:codex:other".into(), account: "codex".into(), ..moved.clone() };
+        let board = Board { lanes: vec![crate::fixtures::lane("/w", vec![moved, copy, helper_updated, helper_stale, outsider])], ..Board::default() };
+
+        // Helpers (both already-rewritten and pre-recompose), side chat, and Codealong forward.
+        let (target, note) = resolve_moved_target(&origins, &board, "claude:claude:abc", &Sender::Agent(Some("codex:codex:h1".into()))).unwrap();
+        assert_eq!(target, "claude:claude2:copy");
+        assert!(note.unwrap().contains("use claude:claude2:copy going forward"));
+        let (target2, note2) = resolve_moved_target(&origins, &board, "claude:claude:abc", &Sender::AgentFyi(Some("codex:codex:h2".into()))).unwrap();
+        assert_eq!(target2, "claude:claude2:copy");
+        assert!(note2.is_some());
+        assert_eq!(resolve_moved_target(&origins, &board, "claude:claude:abc", &Sender::Side(Some("s1".into()))).unwrap(), ("claude:claude2:copy".into(), None));
+        assert_eq!(resolve_moved_target(&origins, &board, "claude:claude:abc", &Sender::Codealong).unwrap(), ("claude:claude2:copy".into(), None));
+
+        // Unrelated agents and direct user sends still get the moved error.
+        assert!(resolve_moved_target(&origins, &board, "claude:claude:abc", &Sender::Agent(Some("codex:codex:other".into()))).is_err());
+        assert!(resolve_moved_target(&origins, &board, "claude:claude:abc", &Sender::You).is_err());
     }
 
     #[test]

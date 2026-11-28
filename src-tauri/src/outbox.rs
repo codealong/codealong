@@ -247,6 +247,42 @@ impl Outbox {
         std::mem::take(&mut self.dropped)
     }
 
+    /// Moves held messages for `from` over to `copy` when `from` moves to another account/harness.
+    /// Also updates `h.from` so notifications about messages `from` sent reach `copy`.
+    /// When `escalates_permissions` is true (the target skips permissions where `from` did not),
+    /// pre-move untrusted agent messages (`By::Agent`) are dropped with notice rather than
+    /// silently auto-executing under looser permissions (Orca's permission-consent boundary).
+    pub fn follow(&mut self, from: &str, copy: &str, escalates_permissions: bool, now: i64) -> bool {
+        if from.is_empty() || copy.is_empty() || from == copy {
+            return false;
+        }
+        let mut changed = false;
+        let mut dropped = Vec::new();
+        let mut kept = Vec::with_capacity(self.held.len());
+        for mut h in std::mem::take(&mut self.held) {
+            if h.from.as_deref() == Some(from) {
+                h.from = Some(copy.to_string());
+                changed = true;
+            }
+            if h.to == from {
+                changed = true;
+                if escalates_permissions && h.by == By::Agent {
+                    dropped.push(h);
+                    continue;
+                }
+                h.to = copy.to_string();
+                h.failures = 0;
+                h.next_at = 0;
+            }
+            kept.push(h);
+        }
+        self.held = kept;
+        for h in &dropped {
+            self.dropped(h, "the session moved to a bypass-permissions copy after this message was held, so Codealong did not forward it automatically", now);
+        }
+        changed
+    }
+
     /// What to tell the engine once a batch is done, `sent` saying whether any of it went: what
     /// was dropped since it last asked, as a notice, whatever else went, so a drop and a send
     /// in one batch still leave the notice up; with none dropped, a message that went clears one;
@@ -312,6 +348,17 @@ pub fn start(engine: Handle) {
     });
     if let Err(e) = started {
         eprintln!("codealong: messages held for sessions are sent only as the board changes: {e}");
+    }
+}
+
+/// Moves any held messages for `from` over to `copy` (`Outbox::follow`) and persists the change.
+pub fn follow(from: &str, copy: &str, escalates_permissions: bool) {
+    if !RUNS.load(Ordering::SeqCst) || from.is_empty() || copy.is_empty() || from == copy {
+        return;
+    }
+    let mut out = outbox().lock().unwrap_or_else(|e| e.into_inner());
+    if out.follow(from, copy, escalates_permissions, crate::util::now_ms()) {
+        let _ = save(&out);
     }
 }
 
@@ -629,5 +676,37 @@ mod tests {
         let back: Vec<Held> = serde_json::from_str(&serde_json::to_string(&vec![h.clone(), held("plain", NOW)]).unwrap()).unwrap();
         assert_eq!(back, vec![h, held("plain", NOW)]);
         assert_eq!(serde_json::to_value(held("plain", NOW)).unwrap(), serde_json::json!({ "id": "plain@1800000000000", "to": TO, "title": "Fix the build", "by": "agent", "from": FROM, "text": "plain", "at": NOW }));
+    }
+
+    #[test]
+    fn follow_retargets_held_messages_and_drops_untrusted_agent_mail_on_permission_escalation() {
+        let copy = "codex:codex:copy";
+        let make_outbox = || {
+            let mut out = Outbox::default();
+            out.hold(Held { failures: 2, next_at: NOW + 999, ..held("agent msg", NOW) });
+            out.hold(Held { id: "side-1".into(), by: By::Side, from: Some("s1".into()), ..held("side msg", NOW + 1) });
+            out.hold(Held { id: "ca-1".into(), by: By::Codealong, from: None, ..held("ca msg", NOW + 2) });
+            // A message sent BY `TO` to someone else also updates its `from` key.
+            out.hold(Held { id: "sent-by".into(), to: FROM.into(), from: Some(TO.into()), ..held("reply", NOW + 3) });
+            out
+        };
+
+        // Without permission escalation, all messages retarget cleanly and reset retry backoff.
+        let mut same_perm = make_outbox();
+        assert!(same_perm.follow(TO, copy, false, NOW + 10));
+        assert!(same_perm.take_dropped().is_empty());
+        assert_eq!(same_perm.held.iter().filter(|h| h.to == copy).count(), 3);
+        let retargeted = same_perm.held.iter().find(|h| h.text == "agent msg").unwrap();
+        assert_eq!((retargeted.to.as_str(), retargeted.failures, retargeted.next_at), (copy, 0, 0));
+        assert_eq!(same_perm.held.iter().find(|h| h.id == "sent-by").and_then(|h| h.from.as_deref()), Some(copy));
+
+        // With permission escalation (non-bypass -> bypass), pre-move `By::Agent` messages are
+        // dropped with a notice to the sender while `By::Side` and `By::Codealong` still transfer.
+        let mut out = make_outbox();
+        assert!(out.follow(TO, copy, true, NOW + 10));
+        assert_eq!(out.take_dropped().len(), 1);
+        assert!(out.held.iter().all(|h| !(h.to == copy && h.by == By::Agent)));
+        assert_eq!(out.held.iter().filter(|h| h.to == copy).count(), 2);
+        assert!(out.held.iter().any(|h| h.to == FROM && h.by == By::Codealong && h.text.contains("bypass-permissions")));
     }
 }

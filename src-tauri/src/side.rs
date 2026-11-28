@@ -783,6 +783,69 @@ fn forget_in(path: &Path, id: &str) -> Result<()> {
     Ok(())
 }
 
+/// Moves side conversations kept for `from` over to `copy` in `path`. True when any changed.
+fn follow_in(path: &Path, from: &str, copy: &str) -> Result<bool> {
+    if from.is_empty() || copy.is_empty() || from == copy || !path.exists() {
+        return Ok(false);
+    }
+    let mut moved = false;
+    store::change(path, WHAT, |all: &mut Vec<Kept>| {
+        for k in all.iter_mut() {
+            if k.key == from {
+                k.key = copy.to_string();
+                moved = true;
+            }
+        }
+        moved
+    })?;
+    Ok(moved)
+}
+
+/// Moves every side conversation of session `from` (kept on disk, open, or closing) over to
+/// `copy`, so side Q&As travel with a moved session instead of staying on its archived stub.
+pub fn follow(from: &str, copy: &str) {
+    if from.is_empty() || copy.is_empty() || from == copy {
+        return;
+    }
+    let mut any = false;
+    {
+        let mut st = state();
+        if !st.open.contains_key(copy) {
+            if let Some(mut open) = st.open.remove(from) {
+                open.side.key = copy.to_string();
+                st.open.insert(copy.to_string(), open);
+                any = true;
+            }
+        }
+        for o in &mut st.closing {
+            if o.side.key == from {
+                o.side.key = copy.to_string();
+                any = true;
+            }
+        }
+        for k in st.keeping.values_mut() {
+            if k.key == from {
+                k.key = copy.to_string();
+                any = true;
+            }
+        }
+    }
+    if KEEPS.load(Ordering::Relaxed) {
+        let path = store_path();
+        match follow_in(&path, from, copy) {
+            Ok(true) => {
+                *kept_cache() = None;
+                any = true;
+            }
+            Ok(false) => {}
+            Err(e) => eprintln!("Couldn't move side conversations from {from} to {copy}: {e:#}"),
+        }
+    }
+    if any {
+        changed();
+    }
+}
+
 // ---- the copies ----
 
 /// How the session's copy runs, and where (in its own folder, or its worktree's when that
@@ -1884,5 +1947,21 @@ mod tests {
         assert_eq!(answer, "You asked: check this");
         assert_eq!(tools, vec!["looking".to_string()]);
         assert!(state().oneshot_pids.is_empty(), "pid guard clears after run");
+    }
+
+    #[test]
+    fn follow_in_rekeys_kept_side_conversations_from_moved_session_to_copy() {
+        let dir = crate::store::test_dir("side-follow");
+        let path = dir.join("sides.json");
+        let kept = vec![
+            Kept { id: "s1".into(), key: "claude:one:from".into(), title: "Work".into(), started_at: 10, last_at: 20, turns: vec![], answering: false, answered_at: None },
+            Kept { id: "s2".into(), key: "claude:one:other".into(), title: "Other".into(), started_at: 15, last_at: 25, turns: vec![], answering: false, answered_at: None },
+        ];
+        crate::store::save_whole(&path, &kept).unwrap();
+        assert!(follow_in(&path, "claude:one:from", "claude:two:copy").unwrap());
+        assert!(!follow_in(&path, "claude:one:from", "claude:two:copy").unwrap(), "idempotent once moved");
+        let after: Vec<Kept> = crate::store::read_or_default(&path);
+        assert_eq!(after.iter().map(|k| (k.id.as_str(), k.key.as_str())).collect::<Vec<_>>(), vec![("s1", "claude:two:copy"), ("s2", "claude:one:other")]);
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 }

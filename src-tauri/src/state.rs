@@ -497,6 +497,44 @@ impl SeenState {
         self.archived.iter().filter(|a| a.only_here).filter_map(|a| a.key.strip_prefix(&prefix).map(|id| (id.to_string(), a.at))).collect()
     }
 
+    /// Transfers per-session state from `from` to `copy` when `from` moves to another account,
+    /// harness, or worktree: pin slot (in place, or pinned at top when `was_pinned` from an async
+    /// handover), labels, quiet, own, talking, and any active snooze. True when anything changed.
+    pub fn hand_over(&mut self, from: &str, copy: &str, was_pinned: bool, now: i64) -> bool {
+        if from.is_empty() || copy.is_empty() || from == copy {
+            return false;
+        }
+        let mut changed = false;
+        if self.pinned.iter().any(|k| k == from) {
+            let next: Vec<String> = self.pinned.iter().map(|k| if k == from { copy.to_string() } else { k.clone() }).collect();
+            self.set_pinned(next);
+            changed = true;
+        } else if was_pinned {
+            changed |= self.pin(copy, true);
+        }
+        let label_ids = self.labels_of(from).to_vec();
+        if !label_ids.is_empty() {
+            changed |= self.label(copy, &label_ids, &[]);
+        }
+        if self.is_quiet(from) {
+            changed |= self.set_quiet(copy, true);
+        }
+        if self.is_own(from) {
+            changed |= self.make_own(copy);
+        }
+        if self.is_talking(from) {
+            changed |= self.set_talking(copy, true);
+        }
+        if let Some(z) = self.snoozed.iter().find(|z| z.key == from && z.until > now).cloned() {
+            if !self.snoozed.iter().any(|c| c.key == copy && c.until > now) {
+                self.snoozed.retain(|c| c.key != from && c.key != copy);
+                self.snoozed.push(Snooze { key: copy.to_string(), ..z });
+                changed = true;
+            }
+        }
+        changed
+    }
+
     /// Session ids pinned for one account (`<harness>:<account>:<id>` keys).
     pub fn pinned_ids(&self, harness: &str, account: &str) -> std::collections::HashSet<String> {
         let prefix = format!("{harness}:{account}:");
@@ -833,5 +871,31 @@ mod tests {
         let json = serde_json::to_string(&s).unwrap();
         assert!(json.contains(r#""queueMergesSplit":true"#), "{json}");
         assert!(serde_json::from_str::<SeenState>(&json).unwrap().queue_merges_split);
+    }
+
+    #[test]
+    fn hand_over_transfers_pin_slot_labels_quiet_own_talking_and_active_snooze() {
+        let mut s = SeenState::default();
+        let now = 1_000;
+        s.set_pinned(vec!["first".into(), "from".into(), "last".into()]);
+        s.label("from", &["l1".into(), "l2".into()], &[]);
+        s.set_quiet("from", true);
+        s.make_own("from");
+        s.set_talking("from", true);
+        s.snooze("from", 500, 2_000);
+        assert!(s.hand_over("from", "copy", false, now));
+        assert_eq!(s.pinned, vec!["first", "copy", "last"]);
+        assert_eq!(s.labels_of("copy"), &["l1".to_string(), "l2".to_string()]);
+        assert!(s.is_quiet("copy") && s.is_own("copy") && s.is_talking("copy"));
+        assert_eq!(s.snooze_of("copy").map(|z| z.until), Some(2_000));
+        assert!(s.snooze_of("from").is_none());
+
+        // An expired snooze is NOT transferred, and `was_pinned` pins `copy` when `from` was
+        // already unpinned before settlement.
+        let mut s2 = SeenState::default();
+        s2.snooze("old", 100, 500);
+        assert!(s2.hand_over("old", "new", true, now));
+        assert_eq!(s2.pinned, vec!["new"]);
+        assert!(s2.snooze_of("new").is_none());
     }
 }

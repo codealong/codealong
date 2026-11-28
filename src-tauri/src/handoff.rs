@@ -447,7 +447,7 @@ pub fn execute(board: &Board, cfg: &Config, key: &str, ask: &Ask) -> Result<Outc
     let (started, in_terminal, actual_place) = start::launch(board, cfg, &spec)?;
     if let Some(copy) = &started.key {
         let copy_claim = crate::send::note_waking(copy);
-        if let Err(e) = crate::origins::write_handoff(copy, key, !ask.keep) {
+        if let Err(e) = crate::origins::write_handoff(copy, key, !ask.keep, Some(s.last_activity)) {
             eprintln!("Couldn't note handoff from {key} to {copy}: {e:#}");
         }
         if let Some(c) = copy_claim {
@@ -553,6 +553,7 @@ fn run_move_or_handoff(engine: &crate::engine::Handle, cfg: &Config, key: &str, 
     let stopped = if ask.keep { false } else { stop_to_move(engine, cfg, key, &crate::stops::who(&before, from))? };
     let board = engine.board();
     let was_pinned = board.pinned.iter().any(|k| k == key);
+    let seen_through = board.session(key).map(|(_, s)| s.last_activity);
     let mut outcome = execute(&board, cfg, key, &ask).map_err(words)?;
     if stopped {
         outcome.started.message = outcome.started.message.map(|m| format!("{m} Its turn was stopped first, so it goes on from where it was interrupted."));
@@ -560,16 +561,19 @@ fn run_move_or_handoff(engine: &crate::engine::Handle, cfg: &Config, key: &str, 
     if ask.keep {
         match &outcome.started.key {
             Some(copy) => crate::actions::labels_follow(engine, &board, key, copy),
-            None => crate::origins::pending_handoff(key, &outcome.lane_id, &outcome.target_account, outcome.opening, outcome.in_terminal, true, false),
+            None => crate::origins::pending_handoff(key, &outcome.lane_id, &outcome.target_account, outcome.opening, outcome.in_terminal, true, false, seen_through),
         }
     } else {
         match &outcome.started.key {
             Some(copy) => crate::actions::hand_over(engine, key, copy),
             None => {
                 if !outcome.native {
-                    crate::origins::pending_handoff(key, &outcome.lane_id, &outcome.target_account, outcome.opening, outcome.in_terminal, false, was_pinned);
+                    // Atomic begin/settle: keep the source unarchived until the async target
+                    // session appears on the board and `finish_pending_handover` settles the move.
+                    crate::origins::pending_handoff(key, &outcome.lane_id, &outcome.target_account, outcome.opening, outcome.in_terminal, false, was_pinned, seen_through);
+                } else {
+                    crate::actions::archive_moved(engine, key);
                 }
-                crate::actions::archive_moved(engine, key);
             }
         }
     }

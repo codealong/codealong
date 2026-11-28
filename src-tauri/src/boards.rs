@@ -433,6 +433,75 @@ pub fn apply(op: BoardOp, now: i64) -> Result<Applied> {
     change(|file| apply_to(file, op, now, new_id))
 }
 
+/// Re-keys session `from` to `copy` across every board's manual cards, placements, order, and
+/// canvas references (`boards.json`) when a session moves.
+pub fn follow(from: &str, copy: &str) {
+    if from.is_empty() || copy.is_empty() || from == copy || !path().exists() {
+        return;
+    }
+    if let Err(e) = change(|file| Ok((follow_file(file, from, copy), ()))) {
+        eprintln!("Couldn't update boards for moved session {from} -> {copy}: {e:#}");
+    }
+}
+
+fn replace_card_vec(list: &mut Vec<String>, old_card: &str, new_card: &str) -> bool {
+    let mut changed = false;
+    let has_new = list.iter().any(|c| c == new_card);
+    if has_new {
+        let before = list.len();
+        list.retain(|c| c != old_card);
+        changed = list.len() != before;
+    } else {
+        for c in list.iter_mut() {
+            if c == old_card {
+                *c = new_card.to_string();
+                changed = true;
+            }
+        }
+    }
+    changed
+}
+
+fn follow_file(file: &mut BoardsFile, from: &str, copy: &str) -> bool {
+    let old_card = format!("session:{from}");
+    let new_card = format!("session:{copy}");
+    let mut changed = false;
+    for b in &mut file.boards {
+        changed |= replace_card_vec(&mut b.added, &old_card, &new_card);
+        changed |= replace_card_vec(&mut b.removed, &old_card, &new_card);
+        changed |= replace_card_vec(&mut b.order, &old_card, &new_card);
+        if let Some(at) = b.added_at.remove(&old_card) {
+            b.added_at.entry(new_card.clone()).or_insert(at);
+            changed = true;
+        }
+        if let Some(col) = b.placed.remove(&old_card) {
+            b.placed.entry(new_card.clone()).or_insert(col);
+            changed = true;
+        }
+        if let Some(items) = b.canvas.get_mut("items").and_then(Value::as_array_mut) {
+            let has_copy = items.iter().any(|it| it.get("kind").and_then(Value::as_str) == Some("ref") && it.get("ref").and_then(Value::as_str) == Some("session") && it.get("key").and_then(Value::as_str) == Some(copy));
+            if has_copy {
+                let before = items.len();
+                items.retain(|it| !(it.get("kind").and_then(Value::as_str) == Some("ref") && it.get("ref").and_then(Value::as_str) == Some("session") && it.get("key").and_then(Value::as_str) == Some(from)));
+                changed |= items.len() != before;
+            } else {
+                for it in items.iter_mut() {
+                    if it.get("kind").and_then(Value::as_str) == Some("ref") && it.get("ref").and_then(Value::as_str) == Some("session") && it.get("key").and_then(Value::as_str) == Some(from) {
+                        if let Some(obj) = it.as_object_mut() {
+                            obj.insert("key".into(), Value::String(copy.to_string()));
+                            if obj.get("id").and_then(Value::as_str) == Some(old_card.as_str()) {
+                                obj.insert("id".into(), Value::String(new_card.clone()));
+                            }
+                            changed = true;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    changed
+}
+
 fn new_id(now: i64) -> String {
     let mut b = [0u8; 4];
     crate::os::system::random_bytes(&mut b);
@@ -1041,5 +1110,41 @@ mod tests {
         );
         let moved = Ask::Move { card: "todo:t-1".into(), to: "done".into(), before: None, dry_run: true };
         assert_eq!(serde_json::to_value(&moved).unwrap(), json!({ "kind": "move", "card": "todo:t-1", "to": "done", "dryRun": true }));
+    }
+
+    #[test]
+    fn follow_file_rekeys_session_cards_across_kanban_and_canvas() {
+        let mut file: BoardsFile = serde_json::from_value(json!({
+            "boards": [{
+                "id": "b-1",
+                "name": "Sprint",
+                "project": "Northwind",
+                "added": ["session:claude:one:a", "todo:t-1"],
+                "removed": ["session:claude:one:a"],
+                "order": ["todo:t-1", "session:claude:one:a"],
+                "addedAt": { "session:claude:one:a": 42, "todo:t-1": 10 },
+                "placed": { "session:claude:one:a": "doing" },
+                "canvas": {
+                    "items": [
+                        { "kind": "ref", "id": "session:claude:one:a", "ref": "session", "key": "claude:one:a", "x": 10, "y": 20 },
+                        { "kind": "ref", "id": "todo:t-1", "ref": "todo", "key": "t-1", "x": 30, "y": 40 }
+                    ]
+                }
+            }]
+        }))
+        .unwrap();
+        assert!(follow_file(&mut file, "claude:one:a", "codex:codex:b"));
+        assert!(!follow_file(&mut file, "claude:one:a", "codex:codex:b"), "idempotent");
+        let b = &file.boards[0];
+        assert_eq!(b.added, vec!["session:codex:codex:b", "todo:t-1"]);
+        assert_eq!(b.removed, vec!["session:codex:codex:b"]);
+        assert_eq!(b.order, vec!["todo:t-1", "session:codex:codex:b"]);
+        assert_eq!(b.added_at.get("session:codex:codex:b"), Some(&42));
+        assert!(!b.added_at.contains_key("session:claude:one:a"));
+        assert_eq!(b.placed.get("session:codex:codex:b").map(String::as_str), Some("doing"));
+        let items = b.canvas["items"].as_array().unwrap();
+        assert_eq!(items[0]["id"], "session:codex:codex:b");
+        assert_eq!(items[0]["key"], "codex:codex:b");
+        assert_eq!(items[1]["id"], "todo:t-1");
     }
 }

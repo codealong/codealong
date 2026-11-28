@@ -309,6 +309,10 @@ pub enum Msg {
     /// A PR the board doesn't list, as GitHub has it, to match to worktrees and sessions for a
     /// link to it (`board::pr_card`): the repo as the link names it, the PR, and who `gh` is.
     PrCard(String, PrRaw, Option<String>, Sender<PrItem>),
+    /// A session moved to `copy`: transfers todos, `SeenState`, side conversations, boards,
+    /// held outbox messages, terminals, and schedules, records the move leg, and archives `from`
+    /// on one board publish (`engine/handover.rs`).
+    HandOver { from: String, copy: String, was_pinned: bool, only_here: bool, reply: Sender<i64> },
 }
 
 /// The board before the first scan has finished: loading, with the theme, zoom, glass, shortcuts
@@ -394,6 +398,7 @@ pub use guard::when_spent;
 mod emblems;
 mod gitruns;
 mod handle;
+mod handover;
 mod jevasks;
 mod open;
 mod pass;
@@ -1032,6 +1037,13 @@ impl Engine {
                 Ok(Msg::Sides) => self.mark_dirty("side conversations"),
                 Ok(Msg::Terminals) => self.mark_dirty("Codealong's terminals"),
                 Ok(Msg::Listenings) => self.mark_dirty("listenings"),
+                Ok(Msg::HandOver { from, copy, was_pinned, only_here, reply }) => {
+                    let board = self.board.read().map(|b| b.clone()).unwrap_or_default();
+                    let lanes = todos::LaneIndex::of(&board.lanes);
+                    self.hand_over_session(&board, &lanes, &from, &copy, was_pinned, only_here);
+                    self.publish_for("handover");
+                    let _ = reply.send(self.board.read().map(|b| b.generated_at).unwrap_or(0));
+                }
                 Ok(Msg::SetArchived(keys, archived, only_here, reply)) => {
                     let now = now_ms();
                     for key in &keys {
