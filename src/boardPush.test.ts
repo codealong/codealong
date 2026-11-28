@@ -47,6 +47,34 @@ describe('applyPush', () => {
     expect(applyPush(first, { rev: 2, base: first.rev ?? 0, scheduleOrder: ['nowhere'] })).toBeNull();
   });
 
+  it('can’t take an item without an order that the board doesn’t have, rather than drop it', () => {
+    const first = applyPush(null, run[0].push)!;
+    const base = first.rev ?? 0;
+    expect(applyPush(first, { rev: 2, base, todos: [{ ...first.todos[0], id: 'nowhere' }] })).toBeNull();
+    const { schedules, ...without } = first;
+    expect(applyPush(without, { rev: 2, base, schedules: [schedules![0]] })).toBeNull();
+  });
+
+  it('takes a list emptied, or an item gone from it', () => {
+    let board: Board | null = null;
+    for (const { push } of run.slice(0, 6)) board = applyPush(board, push);
+    const before = board!;
+    const base = before.rev ?? 0;
+    const fewer = applyPush(before, { rev: base + 1, base, todoOrder: ['t-2'] })!;
+    expect(fewer.todos).toEqual([before.todos[2]]);
+    expect(fewer.todos[0]).toBe(before.todos[2]);
+    const none = applyPush(fewer, { rev: base + 2, base: base + 1, scheduleOrder: [], todoOrder: [] })!;
+    expect(none.todos).toEqual([]);
+    expect(none.schedules).toEqual([]);
+  });
+
+  it('leaves a list the board doesn’t have missing', () => {
+    const { schedules: _, ...without } = applyPush(null, run[0].push)!;
+    const next = applyPush(without, run[1].push)!;
+    expect('schedules' in next).toBe(false);
+    expect(next.lanes[0].sessions[1].key).toBe('claude:a:2');
+  });
+
   it('can’t change a board it isn’t for', () => {
     const first = applyPush(null, run[0].push)!;
     expect(applyPush(first, run[2].push)).toBeNull();
