@@ -91,7 +91,10 @@ under `src-tauri/src/` unless they start with `plugin/`.
   cloned over SSH, then HTTPS, with git's prompts off: a private repo works wherever git can
   already clone it. A `SessionStart` or `UserPromptSubmit` command hook's stdout (exit 0) is
   added to the model's context, which is how `plugin/hooks/hooks.json` hands a session its todo.
-  `allowed-tools` and `disable-model-invocation` in SKILL.md are Claude Code's own.
+  `allowed-tools` and `disable-model-invocation` in SKILL.md are Claude Code's own. Claude's
+  plugin directory rejects a plugin with symlinks inside it, and warns when it has no square PNG
+  icon at `.claude-plugin/icon.png`, so `plugin/` holds real copies (`scripts/sync-plugin-skills.sh`,
+  pinned by skills.rs's test).
 - Plugins enabled on claude.ai sync into `<config dir>/plugins/synced/<org>_<account>/` and load
   as `<name>@synced`, though `claude plugin list` and `details` don't show them. One is turned
   off on its own by `"enabledPlugins": {"<name>@synced": false}` in that account's settings.json,

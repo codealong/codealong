@@ -91,7 +91,11 @@ under `src-tauri/src/`.
   (a conversation compacted twice moved on 2026-10-19: the copy's first message was that
   boundary's, and none of the original's lines before it were there), so what the session did
   before then (a PR it opened, its pushes) is in the original's transcript alone: `prlinks.rs`
-  (`carry_moves`).
+  (`carry_moves`). A move into a session Codealong runs takes no `--resume`: Codealong copies the
+  transcript into `<target home>/projects/<project dir>/<new id>.jsonl` itself, every line's
+  `sessionId` rewritten and a `custom-title` line added where it has none, and claude-agent-acp
+  takes it up with `session/resume` (`claude/start.rs` `copy_transcript_for_account`, `acp::adopt`;
+  written from the code, not checked against a Claude Code version).
 - `--model`'s aliases (2.1.282) and the account's `settings.json` `model` a start goes on without
   it: `claude/start.rs` (`MODELS`, `default_model`); it takes a full name too (`claude/mod.rs`
   `offers_model`). Quote it when typing it: zsh reads `fable[1m]` as a file pattern ("no matches

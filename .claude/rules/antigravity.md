@@ -126,7 +126,13 @@ runs on this Mac (2026-10-01). Paths are under `src-tauri/src/`.
   output line back to its originating `PLANNER_RESPONSE` `run_command` call and checks that the
   shell command actually executed `gh pr create` or `git push` (not a script or inspection command
   printing another session's records), alongside `Reader::logs()` and incremental `Applied::lines`
-  / `Applied::found`.
+  / `Applied::found`. A subagent's transcript (a conversation whose summary row has a
+  `parent_conversation_id`) counts for its root session (`antigravity.rs` `logs`).
+  `write_file` / `edit_file` name their file in `Path` as well as `TargetFile`; one written for the
+  user carries `ArtifactMetadata: {UserFacing: true, Summary}`, an object in `transcript_full.jsonl`
+  and a JSON string in `transcript.jsonl` (`antigravity/artifacts.rs`), and an artifact writes a
+  slide carousel as a `carousel` fence with `<!-- slide -->` lines between slides
+  (`src/ui/Markdown.tsx`).
 - `agy` opens its terminal UI: `-i <prompt>`, `--conversation <id>`, `--model` with what `agy
   models` lists, and `--add-dir` are in `antigravity.rs` (`Antigravity::start_in_terminal`,
   `Antigravity::resume`, `models`, `listed_models`, `cli_args`). `agy models` asks Google and
@@ -318,8 +324,8 @@ runs on this Mac (2026-10-01). Paths are under `src-tauri/src/`.
   as `gemini-pro-orchestrator-neon` and `gpt-oss-120b-medium`), plus `mode` (`default`,
   `accept-edits`, `auto`, `plan`; `session/new` starts at `default` even when `settings.json`
   sets `agentMode`, and `session/resume` puts a session back in `default`): `acp.rs` (`set_model`,
-  `overlay`) splits and recombines them, `Antigravity::mode` names the four modes, and `acp.rs`
-  `start_mode` switches a session to the settings' `agentMode` as it starts and as it's picked up
+  `overlay`) splits and recombines them, `Antigravity::mode` names the four modes, and
+  `acp/start_mode.rs` switches a session to the settings' `agentMode` as it starts and as it's picked up
   (`Antigravity::acp_start_mode`). `agy` 1.5.16 deletes `agentMode` from settings.json in nearly
   every run that isn't its terminal UI or `agy acp` (print runs, `agy models`), which Codealong
   starts every few minutes, so it puts the mode back after each (`antigravity/kept_mode.rs`). In `auto` the worker still asked (`session/request_permission`)
@@ -405,4 +411,5 @@ runs on this Mac (2026-10-01). Paths are under `src-tauri/src/`.
 - What the app writes mid-turn.
 - Where the conversations that Remote Control's daemon starts are written, and how they'd
   show on the board: starting the daemon registers the Mac with Google, so it wasn't run.
-- Its hooks (`~/.gemini/config/hooks.json`; the binary names `PreToolUse` and `PostToolUse`).
+- How its terminal UI runs the hooks in `~/.gemini/config/hooks.json` (the binary names
+  `PreToolUse` and `PostToolUse`); what `agy acp` does with a repo's `.agents/hooks.json` is above.

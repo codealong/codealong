@@ -1,6 +1,7 @@
 ---
 paths:
   - "src-tauri/src/acp.rs"
+  - "src-tauri/src/acp/**"
   - "src-tauri/src/rpc.rs"
 ---
 
@@ -135,7 +136,9 @@ on 2026-09-27. Paths are under `src-tauri/src/`.
   `transcript_full.jsonl`) and passing `ANTIGRAVITY_CONVERSATION_ID` to commands it runs. Its
   `configOptions` split `agy models`'s compound names across `model` and `thought_level` (recombined
   in `acp.rs` `overlay` and split in `set_model` for harnesses with no separate effort picker), and
-  offer `mode` (`default`, `accept-edits`, `auto`, `plan`). Its `session/request_permission` puts
+  offer `mode` (`default`, `accept-edits`, `auto`, `plan`); `session/new` and `session/resume`
+  start a session in `default` whatever `settings.json`'s `agentMode` says, so Codealong switches it
+  (`acp/start_mode.rs`, `Adapter::acp_start_mode`). Its `session/request_permission` puts
   shell commands in `rawInput.CommandLine` and forwards `PreToolUse` `force_ask` confirmations even
   under `always-proceed` or `--dangerously-skip-permissions`; `on_permission` delegates to
   `Adapter::acp_auto_allows` so Antigravity matches its terminal UI in `default` mode under
