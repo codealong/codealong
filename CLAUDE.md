@@ -213,7 +213,9 @@ light board itself (`CODEALONG_NO_SERVER=1` makes it). What it does to a session
 own request in actions.rs, asked as the command (`actions::From::Command`). Settings are
 changed by editing config.toml, not through the command; `codealong config check` checks the
 result. After changing a command's arguments or help, run `scripts/skill-reference.sh`, which
-rewrites `reference.md` from `--help`: a cargo test fails while it's stale.
+rewrites `reference.md` from `--help` and copies the skill into `plugin/` (an edit to
+`skills/codealong/` needs `scripts/sync-plugin-skills.sh` too): a cargo test fails while either is
+stale.
 
 `codealong --snapshot` checks behavior without a window (snapshot.rs); `"$(scripts/engine.sh)"
 --snapshot …` runs your checkout's. With no mode it prints the board (`--table` as a table,

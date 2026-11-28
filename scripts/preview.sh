@@ -158,6 +158,8 @@
 # `"drawn"` would once they were drawn.
 # PREVIEW_ANALYTICS=1 turns `[experimental] analytics` on, with a made-up report for the Analytics
 # window's Your part and Sessions (scripts/preview/usage-part-init.js opens them).
+# PREVIEW_EXPERIMENTS=1 turns `[experimental] experiments` on, with a made-up report for the
+# Analytics window's Experiments tab (scripts/preview/usage-experiments-check.js).
 # PREVIEW_KEYS=held turns `[appearance] show_keys` off: keyboard shortcuts show only while ⌘ or ⌃
 # is held (src/keysShown.ts). Otherwise they show all the time, as a new config.toml has them.
 # PREVIEW_GLASS=1 turns `[appearance] glass` on. It's off otherwise, though macOS has it on by
