@@ -23,8 +23,10 @@ use super::{claim_state, clean, has_checkout, origin, parse_reply, short, verdic
 use crate::config::{OwnReviewsCfg, ReviewsCfg};
 use crate::github::Verdict;
 use crate::model::{Harness, Lane, PartState, PrItem, PrState, ReviewStage, Session};
+use crate::prlinks::pr_key;
 use crate::shared::{Machine, Machines};
 use codealong_peer::pr::{AutoReview, ClaimState, HandedReview, SharedReview};
+use std::collections::HashMap;
 
 /// The review of a PR of yours as its primary session reads it: who wrote it and of which
 /// commit, its text, then each comment with its file and line.
@@ -125,6 +127,42 @@ pub(super) fn nest_parent<'a>(lanes: &'a [Lane], start: &'a Session) -> &'a str 
         cur = parent;
     }
     cur.key.as_str()
+}
+
+/// Puts each review of a PR of yours under the top-level session of the session it goes back to
+/// (`origin`, walking up `Helper::parent` via `nest_parent`), as a helper of that session as well
+/// as of the PR (`Helper::parent`): Sessions lists it under that session so a worker helper's
+/// review stays visible rather than nested two levels down, whose panel lists it with its other
+/// helpers, and Mark as done on that session marks it done too. A review of a PR that waits on
+/// your review has no session of yours to go under, and stays the PR's alone.
+pub fn nest_own(lanes: &mut [Lane], prs: &[PrItem]) {
+    let back_to: HashMap<String, String> = prs.iter().filter(|p| p.mine).filter_map(|p| origin(lanes, p).map(|(_, s)| (pr_key(&p.key), nest_parent(lanes, s).to_string()))).collect();
+    if back_to.is_empty() {
+        return;
+    }
+    for s in lanes.iter_mut().flat_map(|l| l.sessions.iter_mut()) {
+        let key = s.key.clone();
+        let Some(h) = s.helper.as_mut().filter(|h| h.parent.is_none()) else { continue };
+        if let Some(parent) = h.pr.as_deref().and_then(|pr| back_to.get(pr)).filter(|p| **p != key) {
+            h.parent = Some(parent.clone());
+        }
+    }
+}
+
+/// Whether this machine keeps claiming ownership of PR `pr` on its card (`SharedReview::owner`):
+/// while it wants a review (`owned`), or after the PR merges with `[reviews.own]` on and its
+/// primary session still here, so another machine that finished reviewing it keeps publishing its
+/// `handed` review for this machine to import and send (neither machine starts a new round, since
+/// `would` and `would_for` stay open-only).
+pub(super) fn keeps_owner(owned: bool, cfg: &ReviewsCfg, blocked: bool, lanes: &[Lane], pr: &PrItem) -> bool {
+    owned || (pr.mine && pr.state == PrState::Merged && cfg.own.auto && !blocked && origin(lanes, pr).is_some())
+}
+
+/// Whether an automatic own-PR round that failed because its session showed up late can still be
+/// taken up after the PR merged (`Reviewer::due` -> `Tracked::take_up`), without starting anything
+/// new.
+pub(super) fn recover_merged(cfg: &ReviewsCfg, lanes: &[Lane], pr: &PrItem) -> bool {
+    pr.mine && pr.state == PrState::Merged && cfg.own.auto && origin(lanes, pr).is_some()
 }
 
 /// Whether automatic own-PR review rounds for a PR have hit `max_rounds` (0 = unlimited).

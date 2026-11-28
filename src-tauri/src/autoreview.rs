@@ -1322,10 +1322,10 @@ impl Reviewer {
     /// `AT_ONCE` rounds are under way. Nothing for a PR with a job under way, or whose wait after
     /// a try isn't over.
     pub fn due(&mut self, board: &Board, cfg: &ReviewsCfg, now: i64) -> Vec<Job> {
-        // With reviews off, only what was asked for by hand goes on. Each PR goes as its repo's
-        // settings say (`RepoSettings::reviews`).
+        // With reviews off, only what was asked for by hand goes on, plus ending stalled
+        // automatic rounds whose PR has ended so reviewdone doesn't hold their sessions.
         let settings = &board.repo_settings;
-        if !(settings.reviews_on(cfg) || self.store.prs.values().any(|t| t.rounds.last().is_some_and(|r| r.by_hand))) || board.github_login.is_none() {
+        if !(settings.reviews_on(cfg) || self.store.prs.values().any(|t| t.rounds.last().is_some_and(|r| r.by_hand || r.stage == ReviewStage::Reviewing))) || board.github_login.is_none() {
             return Vec::new();
         }
         let on_for = |pr: Option<&PrItem>| pr.map_or(cfg.auto || cfg.own.auto, |p| on(&settings.reviews(cfg, p)));
@@ -1339,7 +1339,8 @@ impl Reviewer {
             let on = on_for(pr);
             let failed = t.rounds.last().filter(|r| r.stage == ReviewStage::Failed).map(|r| r.by_hand);
             if let (Some(by_hand), Some(pr)) = (failed, pr) {
-                if by_hand || (on && wanted_here(&settings.reviews(cfg, pr), board, pr, now)) {
+                let rcfg = settings.reviews(cfg, pr);
+                if by_hand || (on && (wanted_here(&rcfg, board, pr, now) || own::recover_merged(&rcfg, &board.lanes, pr))) {
                     changed |= t.take_up(board, pr, false);
                 }
             }
@@ -1347,13 +1348,17 @@ impl Reviewer {
             let asked: HashSet<String> = t.rounds.last().filter(|r| r.parts.iter().any(|p| p.pending.is_some())).map(|_| t.asked().map(String::from).collect()).unwrap_or_default();
             let Some(r) = t.rounds.last_mut().filter(|r| r.stage == ReviewStage::Reviewing) else { continue };
             // A round `next` never looks at, a PR's that isn't listed or whose reviews were turned
-            // off, would hold a place for good. `next` gives up on the rest itself, once nothing
-            // it does would move them: a review written while Codealong was closed is still read.
-            if !self.busy.contains(key) && (pr.is_none() || !(on || r.by_hand)) && r.stuck(board, now) {
+            // off, would hold a place for good (and one whose PR ended with reviews off would keep
+            // reviewdone from archiving its session). `next` gives up on the rest itself, once
+            // nothing it does would move them: a review written while Codealong was closed is still
+            // read.
+            let ended_off = !(on || r.by_hand) && pr.is_some_and(|p| !p.state.is_open());
+            if !self.busy.contains(key) && (ended_off || ((pr.is_none() || !(on || r.by_hand)) && r.stuck(board, now))) {
+                let why = if ended_off { "Automatic reviews were turned off before it was done." } else { STUCK };
                 for p in r.parts.iter_mut().filter(|p| p.reviewing()) {
-                    fail(p, STUCK);
+                    fail(p, why);
                 }
-                end(r, ReviewStage::Failed, Some(STUCK.into()), now);
+                end(r, ReviewStage::Failed, Some(why.into()), now);
                 changed = true;
                 continue;
             }
@@ -1837,25 +1842,7 @@ pub fn to_come(store: &Store, behind: impl Fn(&str) -> Option<String>) -> HashSe
         .collect()
 }
 
-/// Puts each review of a PR of yours under the top-level session of the session it goes back to
-/// (`origin`, walking up `Helper::parent` via `own::nest_parent`), as a helper of that session as
-/// well as of the PR (`Helper::parent`): Sessions lists it under that session so a worker helper's
-/// review stays visible rather than nested two levels down, whose panel lists it with its other
-/// helpers, and Mark as done on that session marks it done too. A review of a PR that waits on
-/// your review has no session of yours to go under, and stays the PR's alone.
-pub fn nest_own(lanes: &mut [Lane], prs: &[PrItem]) {
-    let back_to: HashMap<String, String> = prs.iter().filter(|p| p.mine).filter_map(|p| origin(lanes, p).map(|(_, s)| (pr_key(&p.key), own::nest_parent(lanes, s).to_string()))).collect();
-    if back_to.is_empty() {
-        return;
-    }
-    for s in lanes.iter_mut().flat_map(|l| l.sessions.iter_mut()) {
-        let key = s.key.clone();
-        let Some(h) = s.helper.as_mut().filter(|h| h.parent.is_none()) else { continue };
-        if let Some(parent) = h.pr.as_deref().and_then(|pr| back_to.get(pr)).filter(|p| **p != key) {
-            h.parent = Some(parent.clone());
-        }
-    }
-}
+pub use own::nest_own;
 
 /// Whether session `from` is the automatic review of a PR of yours that goes back to session `to`
 /// (`origin`), with `[reviews.own] send` on for the PR's repo. What it says to that session is
@@ -1979,12 +1966,14 @@ pub fn apply(prs: &mut [PrItem], store: &Store, global: &ReviewsCfg, sessions: &
         let since = pr.requested_at.unwrap_or(0).max(pr.updated_at);
         let own = pr.mine;
         // A PR of yours is this machine's when its primary session is here (own.rs): another may
-        // review it for this one, as this one may for another.
+        // review it for this one, as this one may for another. Ownership stays on the card after
+        // merge so another machine's finished review still hands back (`keeps_owner`).
         let owned = own && wanted;
+        let keeps_owner = own::keeps_owner(owned, cfg, blocked, lanes, pr);
         let would = if own { (owned && has_checkout(lanes, pr)) || (!blocked && own::would_for(cfg, lanes, pr)) } else { wanted && has_checkout(lanes, pr) };
         // A review written here goes on the card only for a machine that owns the PR.
-        let handed = (own && !owned && own::owner(pr, machines).is_some()).then(|| own::handed(t)).flatten();
-        pr.shared_review = SharedReview { owner: owned, handed, ..shared_review(t, &head, would) };
+        let handed = (own && !keeps_owner && own::owner(pr, machines).is_some()).then(|| own::handed(t)).flatten();
+        pr.shared_review = SharedReview { owner: keeps_owner, handed, ..shared_review(t, &head, would) };
         // This machine reviews it: one `cfg` has it review, or one of yours it reviews for another.
         let here = wanted || (!blocked && own::reviews_here(pr, lanes, machines, now));
         // Another machine of yours reviews it: its round shows here, and none starts here (`due`).
@@ -2201,10 +2190,13 @@ pub enum Goes {
     Back(String),
 }
 
-/// Where `pr`'s review goes.
+/// Where `pr`'s review goes. A manual review of someone else's merged/closed PR is kept locally
+/// rather than posted on GitHub, so the reviewer is told so.
 fn goes(cfg: &ReviewsCfg, lanes: &[Lane], pr: &PrItem) -> Goes {
     if pr.mine {
         Goes::Back(origin(lanes, pr).map(|(_, s)| agent_of(s)).unwrap_or_else(|| "the agent that wrote it".into()))
+    } else if !pr.state.is_open() {
+        Goes::Post(ReviewPost::None)
     } else {
         Goes::Post(cfg.post)
     }
@@ -5661,13 +5653,74 @@ mod tests {
         let post = r.due(&merged_board, &own(), NOW + 62_000).pop().unwrap();
         assert_eq!(own::closed_note(&merged_pr, false), None);
         r.told(&post, Went::Kept(None), NOW + 63_000).unwrap();
-        let send = r.due(&merged_board, &own(), NOW + 64_000).pop().unwrap();
+
+        // Closed without merging: never sent even while the kept round is unsent and not busy.
+        let closed_board = board(vec![closed_pr.clone()], vec![maker.clone()]);
+        assert!(r.due(&closed_board, &own(), NOW + 64_000).is_empty());
+        assert!(own::closed_note(&closed_pr, false).is_some());
+
+        // Merged: the same unsent round produces Job::Send to its primary session.
+        let send = r.due(&merged_board, &own(), NOW + 65_000).pop().unwrap();
         assert!(matches!(send, Job::Send { ref session, .. } if session == MAKER), "sent after merge: {send:?}");
 
-        // Closed without merging: never sent even if a kept round has no note.
-        let closed_board = board(vec![closed_pr.clone()], vec![maker]);
-        assert!(r.due(&closed_board, &own(), NOW + 65_000).is_empty());
-        assert!(own::closed_note(&closed_pr, false).is_some());
+        // A manual review of someone else's merged PR tells its reviewer the review stays local.
+        let their_merged = PrItem { state: PrState::Merged, ..pr(8, HEAD) };
+        assert_eq!(goes(&ReviewsCfg { post: ReviewPost::Draft, ..on() }, &lanes, &their_merged), Goes::Post(ReviewPost::None));
+        assert_eq!(goes(&ReviewsCfg { post: ReviewPost::Comment, ..on() }, &lanes, &their_merged), Goes::Post(ReviewPost::None));
+    }
+
+    #[test]
+    fn an_own_pr_review_whose_session_shows_after_merge_is_recovered_and_sent() {
+        let maker = Session { status: Status::Idle, ..fixtures::session(MAKER) };
+        let open_pr = mine(7, HEAD);
+        let merged_pr = PrItem { state: PrState::Merged, ..open_pr.clone() };
+        let mut r = Reviewer::default();
+        let job = r.due(&board(vec![open_pr.clone()], vec![maker.clone()]), &own(), NOW).pop().unwrap();
+        // Start didn't name its session; it times out (`NEVER_SHOWED`) while open.
+        let pending = Pending { account: "codex".into(), lane: "/r".into(), at: NOW };
+        r.told(&job, Went::Started(vec![Part { pending: Some(pending), ..Part::asked(AUTO, None, None, NOW) }]), NOW).unwrap();
+        assert!(r.due(&board(vec![open_pr], vec![maker.clone()]), &own(), NOW + SHOW_MS + 1).is_empty());
+        assert_eq!(r.store.prs["o/r#7"].rounds[0].stage, ReviewStage::Failed);
+
+        // PR merges, then the late reviewer session appears at work on the same PR: `due` takes
+        // the round up, reads it once done, and sends it to the opener.
+        let late = Session {
+            account: "codex".into(),
+            status: Status::Working,
+            started_at: Some(NOW + 500),
+            last_activity: NOW + SHOW_MS + 2_000,
+            first_prompt: Some("Review pull request #7 in o/r (https://github.com/o/r/pull/7)".into()),
+            ..fixtures::session(S)
+        };
+        let merged_working = board(vec![merged_pr.clone()], vec![maker.clone(), late.clone()]);
+        assert!(r.due(&merged_working, &own(), NOW + SHOW_MS + 2_000).is_empty());
+        assert_eq!(r.store.prs["o/r#7"].rounds[0].stage, ReviewStage::Reviewing);
+
+        let merged_done = board(vec![merged_pr], vec![maker, Session { status: Status::Unread, last_activity: NOW + SHOW_MS + 10_000, ..late }]);
+        read(&mut r, &merged_done, &own(), NOW + SHOW_MS + 11_000, "Real bug.\n\nVerdict: request changes", "Codex");
+        let post = r.due(&merged_done, &own(), NOW + SHOW_MS + 12_000).pop().unwrap();
+        r.told(&post, Went::Kept(None), NOW + SHOW_MS + 13_000).unwrap();
+        let send = r.due(&merged_done, &own(), NOW + SHOW_MS + 14_000).pop().unwrap();
+        assert!(matches!(send, Job::Send { ref session, .. } if session == MAKER));
+    }
+
+    #[test]
+    fn turning_reviews_off_before_merge_ends_an_in_flight_automatic_round_for_cleanup() {
+        let maker = Session { status: Status::Idle, ..fixtures::session(MAKER) };
+        let open_pr = mine(7, HEAD);
+        let merged_pr = PrItem { state: PrState::Merged, ..open_pr.clone() };
+        let mut r = Reviewer::default();
+        let job = r.due(&board(vec![open_pr], vec![maker.clone()]), &own(), NOW).pop().unwrap();
+        r.told(&job, Went::Started(vec![started(AUTO, S, NOW)]), NOW).unwrap();
+
+        // User turns all automatic reviews off, then the PR merges: `due` ends the stalled round
+        // immediately so `apply` no longer reports `Reviewing` and `reviewdone` can archive it.
+        let off = ReviewsCfg::default();
+        let mut merged_board = board(vec![merged_pr], vec![maker, session(Status::Idle, NOW + 60_000)]);
+        assert!(r.due(&merged_board, &off, NOW + 61_000).is_empty());
+        assert_eq!(r.store.prs["o/r#7"].rounds[0].stage, ReviewStage::Failed);
+        apply(&mut merged_board.prs, &r.store, &off, &Default::default(), &Default::default(), &merged_board.lanes, &Default::default(), NOW + 61_000);
+        assert_eq!(merged_board.prs[0].auto_review.as_ref().map(|a| a.stage), Some(ReviewStage::Failed));
     }
 
     #[test]
@@ -5870,6 +5923,37 @@ mod tests {
         assert_eq!(kinds(&jobs), [format!("send 7 1111111 by Codex, gpt-5.5 on Studio to {MAKER}")]);
         let t = &r.store.prs["o/r#7"];
         assert_eq!((t.rounds.len(), t.rounds[0].from.as_deref(), t.rounds[0].stage), (1, Some("Studio"), ReviewStage::Kept));
+
+        // After the owner observes the PR merged, it keeps `owner: true` on its card (with
+        // `would: false` so neither machine starts a new round), the reviewer machine keeps
+        // publishing `handed` once its in-flight review finishes, and the owner imports and sends
+        // the findings exactly once.
+        let merged_p = PrItem { state: PrState::Merged, merged_at: Some(NOW), ..p.clone() };
+        let mut owner_merged = board(vec![merged_p.clone()], vec![maker.clone()]);
+        owner_merged.lanes[0].repo_slug = Some("o/r".into());
+        apply(&mut owner_merged.prs, &Store::default(), &own(), &Default::default(), &Default::default(), &owner_merged.lanes, &owner_merged.machines, NOW + 61_000);
+        assert!(owner_merged.prs[0].shared_review.owner && !owner_merged.prs[0].shared_review.would, "owner stays true on merge without starting new rounds");
+
+        // Reviewer machine sees the owner's merged card (`owner: true`) and publishes `handed`.
+        let mut owner_as_peer = studio(Rank::Backup, vec![(merged_p.clone(), false, None)]);
+        owner_as_peer.prs[0].shared_review.as_mut().unwrap().owner = true;
+        let mut reviewer_merged = board(vec![merged_p.clone()], vec![]);
+        reviewer_merged.lanes[0].repo_slug = Some("o/r".into());
+        reviewer_merged.machines = std::sync::Arc::new(machines(Rank::First, vec![owner_as_peer]));
+        apply(&mut reviewer_merged.prs, &kept, &own(), &Default::default(), &Default::default(), &reviewer_merged.lanes, &reviewer_merged.machines, NOW + 62_000);
+        assert_eq!(reviewer_merged.prs[0].shared_review.handed.as_ref(), Some(&handed));
+        assert!(!reviewer_merged.prs[0].shared_review.would, "reviewer starts nothing new after merge");
+
+        // Owner sees the reviewer's `handed` on the merged PR, imports it, and sends it once.
+        let mut reviewer_as_peer = studio(Rank::First, vec![(merged_p.clone(), false, round("kept", HEAD, NOW + 60_000))]);
+        reviewer_as_peer.prs[0].shared_review.as_mut().unwrap().handed = Some(handed.clone());
+        owner_merged.machines = std::sync::Arc::new(machines(Rank::Backup, vec![reviewer_as_peer]));
+        apply(&mut owner_merged.prs, &Store::default(), &own(), &Default::default(), &Default::default(), &owner_merged.lanes, &owner_merged.machines, NOW + 63_000);
+        let mut owner_r = Reviewer::default();
+        let jobs = owner_r.due(&owner_merged, &own(), NOW + 63_000);
+        assert_eq!(kinds(&jobs), [format!("send 7 1111111 by Codex, gpt-5.5 on Studio to {MAKER}")]);
+        owner_r.told(&jobs[0], Went::Sent(MAKER.into()), NOW + 64_000).unwrap();
+        assert!(owner_r.due(&owner_merged, &own(), NOW + 65_000).is_empty(), "sent exactly once");
         // Not this machine's round as your machines weigh them, so the PR stays with the Studio.
         assert_eq!(shared_review(Some(t), HEAD, true).round, None);
         r.told(&jobs[0], Went::Sent(MAKER.into()), NOW + 62_000).unwrap();
