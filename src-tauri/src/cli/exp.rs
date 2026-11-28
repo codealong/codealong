@@ -31,7 +31,7 @@ pub(super) enum ExpCmd {
         #[arg(long)]
         experiment: Option<String>,
     },
-    /// Show one experiment run in full (trials, gate, pairwise comparisons, costs).
+    /// Show one experiment run in full (trials, gate, judges' rankings or pairwise comparisons, costs).
     Show {
         /// The run id (or a unique prefix).
         id: String,

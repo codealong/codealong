@@ -158,7 +158,7 @@ enum Cmd {
     },
     /// Your part in the work, an experiment (`[experimental] analytics`, Settings › Experimental): what came in to your sessions and who from (you; Delegated, another session's agent; Automation, Codealong by itself; the session itself), what your prompts did with what the agent had said (set out new work, agreed, steered, redirected, asked), how sessions began, and how the ones you marked done stood (finished, or left asking you something, not landed…). The Analytics window's Your part and Sessions show the same; JSON has it all. `prompts` lists prompts of yours nothing has read yet, and `tag` says what one did.
     Analytics(AnalyticsArgs),
-    /// Experiments (`[experimental] experiments`, Settings › Experimental): run pinned agent combinations side-by-side on the same task and base commit, optionally with a local reviewer, a mechanical gate command, and a blind pairwise judge.
+    /// Experiments (`[experimental] experiments`, Settings › Experimental): run pinned agent combinations side-by-side on the same task and base commit, optionally with a local reviewer, a mechanical gate command, and one blind judge or a panel of them, ranking the results or comparing them in pairs.
     Exp {
         #[command(subcommand)]
         cmd: ExpCmd,
@@ -1413,7 +1413,7 @@ struct StartArgs {
     /// Start it in no project: in a new folder of its own among Codealong's chats, for a question that belongs to none of your repos. The board lists it under Chats.
     #[arg(long, conflicts_with_all = ["worktree", "new_worktree"])]
     chat: bool,
-    /// Where it runs. Without it, where the account's `start` setting says (a start from the quick panel sets it to where that one ran), else the terminal (the Codex app for Codex).
+    /// Where it runs. Without it, where the account's `start` setting says (a start from the quick panel sets it to where that one ran), else in Codealong, or in a terminal for Cursor and where the account's adapter isn't installed (the Codex app for `~/.codex`).
     #[arg(long = "in", value_enum)]
     place: Option<PlaceArg>,
     /// A model for a terminal, background or Codealong start: fable, opus, sonnet, haiku, or a full name.

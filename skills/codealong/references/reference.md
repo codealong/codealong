@@ -69,8 +69,9 @@ Commands:
                 prompts of yours nothing has read yet, and `tag` says what one did
   exp           Experiments (`[experimental] experiments`, Settings › Experimental): run
                 pinned agent combinations side-by-side on the same task and base commit,
-                optionally with a local reviewer, a mechanical gate command, and a blind
-                pairwise judge
+                optionally with a local reviewer, a mechanical gate command, and one
+                blind judge or a panel of them, ranking the results or comparing them in
+                pairs
   whoami        Which session runs this command, its worktree, the other agents running
                 in that worktree now (`others`: none means no other agent shares the
                 checkout, however many sessions worked there before), and its open
@@ -658,7 +659,8 @@ Options:
 ```
 Experiments (`[experimental] experiments`, Settings › Experimental): run pinned agent
 combinations side-by-side on the same task and base commit, optionally with a local
-reviewer, a mechanical gate command, and a blind pairwise judge
+reviewer, a mechanical gate command, and one blind judge or a panel of them, ranking the
+results or comparing them in pairs
 
 Usage: codealong exp [OPTIONS] <COMMAND>
 
@@ -668,7 +670,8 @@ Commands:
   presets  List named experiment presets configured under `[experiments.<name>]` in
            config.toml
   list     List experiment runs
-  show     Show one experiment run in full (trials, gate, pairwise comparisons, costs)
+  show     Show one experiment run in full (trials, gate, judges' rankings or pairwise
+           comparisons, costs)
   results  Show the leaderboard aggregated across completed runs
   adopt    Mark a trial as the adopted winner (recording whether you agreed with the
            judge)
@@ -837,7 +840,8 @@ Options:
 ## codealong exp show
 
 ```
-Show one experiment run in full (trials, gate, pairwise comparisons, costs)
+Show one experiment run in full (trials, gate, judges' rankings or pairwise comparisons,
+costs)
 
 Usage: codealong exp show [OPTIONS] <ID>
 
@@ -4645,8 +4649,9 @@ Options:
 
       --in <PLACE>
           Where it runs. Without it, where the account's `start` setting says (a start
-          from the quick panel sets it to where that one ran), else the terminal (the
-          Codex app for Codex)
+          from the quick panel sets it to where that one ran), else in Codealong, or in
+          a terminal for Cursor and where the account's adapter isn't installed (the
+          Codex app for `~/.codex`)
 
           Possible values:
           - terminal
