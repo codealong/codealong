@@ -296,7 +296,7 @@ fn put_mark(tray: &TrayIcon<Wry>, app: &AppHandle, dimmed: bool) -> Result<()> {
     let (w, h, rgba) = mark(app, dimmed)?;
     tray.with_inner_tray_icon(move |t| -> Result<()> {
         let icon = tray_icon::Icon::from_rgba_with_scale(rgba, w, h, PIXELS_PER_POINT)?;
-        Ok(t.set_icon_templated(Some(icon))?)
+        Ok(crate::os::windows::put_tray_mark(t, icon)?)
     })?
 }
 

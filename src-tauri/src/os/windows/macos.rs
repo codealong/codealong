@@ -725,6 +725,12 @@ pub fn reopened(event: &tauri::RunEvent) -> bool {
     matches!(event, tauri::RunEvent::Reopen { .. })
 }
 
+/// Puts the menu bar item's mark on it (menubar.rs `put_mark`) as a template, which macOS draws
+/// in the menu bar's own colors.
+pub fn put_tray_mark(tray: &tray_icon::TrayIcon, mark: tray_icon::Icon) -> tray_icon::Result<()> {
+    tray.set_icon_templated(Some(mark))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

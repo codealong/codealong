@@ -291,6 +291,12 @@ pub fn reopened(_event: &tauri::RunEvent) -> bool {
     false
 }
 
+/// Puts the tray item's mark on it (menubar.rs `put_mark`) as it is: a tray here has no
+/// templates (tray-icon has them on macOS alone).
+pub fn put_tray_mark(tray: &tray_icon::TrayIcon, mark: tray_icon::Icon) -> tray_icon::Result<()> {
+    tray.set_icon(Some(mark))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
