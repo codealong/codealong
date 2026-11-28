@@ -43,10 +43,12 @@ read it before changing a command, an event or a menu in `lib.rs`. A bare file n
   window as `util::words`.
 - Transparent windows need `macOSPrivateApi` in tauri.conf.json and the `macos-private-api`
   feature. `data-tauri-drag-region="deep"` drags from anywhere inside except controls.
-- The menu bar item is Tauri's tray (tauri 2.12.5, tray-icon 0.25.1): `menubar.rs` (module
-  header). Its calls wait for the main thread when made from another. tray-icon draws the image
-  18 points tall whatever its size, and its `set_icon` turns the template off, so a template
-  goes on with `set_icon_with_as_template`. Its menu's events reach every `on_menu_event`
+- The menu bar item is Tauri's tray (tauri 2.13.0, tray-icon 0.27.0): `menubar.rs` (module
+  header). Its calls wait for the main thread when made from another. tray-icon draws an image at
+  its pixels over the scale it's given, at most 22 points tall (0.25 drew every image 18 points
+  tall); Tauri's `Image` gives none, a pixel a point, so `put_mark` hands the 36-pixel template
+  to tray-icon itself at two pixels a point. Its `set_icon` turns the template off, so a template
+  goes on with `set_icon_templated`. Its menu's events reach every `on_menu_event`
   handler, the app's menus' too, so ids carry a prefix. On Linux the first item made loads
   libayatana-appindicator3, and a missing library panics there (`make`); with the library but
   nothing on the session bus to show items, it's made and never seen
