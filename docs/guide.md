@@ -27,15 +27,17 @@ is gone, on the screen with the pointer. A window left in full screen comes back
 had before. On Linux the window manager places it.
 
 **Five views** of the current project, each in a window of its own if you like (⌘⇧N): Sessions
-(grouped by worktree or by repo if you like), PRs, Todo, Schedules (every project's), and its
+(grouped by project, repo or worktree if you like), PRs, Todo, Schedules (every project's), and its
 boards, each shown as Kanban or as Canvas (an experiment, off until Settings › Experimental turns
 it on: see *Boards*). The project switcher (⌘P) shows each project's key: ⌥⌘1 to ⌥⌘9 switch
 projects, ⌥⌘0 shows them all. A project whose repos belong to one GitHub organization shows that
 organization's avatar in the switcher button and dropdown, the quick panel's project button and
-menu, and the All projects badges (fetched through `gh api users/<owner>` and cached locally for a
-week under `org-avatars/` in Codealong's cache folder; personal accounts, multi-org projects and
-Elsewhere keep the folder icon in menus and Codealong's logo in the switcher button, as All
-projects does). Under All projects, wherever a worktree or a PR's repo is named
+menu, and the All projects badges (fetched through `gh api users/<owner>`, cached locally for a
+day under `org-avatars/` in Codealong's cache folder and fetched again with ⌘R; personal accounts,
+multi-org projects and Elsewhere keep the folder icon in menus and Codealong's logo in the switcher
+button, as All projects does). Under All projects the avatar also takes the folder's or book's place
+on a row's worktree and repo chips, a group's heading and a session's header, before the project's
+name. Under All projects, wherever a worktree or a PR's repo is named
 (a row's chip, a group's heading, a session's header and a PR's, the quick panel's rows, the
 floating bar's tooltips and menus), its project is said quietly before it, `Northwind /
 fix-login`, unless the name already is the project's; a todo's row says its own on a tag. The
@@ -50,7 +52,7 @@ the notch's session, the quick panel and the peek away as Open in main window do
 sidebar shows its keys while you point at it (the folded rail says them; the Board's are those of
 the layout a click on it shows); ⌃Tab and ⌃⇧Tab go through
 the views (`v` too, outside Sessions), ⌥↑ ⌥↓ move along a list as the arrows do, and ⌃⌘↑ ⌃⌘↓ reorder
-what's pinned. ⌘F finds in the whole window, as a browser's find does (*Find in the window*), and
+what's pinned, and a worktree's heading in Sessions grouped by worktree. ⌘F finds in the whole window, as a browser's find does (*Find in the window*), and
 ⌥⌘F filters where you are, as Mail and Notes filter their lists: a PR's files in its panel, else
 the view's list (*Find in the list*), which `/` opens too. ⌘K, or the box in the middle of the
 title bar, opens the quick panel, to find a session, a todo or a PR anywhere or to start one.
@@ -97,8 +99,8 @@ age at the right, with no lines between them. The bar over each of those lists s
 which opens the list's settings, each a row of choices, and stays open while you change several:
 Sort orders the list by status, as it starts, or newest first under the day each started, was
 opened or was added (Today, Yesterday, Last 7 days, Older), each row's age then saying when; Group
-puts the rows under their worktrees or repos (see [Grouped by worktree or
-repo](#grouped-by-worktree-or-repo)); Rows puts each row on one line, as they start, or on two; and
+puts the rows under their projects, repos or worktrees (see [Grouped by project, repo or
+worktree](#grouped-by-project-repo-or-worktree)); Rows puts each row on one line, as they start, or on two; and
 in Sessions, Started sessions says where a session another one started goes. The button names
 whichever of them isn't as it starts (View · by repo · two lines), so how the list is shown reads
 without opening it. After it, each filter narrowing the list (the sidebar's devices, age, statuses,
@@ -113,7 +115,7 @@ chips at the line's end, the last of them giving way first, then the title.
 Every session, under headings as the other views have them. Pinned ones come first in your order
 (drag or ⌃⌘↑ ⌃⌘↓). Drag any session up among them to pin it there,
 and a pinned one down to the rest to unpin it. View, in the bar over the list, has its four
-settings: Sort, Group (see [Grouped by worktree or repo](#grouped-by-worktree-or-repo)), Started
+settings: Sort, Group (see [Grouped by project, repo or worktree](#grouped-by-project-repo-or-worktree)), Started
 sessions (see [Where a session came from](#where-a-session-came-from)) and Rows. Sort orders the
 rest: Status puts Needs you, Your turn and Working
 first, as the floating bar orders them, then Snoozed, the soonest back first, then Idle, the one you last sent a prompt
@@ -123,27 +125,33 @@ that needs you has a label beside its title for what it waits on (Asks you, Need
 Message, Stuck, Error). Its second line says where and why: its worktree, its todo, its
 [labels](#labels) and Jev's read, then its account, with the worktree's PR and diff at the right: that's on two lines (Rows, in
 View). On one line, as it starts, a row is its title, then its status, worktree and PR chips at
-the line's end, and its status says its account when you point at it. A snoozed session's row says how long until it's
+the line's end, and its status says its account when you point at it. A reusable worktree's chip
+names it; any other names its repo (a main checkout adds `/ main` on two lines), since a one-off
+worktree's own name says nothing, and under a repo's heading a row names only a reusable worktree,
+or one on another Mac. A working session's age is how long its turn has gone on. A snoozed session's row says how long until it's
 back, and a quiet one's says Quiet. Here letters alone do nothing, so a word typed on the list by
 mistake doesn't pin, archive or rename: the keys are the chords, and they work from the panel's box
-too. Sessions are pinned here, with ⌃⌘P or the right-click menu, and their pins show only here. Clicking any section heading (Orchestrator/Orchestrators, Listening, Pinned, Pinned worktrees/repos, Needs you, Your turn, Working, Snoozed, Idle, or Archived) folds or opens its rows; ambient sections (Orchestrator/Orchestrators, Pinned, Pinned worktrees/repos, Working, Snoozed, Idle) stay folded across launches, while urgent sections start open and Archived starts folded. Day headings in Started sort are plain dividers and don't fold. Searching temporarily opens folded active sections so matches aren't hidden, and jumping to a session or worktree opens its section.
+too. Sessions are pinned here, with ⌃⌘P or the right-click menu, and their pins show only here. Clicking any section heading (Orchestrator/Orchestrators, Listening, Pinned, Needs you, Your turn, Working, Snoozed, Idle, or Archived) folds or opens its rows; grouped, the groups take the status headings' place. Ambient sections (Orchestrator/Orchestrators, Pinned, Working, Snoozed, Idle) stay folded across launches, while urgent sections start open and Archived starts folded. Day headings in Started sort are plain dividers and don't fold. Searching temporarily opens folded active sections so matches aren't hidden, and jumping to a session or worktree opens its section.
 
-#### Grouped by worktree or repo
+#### Grouped by project, repo or worktree
 
-Group, in View over Sessions, PRs, Todo and Schedules, lists the rows that aren't pinned under their worktree or
-under their repo, or as one list, as it starts; each list keeps its own. Each worktree or repo
-heads its rows once, under the heading its first row is under: a worktree with a session that
-needs you is under Needs you, with all of its sessions in Sort's order, and a heading counts
-only the rows under it for themselves. A group lists five rows and folds the rest behind Show N
+Group, in View over Sessions, PRs, Todo and Schedules, lists the rows that aren't pinned under their
+project, their repo or their worktree, or as one list (No groups), as it starts; each list keeps its
+own. Grouped, the list has no status headings: each project, repo or worktree heads its rows once,
+the groups in alphabetical order until you put them in an order of your own, and Sort orders the
+rows inside each group rather than the groups. A heading says how many rows it has, and the chevron
+at its left folds the group away or opens it again (a click anywhere on a project's or a repo's
+heading does too); folded groups stay folded across launches, each list its own, and a search opens
+them while it's on. A group lists five rows and folds the rest behind Show N
 more (never a session that waits on you or is working, a review asked of you, a todo in
 progress or in review, or a schedule with such a session under it, and none while a search is on), and a helper is in its session's group,
-under it, wherever it works. A row selected while its group folds it away (shown from elsewhere,
+under it, wherever it works. A row selected while its group hides it (shown from elsewhere,
 say) opens its group.
 
 In PRs a PR is under the worktree here that holds it, or under its repo by its name on GitHub; in
 Todo a todo is under the worktree its actions use (the first linked, else its newest session's).
-The ones in no worktree here go under No worktree here (No worktree in Todo), last in each
-section rather than pulled under the first one's heading, and Merged & closed (Done in Todo) stays
+The ones in no worktree here go under No worktree here (No worktree in Todo), last in the list,
+and Merged & closed (Done in Todo) stays
 folded, grouped among its own. Grouped, todos keep your order but aren't reordered by hand. In
 Schedules a schedule is under the worktree it runs in, or that of the session it sends to; one that
 starts a chat of its own is under No worktree, the one-offs and the finished are grouped among
@@ -151,7 +159,8 @@ themselves, and the harnesses' own schedules aren't grouped. The schedule select
 away, wherever pausing it or another order takes it. A press on a worktree's heading shows the
 worktree in the schedule's panel's place, with the way back on its strip.
 
-A worktree's heading is one line of what belongs to the worktree: its name, then where it is (its
+A worktree's heading is one line of what belongs to the worktree: its chevron, its name and how many
+rows it has, then where it is (its
 device, its repo and its branch), Free when it's a reusable worktree new work can start in
 (Landed once its work merged, else Reusable, its tooltip saying what it holds; see [Reusable
 worktrees](#reusable-worktrees)), Looks finished when Jev reads every session there as done, its
@@ -167,15 +176,16 @@ worktrees](#clean-up-worktrees)), ⌘E marks its sessions seen, and ⌘-click or
 worktrees together, for Mark as seen, Pin, Reuse for new work, Clean up worktrees… and copies of
 their paths and branch names. In PRs and Todo it isn't a row to select: a click on it shows the
 worktree's panel in place of the one beside the list, with the way back, as a worktree's chip
-does. A repo's heading has a menu (Open on GitHub, Pin repo, Copy repo name) and isn't a row to
-select.
+does. A repo's heading has a menu (Open on GitHub, Pin repo, Copy repo name), and a click on it
+folds its group, as one on a project's does; neither is a row to select. Under All projects a
+heading leads with its project's organization avatar where it has one.
 
-Pin a group from its heading's menu (⌃⌘P on a worktree's), or by dragging its heading up among
-the pinned groups; reorder them by dragging or with ⌃⌘↑ ⌃⌘↓, and drag one down to the list to
-unpin it. Pinned groups follow the pinned sessions, in your order, worktrees' and repos' each their
-own, and one with no session listed still shows its heading while nothing but the age narrows the
-list. The same worktrees and repos are pinned in PRs and Todo, after the pinned PRs, listed while
-they have something there; they're reordered in Sessions. A worktree shown from elsewhere (its chip in a session's panel, a PR's Show worktree, a link)
+Drag a group's heading up or down to put the groups in an order of your own; in Sessions grouped by
+worktree, ⌃⌘↑ ⌃⌘↓ move the selected worktree's heading too. One order is kept for projects, one for
+repos and one for worktrees, shared by the four lists, and a group new since you placed them goes
+after them, alphabetically. The rows in no project, repo or worktree (No project, No repo, No
+worktree here) are always last. Pin worktree, in a worktree heading's menu (⌃⌘P), keeps the worktree
+listed whatever age the sidebar narrows the list to. A worktree shown from elsewhere (its chip in a session's panel, a PR's Show worktree, a link)
 is its heading, selected, where the list has one, else its panel in place of the one beside the
 list, with the way back.
 
@@ -267,15 +277,18 @@ step (see *Set up Codealong*), which offers the same choices. Each is one of two
   that fits nearly as well. It needs that provider's key (Settings › Decisions), and a question costs a fraction of
   a cent; picked while there's no key, Emoji shows a box to paste one into, which saves it to the
   keychain as Settings › Decisions does.
-- **Drawn**: an account that can draw (Codex, with its image tool: the one you pick, else the first
-  that can) draws a small picture of one
+- **Drawn**: an account that can draw (Codex with its image tool, or on macOS Antigravity with
+  its own: the one you pick, else the first that can) draws a small picture of one
   thing that stands for what the session works on, told what the sessions beside it show so it
   draws something else, and mostly in the color you gave the session with Claude Code's `/color`,
   if you did. How they're drawn is yours to say in Settings' box (`prompt`): flat colors with a dark
   outline on white unless you write otherwise, pixel art on a 16 by 16 grid, say, or a white
   silhouette on a tile of one color. A plain white background is made clear, so the picture sits on
-  any window. Each takes Codex half a minute to a minute and an image turn of the account's usage,
-  in a run of `codex exec` that keeps no record; the newest sessions are drawn first, one at a time,
+  any window. Each takes half a minute to a minute and an image turn of the account's usage: Codex
+  draws in a run of `codex exec` that keeps no record, and Antigravity in a run of `agy -p` whose
+  conversation Codealong keeps off the board, out of search and out of Analytics (it draws a JPEG,
+  which only macOS turns into the PNG an emblem is read from, so Linux and Windows don't offer
+  it); the newest sessions are drawn first, one at a time,
   and a session shows its emoji, if it has one, until its picture comes. A drawing that fails says
   why in a notice, and none is tried for five minutes.
 
@@ -404,43 +417,52 @@ Move to, in any session's right-click menu, moves it to another signed-in accoun
 provider or a different one (Claude Code, Codex, OpenCode, Antigravity or Cursor). The account
 selector chip at the right of the reply box's foot lists your current account's models first and
 every other eligible account with all of its models below: picking any model under another account
-opens a quick confirmation modal briefly explaining how moving across accounts works (lossless
-native copy vs. handoff brief and full transcript file), with a **Keep original open** toggle to
-leave the original session running. Clicking **Move…** on a Limit, Cut-off, or API error banner
-opens the same confirmation modal.
+opens a quick confirmation modal briefly explaining how moving across accounts works (the whole
+conversation carried over between Claude Code accounts, or a handoff brief and the full transcript
+in a file for another agent), with a **Keep original open** toggle to leave the original session
+running. Clicking **Move…** on a Limit, Cut-off, or API error banner opens the same confirmation
+modal.
 
-Same-harness Claude Code default moves take the lossless native path: the conversation goes on in a
-new terminal under that account (a background job's as a job there), carrying the session's title
-with `--name` so Claude Code keeps it rather than auto-titling the copy onto something else.
-Cross-provider moves, non-default options, or kept handoffs build a structured handoff brief (goal,
-touched files, recent errors, compacted timeline and high-fidelity recent turns) and write the full
-cleaned Markdown transcript to Codealong's files folder (never touching your repo) so the new agent
-can read earlier details on demand; chained handoffs across providers unwrap prior handoff headers
-so context stays flat.
+A move between Claude Code accounts carries the conversation over whole: Claude Code's own copy of
+it goes on under the other account, carrying the session's title with `--name` so Claude Code
+keeps it rather than auto-titling the copy onto something else. It goes on where the session ran
+unless you name a place (`--in`): one Codealong runs, in Codealong (its conversation copied into the
+other account's folder and taken up there); a background job, as a job there; any other, in a new
+terminal. That holds when you keep the original open, pick a model or effort, or add a note; only a
+move into the Claude app, which can't open a conversation from a file, gets a handoff brief instead.
+A move to another agent builds a structured handoff brief (goal, touched files, recent errors,
+compacted timeline and high-fidelity recent turns) and writes the full cleaned Markdown transcript
+to Codealong's files folder (never touching your repo) so the new agent can read earlier details on
+demand; chained handoffs across providers unwrap prior handoff headers so context stays flat.
 
 When moving without keeping the original open, the session is closed and archived; its panel and the
 copy's say where it went, and the old session's row shows a *Moved to* chip that jumps to the copy.
 The copy is a session of its own, with a new ID, and takes the session's place on its todos, among
-the pinned sessions, on its card on the desktop, in its kept window, on its terminals and on its
-schedules (including when the target harness assigns its ID only after launching). Moved from
+the pinned sessions, on its card on the desktop, in its kept window, on its terminals, on its
+schedules (including when the target harness assigns its ID only after launching) and as the
+session its helpers work for (*Helpers*). Moved from
 its panel in Sessions, the panel stays on it while it moves and then shows the copy, selected in the
 list, rather than going on to the next that waits on you; a PR opened from its chip meanwhile stays,
-its way back going to the copy. A session moving offers no second move in the window it's moved
+its way back going to the copy. Moved from the peek, a kept window, the notch or the waiting window,
+that window stays open on it and shows the copy once it's listed, rather than closing and bringing
+the copy's terminal forward. A session moving offers no second move in the window it's moved
 from, so a double-click doesn't make two copies, and once moved it offers none anywhere, whichever
 window or command moved it and across relaunches, while its copy is on the board. Its panel's box is
 the copy's: a line above it says *Moved to* the copy's account, with a chip that shows the copy, and
 what you write there goes to the copy. One handed off with **Keep original open** isn't moved: it
-goes on as itself, and can be moved or handed off again. For native Claude Code moves, Claude Code
-writes nothing of the copy until you send it something, so until then it shows the conversation it
+goes on as itself, and can be moved or handed off again. For a move into a terminal or a background
+job, Claude Code writes nothing of the copy until you send it something, so until then it shows the conversation it
 was moved with; its terminal closed before then, it stays on the board, stopped, and opening it or
 sending it a message makes it again from that conversation. A move is noted before the copy starts,
 and a terminal that doesn't open leaves the session where it was. A turn it's taking is stopped
-first, so the copy goes on from where it was interrupted; a command its last turn left running in
+first, unless the original is kept open, which goes on with it, so the copy goes on from where it
+was interrupted; a command its last turn left running in
 the background stays behind. A message sent to the old session afterwards, from a window or another
 agent's `codealong session send`, is turned away with the copy named (unless it was handed off with
-**Keep this session open**), and `codealong session show` says where it moved. From the command
-line, `codealong session handoff <key> --to <account>` hands off any session (`--keep`, `--model`,
-`--effort`, `--in`, `--dry-run`). The first reply there reads the conversation again, since the old
+**Keep original open**), and `codealong session show` says where it moved. From the command
+line, `codealong session handoff <key> --to <account>` hands off a session (`--keep`, `--model`,
+`--effort`, `--in`, `--dry-run`); an agent's command moves only its own session (`me`), hands
+another off only with `--keep`, and leaves moving one to Codealong's windows. The first reply there reads the conversation again, since the old
 account's prompt cache doesn't carry over.
 
 #### Usage limits
@@ -456,6 +478,23 @@ or agent to move or hand off to (API error banners offer Move… too). Moved, it
 where it stopped. `[limits] when_hit = "move"` (Settings › Automation) moves it automatically only
 for same-harness native moves, as soon as it stops; cross-provider suggestions stay manual, and a
 session moved there that stops again is offered a move rather than moved back.
+
+A session whose own last turn finished, on an account at a limit its model spends, warns before you
+send it the next one: an amber line under its header, in its panel and on its card in the notch, the
+peek, a kept window and the waiting window, names the limit and when it lifts, with **Snooze until it
+lifts** (where that's five minutes off or more) and **Move…**. Codealong goes by another of the
+account's sessions on this Mac stopped at that limit (until one of them gets a turn through, or a
+usage reading since shows room), or by the account's meter at 100%. An account whose extra usage can
+carry turns past the limit isn't flagged.
+
+Agents are kept off an account at its limit while a session on this Mac stopped there, the limit
+hasn't lifted, and no turn spending it has got through since. An agent's `codealong start` there is
+turned down, saying when the limit resets, naming a model on that account that has room where the
+limit is one model's, and listing the accounts that have room (never outside a boundary group the
+start is in). An agent's message to a session there that isn't running, or that Codealong runs,
+isn't sent; one to a running session goes, with a note of when the account resets. Starts from
+Codealong's windows aren't held back, nor is a limit that says no time to lift (a monthly spend
+limit).
 
 A session still stopped at its limit, and still open where it stopped, is told to carry on a few
 minutes after the limit lifts, and its Limit says so. One Codealong runs itself stays open until you
@@ -537,7 +576,7 @@ started it hears (`codealong session wait` says so too), rather than having fini
 A Claude Code or Codex session whose turn stopped partway because what ran it ended (its terminal
 closed or quit, Codealong or the Mac restarted, it was killed) says so (Cut off), and waits on you until you've
 seen it; a session that had finished its turn when that happened lost nothing, and is just stopped.
-Its panel has Carry on, and Move… where it can move to another account, as a session at its usage
+Its panel has Carry on, and Move… where it can move to another account or agent, as a session at its usage
 limit has. Carry on resumes it where its account's sessions last went on from here, else
 in Codealong (or a terminal where In Codealong isn't offered), and tells it to carry on, checking first what its last step did, since a command it
 ran may have been stopped partway. Resume in, in its menu, says Carry on in and does the same
@@ -552,9 +591,13 @@ agent's own record ends as stopped (Codealong notes each such turn while it runs
 hosted.json).
 
 A session Codealong runs itself is its agent's, and its agent is a process of Codealong's server
-(*Codealong's server*), so quitting the app leaves it working, and the server stopping (`codealong
-server stop`, an update, or a new build that changed the engine) ends the turns it was taking. Once
-the server is back it tells each such session to carry on, at once and without waiting on you: the
+(*Codealong's server*), so quitting the app leaves it working, and so does an update: when an app of
+a newer build at the same place opens, the server becomes that build in place and hands each agent
+across, with the turn it's taking, what it waits on you to allow, its queued messages and a model
+switch waiting for the turn to end (not on Windows). The server stopping any other way (`codealong
+server stop`, Restart server, a Codealong of another build or place replacing it) ends the turns it
+was taking, and so does an agent that couldn't be handed across (one whose adapter was updated since
+it started). Once the server is back it tells each such session to carry on, at once and without waiting on you: the
 message picks it up again in a new process of its agent, says it was cut off, and that a call the
 cut ended may read as one you rejected, which you didn't. A session that last did something more
 than an hour before is left for you, since Codealong was gone a while. Each cut is told once; a
@@ -605,8 +648,10 @@ starts a new one. A
 session's header names each under its title, with the sessions that came of it (*Where a session
 came from*), and a click on one shows it above the box. In Sessions, the one answering is listed
 under its session, set in as a helper at work is, and a click on its row selects the session with
-the side conversation above its box. The session's row counts them on a chip of their own (a
-question mark and how many, with the working glyph while one answers); resting the pointer on it
+the side conversation above its box. While one is answering or has an answer you haven't seen, the
+session's row counts them on a chip of their own (a question mark and how many, with the working
+glyph while one answers), and otherwise its right-click menu has Show N side conversations (Hide
+answered side conversations); resting the pointer on it
 brings up a card with each, where it stands since when (*Answering for 1m*, *Answered 2h ago*),
 and a click on one there shows it the same way. A double-click on the chip, or the card's button,
 lists them all under the session, answered ones too, until a row at the end of what's listed,
@@ -717,11 +762,17 @@ on hover. A click lists them under the links, as Claude Code's `/tasks` and Code
 command, what the agent said it's for, and where it stands (*Running · 12m*, *Done · 3m ago*,
 *Failed · exit 1 · just now*); *Output* shows the last 40 lines of what it printed, read again every
 few seconds while it runs, with a link to the local address a server printed when the session runs
-on this machine; and a running one has *Stop* (see *Commands left running*). Below is its whole conversation, read from the session's own record
+on this machine; and a running one has *Stop* (see *Commands left running*). Where it has traded
+messages with another session in the last two hours (a reply each way, or three or more one way), a
+chip names that session with the count (↔ 4 msgs), and a click shows it; the chip turns amber once
+they go back and forth (four messages, two changes of direction), and so does the ↔ chip with the
+count on its row in Sessions. Where another session is the primary session of its todo or of an
+open PR it's on, a chip names that one (*Todo owner:*, *#12 owner:*, one chip for both), a click
+away, and its own todo's chip says *Owner* when it's the primary one among several. Below is its whole conversation, read from the session's own record
 (Claude Code's transcript, Codex's rollout, OpenCode's database): your prompts and the agent's
 replies, their Markdown drawn (a prompt keeps its line breaks and indentation as you typed them,
 and a glob written without backticks, `apps/*` or `*.ts`, isn't read as italics), and every tool call, which opens to its input and output; runs of calls fold into one
-line. When it was shows under the last message of a run, not each one, at the right under yours and
+line, and a finished turn's into one more (*Finished turns*). When it was shows under the last message of a run, not each one, at the right under yours and
 the left under the agent's: your prompt,
 then the agent's reply, whose earlier messages between its calls go without; a run ends where the
 speaker changes, at a note in the conversation or at a pause of ten minutes (the agent woken by a
@@ -763,7 +814,10 @@ that opens its kind, as a double-click in the Finder would; an app, a script or 
 in the Finder instead, so a click never runs anything. A file sent from a scratch folder is often
 cleared by the time you look: it's left as its name, which says so where you clicked. One
 Codealong can't play (a format its web view doesn't take) says so in its place. A session on
-another machine has its files there, so they're listed, not shown, and don't open. A full path an agent writes as code in a reply (`/private/tmp/…/plan.md`,
+another machine has its files there, so they're listed, not shown, and don't open. An Antigravity
+conversation shows the files it writes for you to read (the ones it marks for you, a plan or a
+walkthrough) the same way, under their call with the summary it gave and the images they hold, and
+the call stays out of a fold; a carousel it writes is drawn as one, a slide at a time. A full path an agent writes as code in a reply (`/private/tmp/…/plan.md`,
 `~/notes.md`) is underlined, as it's written, once Codealong has found something there, and opens
 the same way on a click; one with a line (`main.rs:42`) opens in your editor at that line. What only
 looks like a path (a route such as `/api/v1/users`, a skill, a command, a file that isn't here)
@@ -774,7 +828,14 @@ named from the folder its turn worked in is only named, since that isn't always 
 folder): a click on the name opens it the same way, and a click elsewhere on the line opens its
 input and output, or the file when the call has nothing more to show (Codex's look at an image).
 Right-click a path, a file sent or cited, or such a call's line, for Open, Open in your editor
-(`[apps] editor`), Reveal in Finder and Copy path. A Markdown file opens in the app macOS has for `.md`
+(`[apps] editor`), Reveal in Finder and Copy path. A link a reply makes to a file on your Mac
+(`[plan](file:///…/plan.md)`, `#L42` for a line) opens the same way once Codealong has found the
+file, except a Markdown file linked without a line, or one sent you, which opens in a preview inside
+Codealong, drawn as a reply is, with Open in your editor, Open, Reveal in Finder and Copy path along
+its top (its right-click menu has Preview first); one in Desktop, Documents or Downloads waits for
+Show file. An image a reply draws from your Mac (`![chart](/tmp/chart.png)`, or a `file://` one)
+shows in place as an image sent you does: one in those folders waits for Show image, a click opens
+it, and a session on another machine says it's there. A Markdown file named any other way opens in the app macOS has for `.md`
 files: to have a click open it in your editor, choose it in the Finder's Get Info › Open with and
 Change All, or right-click and use Open in. A prompt shows the images you sent with it in place, whether you sent them from
 Codealong, pasted them into the session's terminal or attached them in the Claude or Codex app;
@@ -815,6 +876,22 @@ on keys typed into a field on it. Once you press something on it, it stays up as
 leaves, until you press elsewhere or a key, and a dialog opened from it (a merge's commit) keeps
 it up under the dialog until the dialog has gone.
 
+#### Finished turns
+
+*Settings › Appearance › Tool calls in conversations, or `tools` under `[appearance]`; Folded by default*
+
+Once a turn has ended, its conversation folds the tool calls and the updates the agent wrote
+between them into one line above its final reply, saying how long it worked and what it did
+(*Worked for 4m · Edited 3 files, ran 6 commands and 2 other actions*); a click opens it and another
+folds it again. The turn under way stays open, and so does a finished turn with a call that failed;
+a question asked of you, an artifact published and a file sent stay in view in any turn. Compact
+folds each run of two or more calls into a line saying what they did, leaving the replies between
+them in view and a failed call on a line of its own. Detailed shows each call on its own line,
+folding runs of three or more with the latest in view. Zen shows only your prompts and each turn's
+final reply, with approvals, questions, errors, artifacts and sent files. ⌘F finds what's folded or
+hidden and opens it while it matches. The notch, the peek, a kept session and the waiting window
+follow the setting too.
+
 #### Replies as they're written
 
 A session's record has a reply only once the agent has written all of it, so the panel would show
@@ -835,7 +912,8 @@ every Claude Code account that has its copy when you change it.
 
 While a session's agent works, the end of its conversation says so, wherever the conversation
 shows: a small gray square tumbling, top over bottom and then side to side, and how long it has
-worked on what you last asked. A session gone silent mid-turn has no line: its header says how long it's been silent. One whose
+worked on what you last asked; in a session Codealong runs, the call it's running before its record
+has it shows on that line too (*Running* and the tool), so the conversation doesn't jump. A session gone silent mid-turn has no line: its header says how long it's been silent. One whose
 turn is over but that waits on a command it left running in the background (a CI watch or a
 Claude Code Monitor, say), in a terminal, in the Claude app or started from Codealong, says so in
 the line's place, with the clock the list draws for it: Waiting on and the command, all of it on
@@ -865,7 +943,7 @@ brings it up.
 ⌘F finds words in it as in the rest of the window (*Find in the window*), wherever it shows, and
 further back than it's laid out: the count takes in the whole conversation (the pages further back
 are read for it), going back past its first match laid out (⇧⏎, ⇧⌘G) lays out the earlier pages
-up to the next, and a run of tool calls opens to show a call it finds. It finds what shows:
+up to the next, and a run of tool calls, or a finished turn's fold, opens to show a call it finds. It finds what shows:
 prompts, replies and the calls' lines, and a call's input and output once you've opened it, not
 the times and buttons around them. A session that a search found by what was said in it, in the
 list's find or the quick panel, opens with the find already on the words it found (the words as
@@ -978,7 +1056,7 @@ Claude Code's terminal starts in Auto; Antigravity's `agentMode` in its command 
 switches each session to it as it starts and again whenever it's picked up; `agy` 1.5.16 deletes
 that setting as it starts a print run or `agy models`, Codealong's usage reads among them, and
 Codealong puts it back after each run of its own), and its mode is a
-menu of the modes its agent offers (Claude Code's Manual, Accept edits, Plan, Auto and Bypass); ⇧⇥ in its box steps to the next, as in Claude
+menu of the modes its agent offers (Claude Code's Manual, Accept edits, Plan, Auto and Bypass; Antigravity's Default, Accept edits, Auto and Plan); ⇧⇥ in its box steps to the next, as in Claude
 Code's terminal. Either switches that session alone, mid-turn too and while it waits on you: what it
 asks from then on goes by the new mode, and what it asks now still waits for your answer.
 
@@ -1034,15 +1112,17 @@ don't say, so their sessions have none.
 When a session waits on you to allow a tool call, the call shows just above the box, in a tinted
 card as wide as it, with Allow (⌘⏎) and Deny (⌘⌫, with nothing written in the box, and the
 session stays shown so you can say what to do
-instead): a session Codealong runs is answered through its agent, and calls it asks about together
+instead): a session Codealong runs is answered through its agent (an Antigravity one in its Default
+mode, with Always proceed as its tool permission, is let through what it asks as `agy`'s terminal
+would, a repo's hook that asks among them, except a plan or a question), and calls it asks about together
 (Claude Code reading several files at once) show one after another; OpenCode's are answered through its service, Claude Code's through the Codealong plugin's
 `PermissionRequest` hook when the account has the plugin (wherever the session runs: any terminal,
 the Claude app), with Always too where Claude Code offers to allow calls like it from now on (its
 button says what that adds), and otherwise by a keypress in its Ghostty, iTerm2, Rex, Codealong or tmux tab, only
 while its own record says the prompt is up for that call. A Codex session's approval comes the
 moment Codex asks it, through a hook Codealong puts in the account with its skill (Settings ›
-Agents): the command or the edit, with the reason the agent gave, and in its Ghostty, iTerm2, Rex or
-tmux tab Allow presses `y` (Yes, proceed) and Deny presses Escape (No, and tell Codex what to do
+Agents): the command or the edit, with the reason the agent gave, and in its Ghostty, iTerm2, Rex,
+Codealong or tmux tab Allow presses `y` (Yes, proceed) and Deny presses Escape (No, and tell Codex what to do
 differently, which stops its turn); its other choices, for that command from now on or for the
 session, are left to its terminal, as are a tool's of an MCP server and a request for more
 permissions, which Codex asks in prompts of their own, and the Codex app's, which it asks in its
@@ -1050,7 +1130,14 @@ own window, and any in a turn that has asked more than once without the others a
 here (its terminal shows one at a time, a script can ask for two at once, and which is up can't
 be read), while Codex's keys may be set up its own way (`tui.keymap` in its config, or on its
 command line), or where another `PermissionRequest` hook runs there too, which keeps Codex's
-prompt back until it's done. A request to reach a host, which a command that's running
+prompt back until it's done. In a Rex, tmux or Codealong tab, whose screen Codealong reads, those
+are answered here too: where the hook hands over nothing Codealong can answer (a turn that asked
+more than once, an MCP tool's prompt or a request for more permissions, keys set up Codex's own
+way, a session started without the hook, or a call Approve for me's reviewer passed to you),
+Codealong reads the approval off the screen while the turn runs and offers Allow (Codex's "Yes,
+proceed"), Always where Codex offers "Yes, and don't ask again", and Deny ("No, and tell Codex what
+to do differently", else Escape), answering with the arrow keys and Return once the screen shows
+the cursor on your pick, then checking the prompt went. A request to reach a host, which a command that's running
 already makes, reads "Let `npm install` reach registry.npmjs.org", and Allow lets it, this once. While the session's mode is Approve for
 me, Codex's reviewer agent answers instead, and the session isn't waiting on you. One allowed in
 its terminal can still show as waiting for the few seconds Codex takes to hand the command's
@@ -1278,7 +1365,9 @@ it always does.
 
 Every PR in the project's repos, with the worktree and sessions that worked on each: the ones that
 made, edited or commented on it, or pushed to it (from their own records: Claude Code's
-`gitOperation` results and its `pr-link` lines, Codex's commands and attached PRs), the ones on its
+`gitOperation` results and its `pr-link` lines, Codex's commands and attached PRs, and the `gh pr
+create` and `git push` commands an Antigravity session ran, its subagents' among them; a command's
+output it only read, such as another session's, doesn't count), the ones on its
 branch while it was open, any in the repo whose records show they pushed to its branch from a
 branch of their own (`git push origin mine:theirs`), and any linked by hand (`codealong pr
 link|unlink`). A PR from a fork your checkout has no remote for is from another branch than yours
@@ -1341,7 +1430,10 @@ here, or a project's repo checked out only on its default branch. It's in its pr
 one covers it, else under the project of the session it's for, by its repo's name alone. Such PRs
 are read by their numbers, the 60 latest worked on or linked (an automatic review links its
 session to the PR), and only while a session the board lists worked on them: at once when one is
-new, then every ten minutes, or every minute while one's checks run. A repo whose checkouts went
+new, then every ten minutes, or every minute while one's checks run. A PR of yours that another of
+your machines owns for its review (see *Reviews of your own pull requests*), in a repo checked out
+here only on its default branch, is read by its number too, ahead of the others, so this machine
+lists it and can review it for that one. A repo whose checkouts went
 back to its default branch keeps its PRs as its last read had them, and each read by its number
 brings its own up to date there. Nudges reach their primary session as on any other PR.
 
@@ -1371,9 +1463,10 @@ review yet. They leave Ready to merge and Needs work while the agent works, sinc
 of you waits on it; a review asked of you stays under Review requested. Codealong's own review of
 a PR isn't an agent at work on it. The rest go under headings of the tab's own: in All, Yours,
 Others and Snoozed; in Yours, Waiting on others (on a review, or checks still running), Drafts and Snoozed;
-in Others, Snoozed and Not asking you. Grouped by worktree or repo, a group goes under the heading
-of its first PR, and a PR that needs you is never folded away in it (see [Grouped by worktree or
-repo](#grouped-by-worktree-or-repo)). Sorted by when they were opened, the tab's open PRs are under the
+in Others, Snoozed and Not asking you. Grouped, the tab's headings give way to its groups, and a PR
+that needs you is never folded away in one (see [Grouped by project, repo or
+worktree](#grouped-by-project-repo-or-worktree)); Merged & closed stays at the end, grouped among
+its own. Sorted by when they were opened, the tab's open PRs are under the
 day each was opened, the newest first, snoozed ones too. Merged & closed is folded at the end
 either way.
 
@@ -1425,24 +1518,28 @@ where merges are told) aren't passed on, and `codealong pr watch <pr>` has them 
 waiting on one. `codealong pr nudge` says the same as it turns a nudge on, and `codealong pr show`
 while one is on.
 
-To keep PR nudges quiet and high-signal, Codealong batches bursts of non-urgent updates (comments,
-failing checks, conflicts) over a short quiet window (one minute, capped at three minutes), ignores
-bot comments and reviews unless allowlisted in `[pull_requests] nudge_bots` (a list of bot logins,
-or `["*"]` for all bots), and skips comments that `[decisions] pull_requests` (`prasks`) marks as
-not asking for work. With `[pull_requests] triage_nudges` (on by default; Settings › Automation ›
-Triage updates with a helper first), a read-only side copy of the primary session inspects failing
-CI logs, review comments, and automatic own-PR review handbacks before notifying or waking the main
-session: if nothing actionable remains (a flaky check, an already-addressed comment, or a false
-positive), the interruption is suppressed and the triage note is kept quietly in the session's side
-history; otherwise a distilled digest is delivered. Watched PRs bypass triage so explicit watches
-always hear raw status changes.
 Also when it's merged, the box under it, adds a merge to either (`"feedback-and-merges"`,
 `"feedback-checks-and-merges"`): the session is told the PR was merged, and that
-nothing more is wanted on it, so it can wrap its work up. If the session is mid-turn when the merge
-lands, Codealong waits for the turn to finish and settle briefly, and skips the merge notice when
-the session merged the PR itself or already reported it landed (a merge you triggered in Codealong's
-merge box is still told). Still not a close, nor what came in with
+nothing more is wanted on it, so it can wrap its work up. A merge is told once the session's turn
+under way, if any, has ended and settled for a few seconds, and isn't told at all when the session
+merged the PR itself or already said it landed (a merge you made in Codealong's merge box is still
+told). Still not a close, nor what came in with
 the merge, and a session that has stopped isn't resumed for it. Everything has its merge already.
+
+Updates that ask for work (comments, reviews, failing checks, a conflict) wait a minute for more to
+come, three minutes at most from the first, and go as one message. Comments and reviews by bots are
+left out unless `[pull_requests] nudge_bots` lists them (their logins, or `["*"]` for every bot),
+and with Settings › Decisions › Pull request reviews on (`[decisions] pull_requests`), so is a
+comment the decision model reads as asking nothing (thanks, praise). Settings › Automation › Triage
+updates with a helper first (`[pull_requests] triage_nudges`, on unless turned off) has a read-only
+side conversation of the primary session look first: it reads the failing checks' logs and checks
+each comment, and each automatic review of yours handed back, against the branch and what the
+session already decided. Then it either lets the news go (a flaky check, a comment already dealt
+with, a false positive), so the session isn't interrupted or resumed, or hands the session a short
+list of what needs doing in place of the raw news; either way it's kept with the session's side
+conversations (as Triage: PR #12 …). Where the session's agent has no side conversations, or the
+look fails or takes over three minutes, the news goes as it came. A watched PR's news is never
+triaged.
 
 Watching a PR has its nudge tell of everything, whatever that setting or the repo's team keep
 nudges to, for that PR alone: for a session whose next step hangs on what happens to it, its
@@ -1572,6 +1669,14 @@ review <pr> [--account <account or routing group>]`, which names the round's ses
 (`codealong session wait`); `codealong pr show` says where a PR's review stands. So Settings › Automation shows the reviewer,
 where reviews go and what's submitted with automatic reviews off as well. The Codex app's own review
 page is offered last, apart from Codealong's.
+
+Before a review goes anywhere, another agent checks it: Settings › Automation › Verify findings
+before posting or handing back (`[reviews] verify`, on unless turned off) has a read-only agent try
+each finding against the diff and the code around it and drop what doesn't hold up (false positives,
+cases handled elsewhere, complaints about code the PR didn't change, duplicates, matters of taste no
+rule backs), for reviews of your PRs and of others' alike. It runs on `[reviews] verify_account` (an
+account or routing group) and `verify_model`, else on a quick account that can run it; with none,
+or when it fails or takes too long, the review goes as the reviewer wrote it.
 
 When its turn ends, its review goes where `[reviews] post` says. By default (`"draft"`) it's a
 review on your GitHub account left as a draft that only you see, each comment on its line where the
@@ -1708,18 +1813,20 @@ code around them. With `[reviews.own] send` (on unless turned off), the PR's pri
 is sent a message once it runs here and doesn't wait on you to answer something: which agent
 reviewed which commit, that its review is in a file it reads (kept as an attachment, so another
 agent's words never reach it typed in as yours), to fix what holds up and say what it leaves, and
-that it isn't asked to merge. Before a review (of yours or someone else's PR) is drafted, posted, or
-handed back, `[reviews] verify` (on by default; `verify_account` and `verify_model` override the
-verifier) runs a read-only critic pass to drop false positives, already-handled edge cases, and
-style nits. A review that found nothing to raise isn't sent, nor a `Verdict: comment` review unless
-`[reviews.own] send_comments = true` (it stays in the Reviews tab to send by hand), nor one of a
-commit the PR has moved on from: the next round's is. Automatic own-PR review rounds cap at
-`[reviews.own] max_rounds` (default `2`, `0` for unlimited; manual reviews always run). The Reviews
+that it isn't asked to merge. Before it goes, its findings are checked (see *Automatic reviews*). A
+review that found nothing to raise isn't sent. Nor is one that only leaves comments (`Verdict:
+comment`), unless Hand back comment-only reviews too (`[reviews.own] send_comments`) is on; it stays
+in the Reviews tab to send by hand. Nor is a review of a commit the PR has moved on from: the next
+round's is. With Triage updates with a helper first on (see *Nudging a PR's primary session*), a
+read-only side conversation of the session first checks the review's findings against the branch
+and what the session already decided, and the session gets only what holds up, or nothing. A PR of
+yours is reviewed by itself two rounds at most (`[reviews.own] max_rounds`, `0` for no limit, in
+config.toml only); Review with… still reviews it, and isn't counted. The Reviews
 tab says where each review went or why it hasn't, and Send hands the latest to the session by hand
 while it runs here, whatever `send` says. While `send` is on, the reviewer's own
 messages to that session (an answer to what it asked about the review, say) aren't held for you to
 allow when it skips permission prompts, as a helper's aren't (see *Helpers*). New commits are
-reviewed again once the branch holds still, as above, so a session that fixes what was raised has
+reviewed again once the branch holds still, as above, up to that limit, so a session that fixes what was raised has
 its fixes looked at.
 
 When your machines are linked and share automations, a PR of yours is reviewed by one of them, by
@@ -2079,7 +2186,9 @@ and so does reopening it, starting it, or a session started from it; marking it 
 archived. `codealong todo archive <id>` and `unarchive <id>` do the same, and `codealong todo list
 --archived` lists the archived ones. A todo's row is its title and the start of its description, then when it's
 due, its labels, what it waits on, the sessions on it, its worktrees and its PR: on one line they
-follow at the line's end as they fit, its PR always; on two lines they're under it.
+follow at the line's end as they fit, its PR always, and of its sessions only the one most in need
+of you, with +N for the rest; on two lines they're under it, up to three sessions. One-off worktrees
+of one repo are named once, and the worktree its group's heading names isn't named again.
 
 A due date keeps your order as it is, and when it comes due (`[queue] due_within` days before, 0
 on the day by default; Settings › Queue) an unassigned todo comes to wait on you: from
@@ -2110,7 +2219,10 @@ and is told to send it what it finds. Once it stops, the next session on
 the todo takes over and is told where the last one's records are. A session's right-click menu makes
 it a todo's primary session (Primary session for …), and Move to hands the role to the copy. An
 agent's `codealong todo start` is turned down while another session is the primary one and runs,
-naming it; `--take` takes the todo over.
+naming it; `--take` takes the todo over. A session linked to a todo or an open PR whose primary
+session is another says so in its header (*Todo owner:*, *#12 owner:*, or *Todo and #12 owner:*
+when one session owns both, with that session's title, which a click shows; see *The session
+panel*).
 
 #### Jev and todos
 
@@ -2136,8 +2248,8 @@ runs started or sent to, each followed by the sessions it started (what a triage
 latest run's, and any other still at work or waiting on you, with the rest, archived ones too, a
 click away (List N more). One picked there shows its own panel in place of the schedule's, with the
 way back; Return or a double-click opens it where it lives, and its right-click menu is a session's.
-View, in the bar over the list, has Sort, Group (see [Grouped by worktree or
-repo](#grouped-by-worktree-or-repo)) and Rows, each kept as you leave it. Sort orders the schedules
+View, in the bar over the list, has Sort, Group (see [Grouped by project, repo or
+worktree](#grouped-by-project-repo-or-worktree)) and Rows, each kept as you leave it. Sort orders the schedules
 Codealong keeps, the one-offs among themselves: Next run, as it starts, puts the soonest next run
 first, then the ones that watch, wait for an event or are paused, as they were made; Last run the
 one that ran latest first; Added the newest first, each row's age then saying when it was added
@@ -2618,15 +2730,19 @@ With glass on, the main window and the project windows show what's behind them t
 glass, as the Finder does: Liquid Glass from macOS 26, and the sidebar's blur on earlier versions.
 The title bar, the sidebar and the usage bar, one pane of it, and Kanban's columns let it
 through, in light and in dark; the bands between the list's groups are frosted, so they take the glass's tint without
-showing the wallpaper, and the strip over the list, which the rows scroll under, is a solid shade
-under them, so nothing shows through it; the strip over a session's conversation is the same shade,
+showing the wallpaper, and the strip over the list, which the list scrolls below rather than under,
+is a solid shade, so nothing shows through it; the strip over a session's conversation is the same shade,
 so the two read as one toolbar across the window. What
 sits on the glass (a field, a button's well, a selected or hovered row in the sidebar, a keycap, a
 line) is a shade of whatever is behind it rather than a gray of its own, as macOS's own sidebars
-draw it, so it suits whatever color the wallpaper gives the glass. The rows, the cards and the panel
+draw it, so it suits whatever color the wallpaper gives the glass. The title bar's buttons, the
+search pill, the filter chips and the usage bar's controls sit on thin glass platters, as macOS 26's
+toolbars have them, and secondary text and usage meters are a see-through black or white rather
+than a gray, so they keep their contrast over any wallpaper. The rows, the cards and the panel
 on the right keep their own ground, so what you read is as legible as before. The quick panel's bar, along its foot, shows the glass too,
-while the rest of the panel keeps its ground. The notch stays black, so it still reads as part of
-the screen, and the floating bar and the other windows that float are as they were.
+while the rest of the panel keeps its ground. The floating bar's pill sits on macOS's glass too,
+under a light tint. Docked in the notch, the bar stays black, so it still reads as part of the
+screen, and the other windows that float are as they were.
 It turns on and off as the setting changes, without a relaunch. Linux and Windows don't offer it.
 
 ### Reload
@@ -2640,7 +2756,7 @@ your PRs again (unless it just did), and a PR's details, its merge box, your rev
 agent's reviews are read again, as is a conversation or what changed since your last review when
 they couldn't be read, and what's new in a conversation; what was read stays up until the new read
 comes, and stays when that fails too, the PR's details saying why. The main window and the project windows read plan usage again too, as the
-usage bar's button does. On a session or PR in the notch, the peek, a kept session and the waiting
+usage bar's button does, and fetch projects' organization avatars again. On a session or PR in the notch, the peek, a kept session and the waiting
 window ⌘R does the same for what the card shows, and so does View › Reload with the waiting window
 in front. A session's own network errors are the agent's,
 from its own turn, which a reload doesn't change (*Network errors*).
@@ -2690,7 +2806,8 @@ a wizard over the main window has you confirm it, and offers session emblems, in
 - **Your sessions**: session emblems (see *Emblems*), with Settings › Appearance's own choices, None
   to start with (or what config.toml has, when you go through it again): Emoji, with a box for
   the default decision model's key (Jev's, TypeSafe's) while there's none, which saves it to the keychain there and then; and Drawn,
-  only while you keep an account that can draw (a Codex account you're signed in to), with the box
+  only while you keep an account that can draw (a Codex account you're signed in to, or on macOS an
+  Antigravity one), with the box
   for how they're drawn, and which of them draws them when you keep more than one.
 - **Ready**: putting Codealong in the accounts you kept (the plugin in Claude Code, the skill
   elsewhere) and the `codealong` command on your PATH, as Settings › Agents does, ticked; and
@@ -2719,7 +2836,8 @@ Open at login (off until you turn it
 on; the system keeps it rather than config.toml: on macOS System Settings › General › Login Items
 lists Codealong, on Linux it's an entry in `~/.config/autostart`, and on Windows Task Manager's
 Startup apps, and turning it off there shows here); Appearance has the theme, glass (see *Glass*), whether keyboard shortcuts always show (see
-*Keyboard shortcuts beside what they do*) and session emblems (see *Emblems*),
+*Keyboard shortcuts beside what they do*), how tool calls show in conversations (see *Finished
+turns*) and session emblems (see *Emblems*),
 and says the keys that zoom (see *Zoom*); Queue has what waits on you and in what order (see *What
 waits on you, and in what order*); Sounds has the sound for each thing that starts to
 wait on you, and how loud (see *Sounds*); Decisions has the decision models and each
@@ -2743,7 +2861,8 @@ the performance log on and shows where the files are; Experimental turns on feat
 tried out, each off until you do and each in a part of its own: boards (see *Boards*); voice,
 with its language and then its settings under Talk (the shortcuts held to talk, and sending to
 your orchestrator as you let go) and Meetings (Listen now, how often a listening session is told
-what's new, and the offer to take a meeting's notes) (see *Voice*); and analytics. Each change is
+what's new, and the offer to take a meeting's notes) (see *Voice*); analytics (see *Your part in
+the work*); and experiments (see *Experiments*). Each change is
 saved in its place in the file,
 so comments and order stay as you wrote them. The config.toml section edits the file itself, for
 anything the form doesn't cover, and says what's wrong when it doesn't parse.
@@ -3104,7 +3223,8 @@ alone (`/model <name>` or `/effort <level>` typed into a Claude Code session, or
 background job by its account's background service, as a send is; its agent's model or effort for
 one Codealong runs). A Claude Code session in a terminal or a background job is switched mid-turn
 too, as its own terminal does it: the turn goes on, and its next step runs on the new model and
-effort. One Codealong runs switches at once between turns and queues the switch while a turn runs
+effort. One Codealong runs switches at once between turns (one that isn't loaded, after a server
+restart say, is taken up again in its agent's process to be switched) and queues the switch while a turn runs
 (including while it waits on you), applying it as soon as that turn ends and before any queued
 prompt starts its turn. A terminal session waits for your answer while it waits on you, while a
 move to another account from the same menu doesn't. Claude Code asks before a switch to another model while the conversation is cached for
@@ -3153,9 +3273,11 @@ work under way and the rest, each kept for the one piece of work it was made for
 under *N more*, which opens on a click or ⏎ and while what you type matches one of them. Then
 pick the account and model in one menu (⌘L, every account on every model it can start on, with its limits, and the effort under them: Default, Low, Medium, High, Extra or Max, for Codex
 Extra high and Ultra too, ← → to change it), and where it runs, a row under the effort (⌘O opens
-the same menu; the chip says the place after the account and model, and each place says what it
+the same menu where there's more than one place to run; the chip says the place after the account and model, and each place says what it
 is on hover). Each account has a place its sessions start in, its `start` in config.toml (Settings
-› Accounts, *New sessions start in*; its harness's usual place when none is set), which the quick
+› Accounts, *New sessions start in*; with none set, In Codealong for Claude Code, Codex, OpenCode
+and Antigravity, or the next place where the account's adapter isn't installed, and a terminal for
+Cursor), which the quick
 panel and `codealong start` without `--in` go by. Another place picked runs that start alone, and
 the next opens where the account says; *Make default* beside the places keeps the one picked as
 the account's `start` (with Auto or a routing group, of every account it picks among). With other Macs linked, ⌘D picks
@@ -3239,7 +3361,7 @@ is kept for the worktree, so the next new session started there with nothing typ
 
 #### Showing it as it starts
 
-*Show it as it starts, under Runs in in the agent menu (⌘O), or Settings › General*
+*Show it as it starts, under Runs in in the agent menu (⌘L, or ⌘O where there's more than one place to run), or Settings › General*
 
 A session started on a prompt in the background or In Codealong only joins the list: nothing of its
 own comes forward, as a terminal or an app does, and the main window stays on what you were reading.
@@ -3912,7 +4034,7 @@ check-in, say), an orchestrator tagging the session is asked to give the time of
 Jev's day doesn't know of it. The offer is for the reply it read: it goes once the session
 is sent something or takes a turn, once it's snoozed, and when the time comes. Such a session isn't [Finished](#finished-sessions), before the time or after it: the
 work it put off is then due. A session stopped at its usage limit is offered a snooze until the
-limit lifts the same way, its Limit's button in place of the line above its box
+limit lifts, or until its account has room again, the same way, its Limit's button in place of the line above its box
 ([Usage limits](#usage-limits)).
 
 #### Quiet
@@ -3945,8 +4067,7 @@ session's turn, and the orchestrator does it on its quiet ticks.
 **Move to top** (beside Snooze, in a session's menu anywhere, ⌃⌘0, or for several picked in
 Sessions, which keep the order they're listed in) puts a session first in every queue: the notch
 and the waiting window go to it first and ⌘] there and in Sessions' panel, ahead of what needs you;
-it leads its own group on the bar, its heading in Sessions and the quick panel's list, and its
-worktree in Sessions grouped by worktree. Its wait isn't changed, so the times beside it still say how long it waited.
+it leads its own group on the bar, its heading in Sessions and the quick panel's list. Its wait isn't changed, so the times beside it still say how long it waited.
 It's first until you take it up: send it something, or mark its finished turn seen. One that's
 running is first once its turn ends, and one whose turn you'd already seen waits on you again as
 Your turn. Several moved go the latest first. **Back in line**, where Move to top was, puts it back
@@ -3986,8 +4107,10 @@ with who picked them and any note under the pointer, and × beside it, so one cl
 answers with them, and a choice of yours takes a pick's place (× takes away the ones you haven't
 touched). Its row has a sparkle chip, whose tooltip lists them. They answer the reply the agent read: one
 written after you'd replied since is turned down, as is one while the session takes a turn, so a
-suggestion for the turn before never appears after your answer. They go once anything is sent to
-the session or a turn of its starts, and suggesting again replaces them. A
+suggestion for the turn before never appears after your answer. They go as soon as you send the
+session something or answer what it waits on (a question, a call to allow), in every window at
+once; once a turn of its starts; and once a turn ends that ended after they were given (answering a
+question ends one without Codealong seeing it work). Suggesting again replaces them. A
 session on another device keeps them on its Mac.
 
 #### Queues, pills and the mark
@@ -4112,7 +4235,7 @@ Needs you, Review requested, Ready to merge, Your turn and Working, five of each
 click away in the main window; picking a session or a PR opens the waiting window on it, to read and
 answer it there. Below them are Open Codealong, Waiting on you… (and Listen now… with voice on), and the server: whether it's running and how many
 sessions it runs, and Restart server, which cuts off the turns of the sessions Codealong runs and
-lets them carry on once it's back (*Cut off*), as an update does. Last come Settings… and the two
+lets them carry on once it's back (*Cut off*); an update hands them over instead. Last come Settings… and the two
 ways to quit: Quit Codealong leaves the server running, with every session Codealong runs, your
 schedules and your reviews, and Quit Codealong and stop its server does what `codealong server
 stop` does. The icon is there for as long as the app is: quitting takes it away with the app,
@@ -4723,8 +4846,9 @@ shows exactly as Jev's read does, in the same chips and status, and stands over 
 same moment where the agent said; a field it left out stays Jev's, except when the reply's work
 goes on, which goes with how it ends ([Snooze](#snooze)). The chip's tooltip says who tagged it
 and the note. A tag is for the reply the agent read: one written after you'd replied
-since, or while the session takes a turn, is turned down, and it goes once anything is sent to the
-session or a turn of its starts; tagging again replaces it. A turn may start with nothing of yours:
+since, or while the session takes a turn, is turned down, and it goes as soon as you send the
+session something or answer what it waits on, in every window at once; once a turn of its starts;
+and once a turn ends that ended after it was given. Tagging again replaces it. A turn may start with nothing of yours:
 another session's message, Codealong's, a background command's report or a scheduled wakeup.
 Claude Code compacting a conversation left idle isn't one, though the session shows as working
 for the minute it takes: its tag and suggested replies stay. Tags are kept in tags.json, and so is what moved a session on when its tag went, which `codealong
@@ -4747,9 +4871,9 @@ belongs to the main session's open tasks), Codealong also marks it *Left running
 can say so sooner, when it looks like a server or a watcher (unless the session still waits on
 another command or a Monitor beside it), or when it's a polling loop whose session's last reply
 says the task is done or landed. A reply that asks you something while a background shell runs
-surfaces in *Needs you* until you've seen it. A polling loop that stays quiet with no session
-activity for two hours is marked stuck (*Stuck polling*), unless an agent explicitly tagged it as
-polling itself.
+surfaces in *Needs you* until you've seen it. A loop Jev reads as polling that stays quiet, with no
+session activity, for two hours is marked stuck (*Stuck polling*) and waits on you in *Needs you*,
+unless an agent tagged it as polling itself.
 
 Antigravity's command line (`agy`) moves a command still running after the wait its call asked for
 (ten seconds, as its agent usually writes it) into the background on its own, and its agent ends
@@ -4817,6 +4941,8 @@ Code's background service, else in Codealong or in tmux with no window) on the a
 own model, with the message. The message starts with a line saying the session had stopped and was
 resumed for another session's message, then with the sending agent's, so it's read as neither yours
 nor leave to do what you haven't allowed; the sender is told it wasn't running and was resumed.
+Where Claude Code resumes it as a copy (it copies a session a background job had into a new job),
+the copy takes its place as a move's does, and the session it copied is archived.
 Never one you archived or marked done, one that goes on in the Claude app, or one that skips
 permission prompts when the message would be held for you if it were running (the sender doesn't
 skip prompts and isn't linked to it as a known helper or PR review; plan mode, and a mode its
@@ -4824,6 +4950,13 @@ transcript doesn't say, count as skipping them); the sender is told why.
 Nor again within two minutes of resuming it for another message, while the board may still show it
 stopped: the sender is told to send it again once it runs. In the conversation, the message shows
 as the sending session's.
+
+An agent's message asks the session to reply only to a question or a decision, not to acknowledge
+it, and `codealong session send --fyi` sends news that needs no reply: the session is told not to
+answer unless something is blocked. Two sessions that aren't a helper and its session, and keep
+messaging each other (four messages or more in two hours, changing direction at least twice), are
+warned as they send, the sender's answer asking it to keep one owner per branch, PR or deliverable;
+their chips say so too (*The session panel*), and so does `codealong changes`.
 
 `[sessions] resume_for_any_session = false` (Settings › Automation) keeps it to sessions linked by
 `codealong start`: the session that started another, and the ones it started, when the start said
@@ -4861,8 +4994,11 @@ worktree only when it isn't the session's. What's listed under a session (its he
 sessions it started when they go under it) is in the order the headings list sessions: what needs
 you, then your turns, then what's working, each the longest first, then snoozed ones, then the
 rest. Each goes by when its status began, so a row moves when its status changes rather than with
-each step its agent takes. The session's row has a chip with each of its
-helpers' status glyphs, the most urgent first (three, then +N). Resting the pointer on the chip
+each step its agent takes. While one of its helpers works, waits on you or has a turn you haven't
+seen, the session's row has a chip with each of its
+helpers' status glyphs, the most urgent first (three, then +N); once they've all finished the chip
+goes, and the session's right-click menu in Sessions has Show all N helpers (Show finished helper
+for one) and Hide finished helpers, while its panel still names them all. Resting the pointer on the chip
 brings up a card with every one of them: what it's called (*Review of #204* for an automatic
 review), where it stands since when (*Working for 3m*, *Done 12m ago*), what it's doing, asking you
 or last said, and who runs it, on which model, in which worktree when it isn't the session's. A
@@ -4894,12 +5030,19 @@ has what it needs. Started with `--report` as well, its session is sent a messag
 when the helper's turn ends or it starts waiting on you, so the agent can end its turn meanwhile:
 the message names the helper and the command that prints its reply, not the reply itself, so
 nothing the helper wrote is typed in as if you'd written it. It's sent while the session runs on
-this Mac and isn't waiting on you to answer a prompt, several helpers' news in one message, and a
+this Mac, or is one Codealong runs whose process a server restart ended (the message takes it up
+again), and isn't waiting on you to answer a prompt, several helpers' news in one message, and a
 send that doesn't go is tried again a few times, then said in a notice. A turn that ended with the
 helper messaging its session (`codealong session send`, within two minutes of its end) isn't told
 of: that message was its report. A message that only tells of turns that ended ends by having the
 session mark its turn seen with `codealong session seen me` when the news changes nothing for it,
-as PR news does, so a turn that only says it knew doesn't wait on you.
+as PR news does, so a turn that only says it knew doesn't wait on you. A helper that stops at a
+usage limit is told of with the account, the limit and when it resets.
+
+A session that moves to another account or agent keeps its helpers: they're listed under its copy,
+their reports and stuck starts are told to it, its messages with them aren't held or counted as
+back-and-forth, and it can mark them done. A copy handed off with **Keep original open** doesn't
+take them.
 
 A start in a terminal whose harness names its own sessions (Codex, OpenCode, Antigravity) has no
 session until its terminal UI makes one, and the UI can first stop on a screen of its own (Codex's
@@ -4914,10 +5057,13 @@ waits on (*“Hooks need review”*), with the whole screen when you point at it
 read its terminal (Rex, tmux and its own terminals; not Ghostty), its panel shows the screen and
 buttons for its choices, which pick one in that tab as you would there, and the start goes on with
 its prompt. Click the helper (in the Sessions list under its session, or under the session's title)
-to open its panel: *Show in Rex* shows its tab, and **Done** (`⇧⌘E`) closes it when its tab was
-found and stops waiting for it. Those go only to a tab whose program has the start's prompt in its
-command line; where Codealong can't tell which tab is its, **Done** stops waiting for it and leaves
-you to close any open tab yourself. On your other devices the
+to open its panel: *Show in Rex* shows its tab, and **Mark as done** (⇧⌘E) closes it when its tab
+was found and stops waiting for it. Those go only to a tab whose program has the start's prompt in
+its command line; where Codealong can't tell which tab is its, **Mark as done** stops waiting for it
+and leaves you to close any open tab yourself. The panel shows the prompt it was started with, with
+Copy prompt; where Codealong couldn't find its tab, Open in Rex opens a new tab in its worktree in
+its place, and Mark as done is the main button. Its row's right-click menu has Show in Rex and Mark
+as done. On your other devices the
 session shows *Helper waits* too, to answer on the Mac it runs on. A helper started with `--report` is told of to its session once, so its
 agent can tell you. One you started yourself has a notice instead (*Codex hasn't started in …*),
 with what its terminal shows, until its session shows, and so does an agent's while its session is
@@ -4986,8 +5132,9 @@ none is, as for a script an agent set going on its own to carry on after its com
 it's the session the run's environment names: a Claude Code session's commands are given its ID
 (`CLAUDE_CODE_SESSION_ID`), and whatever they start keeps it. That
 session is where the run came from (its header says *Started by*), and Sessions counts its runs on
-its row rather than listing them, a row a call: a chip says how many, with the working glyph while
-any is at work. Rest the pointer on it for the helpers' card for them: each run (the first 20),
+its row rather than listing them, a row a call: while any is at work or waits on you, a chip says
+how many, with the working glyph while any is at work; otherwise its right-click menu has Show N
+headless runs (Hide headless runs). Rest the pointer on it for the helpers' card for them: each run (the first 20),
 the ones at work first, with where it stands since when, what it's doing or last said and what it
 runs on; a click on one lists it under the session with its conversation in the panel, its arrow
 opens it where it runs, and a right-click has its menu. Double-click the chip, or use the card's
@@ -5026,7 +5173,10 @@ sign-in is missing or turned down says **Sign in**, which opens a terminal that 
 ([Signed out](#signed-out)). Antigravity's are its weekly
 limits for each group of models (Gemini; Claude and GPT), read through its command line, `agy`,
 every couple of minutes; with only the app installed it has none to show. Cursor's are its monthly
-limits, asked of Cursor with the app's sign-in every couple of minutes: on a plan that spills over
+limits, asked of Cursor every couple of minutes with the account's sign-in, the command line's or
+the app's (Cursor 3.30 and later can keep the app's encrypted, which Codealong can't use: with only
+that, the chip says to run `cursor-agent login`, which **Sign in** runs, and with no `cursor-agent`
+installed it has no limits to show): on a plan that spills over
 (Pro+, say), one for Cursor's own models (Auto, Composer and Cursor Grok) and one for the others,
 as the usage line under Cursor's chat box has them; on Express only the first; on any other plan
 the total Cursor's Settings shows; and on-demand spend once you've set a limit on it. OpenCode (bring your own provider) has none, and
@@ -5063,7 +5213,8 @@ where every account stands (*Not trained on*, *Training on*) and offers the same
   key's calls aren't either unless its organization chose to share them, which only OpenAI's
   dashboard says, so Codealong can't tell for one.
 - Cursor: *Privacy Mode*; *Share Data* lets Cursor keep and train on your prompts, edits and code.
-  When your team sets it for you, the flag says so, and it can't be changed from here.
+  When your team sets it for you, the flag says so, and it can't be changed from here. It's read
+  with the same sign-in as usage, so with the app's encrypted it needs `cursor-agent login` too.
 - Antigravity: *Enable Telemetry* (its Settings › Account, and `/config` in `agy`), which lets
   Google collect your interactions to improve Antigravity and the models behind it. Its sign-in is
   refreshed as `agy` runs, so while that hasn't run for an hour it may not be read.
@@ -5150,7 +5301,8 @@ the same from the command line.
 
 Most of what sets an agent going isn't typed by you: a background task reports back, another
 session sends a message, Codealong passes on a PR's news or runs a schedule. With analytics on, the
-Analytics window has two more views beside **Cost** that say what your own part was.
+Analytics window has two more views beside **Cost** that say what your own part was (and with
+experiments on, an Experiments tab too: see *Experiments*).
 
 **Your part** counts everything that came in to your sessions over the days, by who it was from:
 
@@ -5374,7 +5526,8 @@ already shows stays (a notice says it isn't updating), one opened meanwhile says
 connected, and either is read again once the device is back. You can mark it seen or snooze it
 from here, and when that device lets its linked devices act on its sessions (remote control, off
 by default) send it a message, ask it on the side, answer an approval or mark it done, or start a
-session there: ⌘D in the quick panel picks the Mac, and `codealong start
+session there (an approval only its own terminal or app can answer says where, naming the device,
+rather than offering to open it here): ⌘D in the quick panel picks the Mac, and `codealong start
 --device <name> --prompt …` has that Mac pick the worktree (a folder there, a path under your home
 being the same path under its home, or by default its main checkout of the repo you're in), the
 account and the place as `codealong start` run there would. A start there takes no todo and makes no
@@ -5418,7 +5571,8 @@ asks before renaming or removing a project. Sync projects on the other machine d
 other way. The button waits until that machine has sent its worktrees.
 
 One of your machines runs what they share rather than all of them: reviewing a pull request that
-asks for your review (see *Automatic reviews*), and a schedule that runs on one of them, after the
+asks for your review (see *Automatic reviews*) or one your sessions opened (see *Reviews of your own
+pull requests*), and a schedule that runs on one of them, after the
 machine it prefers (see *Schedules*). Settings › Devices says where this
 machine stands for those, a first choice, or a backup that runs them only while no first choice
 can (asleep, closed or off), and each linked machine's card says where it stands.
@@ -5462,7 +5616,10 @@ included (`todo list --ready` is what can start now, `--waiting` what's under Wa
 or finishing a todo links the session that ran the command, unless `--no-link` says it closes a
 todo for you that other sessions worked on; `codealong sessions [find <words>]` (with `--devices`, your
 other Macs' too), `session show`, `worktrees` and `accounts --usage` answer what else is running, what it did, where
-it lives, and which account has room; `codealong session open` brings the main window up on a
+it lives, and which account has room; `accounts --groups` lists the routing groups (strategy,
+members, whether it's a boundary, the projects whose Auto starts on it, what it would pick now and
+which members are at a limit); `session send --fyi` sends news that needs no reply, and `session
+handoff` moves a session to another account or agent (see *Move to another account or agent*); `codealong session open` brings the main window up on a
 session's conversation; `codealong session transcript` reads a session's conversation whatever its
 harness, `codealong sessions --waiting` lists what waits on you, and `codealong session suggest`
 puts replies above a session's box for you to send with a click; `codealong session
@@ -5575,8 +5732,9 @@ what began its latest turn and its reply (your latest prompt, or a message anoth
 Codealong sent after it, marked as theirs), a turn that ran wholly between two runs with no prompt
 of yours among them, told by its status beginning again with something done since; PRs opened, out of draft, approved, sent back, merged or closed; todos
 added, started, done or set waiting; worktrees a second agent started working in (not an app's
-chats, listed together only for having no folder of yours); and how many headless runs (*Headless
-runs*) changed in each folder, rather than a line each. With them comes every session that waits on
+chats, listed together only for having no folder of yours); pairs of sessions messaging each other
+back and forth (each pair once, and again when they've sent more); and how many headless runs
+(*Headless runs*) changed in each folder, rather than a line each. With them comes every session that waits on
 you now, whether each has suggestions or a tag, and why Codealong took away ones it had. It tells
 by difference from what that run saw,
 kept for a week in `changes.json`, so a busy app or GitHub not answering never makes a session or a
@@ -5610,6 +5768,68 @@ whose work isn't over (*Helpers*). What it follows is the codealong skill's
 Unlike an orchestrator, which keeps watch over every session in a project, a coordinator hears only
 from its own children, and an orchestrator leaves them to it.
 
+### Experiments
+
+*Experimental: Settings › Experimental › Experiments, or `experiments = true` under `[experimental]`*
+
+An experiment gives the same task to two or more combinations of agents and compares what they
+made, each from the same commit in a worktree of its own. `codealong exp run` starts one. Each
+`--arm` is a worker and, after a `+`, a reviewer if you want one, and each seat names an account
+and, if you like, a model, an effort and a mode: `<account>[:<model>][:<effort>][@<mode>]`, as in
+`claude:opus:high+codex:high`. A seat names an account, never Auto or a routing group. The task
+comes from `--prompt`, `--prompt-file` (`-` for what's piped in) or a todo (`--todo`), and every arm
+starts at `--base`, HEAD unless you say otherwise. Every seat runs In Codealong, so an account that
+can't is refused, and so is a repo whose worktrees a `WorktreeCreate` hook makes. `--dry-run` checks
+the seats and the commit and prints the plan without starting anything.
+
+Codealong's server takes it from there, two arms at a time unless `--max-parallel` says otherwise.
+Each worker is told to work only in its worktree, run the repo's checks and commit on its branch,
+and not to push, open a pull request or stop to ask. Its sessions are on the board like any other,
+kept out of Your turn. A reviewer reads the worker's diff once, changes nothing and ends on a
+verdict, showing as the worker's helper; when it asks for changes, the worker gets the review and
+fixes it once. Then `--eval`, a command of yours, runs through your login shell in the worktree and
+says whether the trial passes, within 10 minutes unless `--eval-timeout` says otherwise. It runs
+once on the base commit first, and a base that fails it stops the run (`--skip-base-check` skips
+that). A trial that changed nothing, or failed the command, is out.
+
+Judges (`--judge`, as many as you like, best from different providers) read the task, the diffs
+left with names taken out, and a clean copy of the repo at the base commit, so they never learn
+which agent made which. With three or more diffs each judge ranks them all at once, the labels
+turned from one judge to the next so each diff takes each place (a judge on its own ranks them
+twice, forward and reversed); with two, each judge compares them in both orders. `--judge-mode rank`
+or `pairwise` picks one way whatever the count, `--rubric` adds what the judges should weigh, and a
+lone judge on the same harness as an arm gets a warning. The run ends with a recommendation and why.
+
+`codealong exp list` and `exp show <id>` say where runs stand: each trial's stage, the review's
+verdict, the command's result, the judges' rankings or pairwise winners, and the cost at API prices.
+`exp results` is the leaderboard over finished runs, for each arm of each named experiment (the
+preset's name, or `default`): wins, losses and ties, how often the command passed, and the average
+cost and time. `exp adopt <run>/<trial>` marks the trial you keep, noting whether you agreed with
+the judges, and leaves its worktree as it is; `exp discard <run>` saves each other trial's diff
+under `refs/codealong/experiments/<run>/<trial>` and as a patch, marks its sessions done and removes
+its worktree and branch; `exp cancel` stops a run under way.
+
+A preset keeps an experiment you run again under a name, in config.toml:
+
+```toml
+[experiments."review-bakeoff"]
+arms = ["claude:opus:high", "claude:sonnet+codex:high"]  # at least two
+judges = ["claude:opus:high", "codex:high"]             # or judge = "…" for one
+judge_mode = "auto"                                      # or "rank", "pairwise"
+rubric = "Prefer reusing the helpers that are there."
+eval = "npm test"                                        # optional, with eval_timeout and skip_base_check
+max_parallel = 2
+```
+
+`codealong exp presets` lists them, `codealong config check` checks them, and `codealong exp run
+--preset <name>` runs one, with `--arm`, `--judge`, `--no-judge`, `--eval`, `--no-eval` or
+`--rubric` given beside it over the preset's. Ask an agent to run some work "as the review-bakeoff
+experiment" and the skill has it write the task out and run the preset, rather than do the work
+itself. With experiments on, the Analytics window has an Experiments tab with the leaderboard and
+the runs, newest first, read again every 30 seconds: each run opens on its trials (stage, review,
+gate, cost, time, and notes such as Recommended or Adopted), the recommendation and each pair's
+winner, and a trial's arm opens its session. Adopting and discarding stay with `codealong exp`.
+
 ## Codealong's server
 
 Codealong runs in two parts. Its server keeps watch: it reads what every agent records, watches git
@@ -5635,9 +5855,11 @@ icon*), its menu says whether the server is running and restarts it, and quits t
 server or without it. What it prints goes to `server.log` beside
 Codealong's other logs (`~/Library/Logs/Codealong`, on Linux `~/.local/state/codealong`).
 
-An update replaces the server with the app. A build of Codealong opened over another keeps the
-server that's running when both were built from the same engine, so the sessions Codealong runs
-carry on through it, and replaces it otherwise. Where a command can't start the server (an agent's
+A build of Codealong opened over another keeps the server that's running when both were built from
+the same engine, so the sessions Codealong runs carry on through it. Otherwise an app at the same
+place (an update) has the server become its build in place, handing over its terminals and the
+agents of the sessions Codealong runs mid-turn (see *Cut off*; not on Windows), and a server of
+another build or place is replaced, which ends their turns. Where a command can't start the server (an agent's
 sandbox may not let it), it reads Codealong's files itself, as it did with the app closed: sessions
 show without git status or PRs, and what needs the server says so.
 
@@ -5666,7 +5888,12 @@ Antigravity side conversation IDs kept off the board in `antigravity-sides.json`
 allowed an agent to run in your terminal, with what it printed, for a week in `terminal-runs/`;
 what `codealong changes` saw at each of its last dozen looks, for a week, in `changes.json`; an
 agent's messages held for a
-session that waits on you, until they go, in `held-messages.json`; what every
+session that waits on you, until they go, in `held-messages.json`; the messages sessions sent each
+other in the last day, for the warning about two going back and forth, in `chatter.json`; the
+experiments' runs in `experiments.json`, and each run's task, diffs, reviews, its command's output
+and its judges' folders in `experiments/<run>/`; the second pass over each automatic review, by PR
+and commit, in `pr-verify/`; the full copy of the conversation a session moved to another agent
+takes with it in `files/handoffs/`, for 30 days; what every
 model call used, and Claude's extra usage as it was read, in `ledger.sqlite` (the Analytics window's,
 which with `[experimental] analytics` on also keeps who began each turn and how the sessions you
 marked done stood).
