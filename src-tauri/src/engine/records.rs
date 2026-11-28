@@ -514,8 +514,8 @@ mod tests {
             v.sort();
             v
         };
-        assert_eq!(sorted(output), sorted(&["\"type\":\"tool_result\"", "\"type\":\"function_call_output\"", "\"type\":\"custom_tool_call_output\""]));
-        assert_eq!(sorted(folder), sorted(&["\"workdir\":\"", "\\\"workdir\\\":\\\"", "\"cwd\":\"", "\\\"cwd\\\":\\\"", "cd ", "worktree add "]));
+        assert_eq!(sorted(output), sorted(&["\"type\":\"tool_result\"", "\"type\":\"function_call_output\"", "\"type\":\"custom_tool_call_output\"", "\"type\":\"GENERIC\"", "\"type\":\"SYSTEM_MESSAGE\""]));
+        assert_eq!(sorted(folder), sorted(&["\"workdir\":\"", "\\\"workdir\\\":\\\"", "\"cwd\":\"", "\\\"cwd\\\":\\\"", "\"Cwd\":\"", "\\\"Cwd\\\":\\\"", "cd ", "worktree add "]));
     }
 
     #[test]
